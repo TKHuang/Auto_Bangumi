@@ -27,6 +27,6 @@ declare module '@vue/runtime-core' {
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
-    ShowResults: typeof import('./src/components/ShowResults.vue')['default']
+    ShowResults: typeof import('./components/ShowResults.vue')['default']
   }
 }
