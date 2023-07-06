@@ -1,7 +1,7 @@
 ## 快速开始
 
 我们推荐你在 Docker 中部署运行 AutoBangumi。
-部署前请确认已经安装了 Docker Engine。
+部署前请确认已经安装了 [Docker Engine][docker-engine] 或者 [Docker Desktop][docker-desktop]。
 
 ### 创建数据和配置文件夹
 
@@ -61,3 +61,6 @@ volumes:
 
 此时 AB 的 WebUI 会自动运行，但是主程序会处于暂停状态，可以进入 `http://abhost:7892` 进行配置。
 
+
+[docker-engine]: https://docs.docker.com/engine/install/
+[docker-desktop]: https://www.docker.com/products/docker-desktop
