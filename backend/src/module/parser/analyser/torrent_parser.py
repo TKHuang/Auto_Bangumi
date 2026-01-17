@@ -14,6 +14,7 @@ RULES = [
     r"(.*)\[(?:第)?(\d{1,4}(?:\.\d{1,2})?)[话集話](?:END)?\](.*)",
     r"(.*)第?(\d{1,4}(?:\.\d{1,2})?)[话話集](?:END)?(.*)",
     r"(.*)(?:S\d{2})?EP?(\d{1,4}(?:\.\d{1,2})?)(.*)",
+    r"(.*)\[(MOVIE|OVA|剧场版|劇場版)\](.*)",
 ]
 
 SUBTITLE_LANG = {
@@ -81,7 +82,12 @@ def torrent_parser(
                     title, season = get_season_and_title(title)
                 else:
                     title, _ = get_season_and_title(title)
-                episode = match_obj.group(2)
+                episode_str = match_obj.group(2)
+                # Handle MOVIE/OVA tags - set episode to 1
+                if episode_str and re.match(r"(MOVIE|OVA|剧场版|劇場版)", episode_str, re.I):
+                    episode = 1
+                else:
+                    episode = episode_str
                 suffix = Path(torrent_path).suffix
                 if file_type == "media":
                     return EpisodeFile(
