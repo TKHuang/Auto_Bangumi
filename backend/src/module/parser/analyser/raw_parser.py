@@ -6,9 +6,14 @@ from module.models import Episode
 logger = logging.getLogger(__name__)
 
 EPISODE_RE = re.compile(r"\d+")
-TITLE_RE = re.compile(
-    r"(.*|\[.*])( -? \d+|\[\d+]|\[\d+.?[vV]\d]|第\d+[话話集]|\[第?\d+[话話集]]|\[\d+.?END]|[Ee][Pp]?\d+)(.*)"
-)
+TITLE_RE = [
+    re.compile(
+        r"(.*|\[.*])( -? \d+|\[\d+]|\[\d+.?[vV]\d]|第\d+[话話集]|\[第?\d+[话話集]]|\[\d+.?END]|[Ee][Pp]?\d+)(.*)"
+    ),
+    re.compile(
+        r"(.*?\])()((?:\[.*)+)"
+    ),
+]
 RESOLUTION_RE = re.compile(r"1080|720|2160|4K")
 SOURCE_RE = re.compile(r"B-Global|[Bb]aha|[Bb]ilibili|AT-X|Web")
 SUB_RE = re.compile(r"[简繁日字幕]|CH|BIG5|GB")
@@ -136,10 +141,19 @@ def process(raw_title: str):
     # 预处理标题
     group = get_group(content_title)
     # 翻译组的名字
-    match_obj = TITLE_RE.match(content_title)
+    # Try each TITLE_RE pattern in order
+    match_obj = None
+    for idx, pattern in enumerate(TITLE_RE):
+        match_obj = pattern.match(content_title)
+        if match_obj:
+            break
+    
+    if match_obj is None:
+        return None
+    
     # 处理标题
     season_info, episode_info, other = list(
-        map(lambda x: x.strip(), match_obj.groups())
+        map(lambda x: x.strip() if x else "", match_obj.groups())
     )
     process_raw = prefix_process(season_info, group)
     # 处理 前缀

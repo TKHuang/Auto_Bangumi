@@ -216,3 +216,6 @@ dev-dist
 
 # test file
 test.*
+
+# dev
+dev
