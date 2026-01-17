@@ -114,6 +114,24 @@ class DownloadClient(TorrentPath):
         self.client.torrents_delete(hashes)
         logger.info("[Downloader] Remove torrents.")
 
+    @staticmethod
+    def _is_valid_torrent(content: bytes | None) -> bool:
+        """Check if the content is a valid torrent file.
+
+        A valid torrent file starts with 'd' (0x64) which is the bencode
+        dictionary marker, and should have a minimum size.
+
+        Args:
+            content: The torrent file content as bytes.
+
+        Returns:
+            True if the content appears to be a valid torrent file.
+        """
+        if not content or len(content) < 50:
+            return False
+        # Torrent files start with 'd' (bencode dictionary)
+        return content[0:1] == b"d"
+
     def add_torrent(self, torrent: Torrent | list, bangumi: Bangumi) -> bool:
         if not bangumi.save_path:
             bangumi.save_path = self._gen_save_path(bangumi)
@@ -126,7 +144,22 @@ class DownloadClient(TorrentPath):
                     torrent_url = [t.url for t in torrent]
                     torrent_file = None
                 else:
-                    torrent_file = [req.get_content(t.url) for t in torrent]
+                    # Download torrent files and filter out invalid ones
+                    torrent_file = []
+                    for t in torrent:
+                        content = req.get_content(t.url)
+                        if self._is_valid_torrent(content):
+                            torrent_file.append(content)
+                        else:
+                            logger.warning(
+                                f"[Downloader] Skipping invalid torrent: {t.name} "
+                                f"(size={len(content) if content else 0})"
+                            )
+                    if not torrent_file:
+                        logger.warning(
+                            f"[Downloader] No valid torrents for: {bangumi.official_title}"
+                        )
+                        return False
                     torrent_url = None
             else:
                 if "magnet" in torrent.url:
@@ -134,6 +167,12 @@ class DownloadClient(TorrentPath):
                     torrent_file = None
                 else:
                     torrent_file = req.get_content(torrent.url)
+                    if not self._is_valid_torrent(torrent_file):
+                        logger.warning(
+                            f"[Downloader] Invalid torrent file: {torrent.name} "
+                            f"(size={len(torrent_file) if torrent_file else 0})"
+                        )
+                        return False
                     torrent_url = None
         if self.client.add_torrents(
             torrent_urls=torrent_url,

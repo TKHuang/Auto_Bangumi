@@ -4,8 +4,10 @@ from module.conf import settings
 from module.models import Bangumi
 from module.models.bangumi import Episode
 from module.parser.analyser import (
+    MikanParserResult,
     OpenAIParser,
     mikan_parser,
+    mikan_parser_with_rss,
     raw_parser,
     tmdb_parser,
     torrent_parser,
@@ -105,4 +107,24 @@ class TitleParser:
 
     @staticmethod
     def mikan_parser(homepage: str) -> tuple[str, str]:
+        """Parse Mikan episode page for poster and title.
+
+        Args:
+            homepage: URL of the Mikan episode page.
+
+        Returns:
+            Tuple of (poster_link, official_title).
+        """
         return mikan_parser(homepage)
+
+    @staticmethod
+    def mikan_parser_with_rss(homepage: str) -> MikanParserResult:
+        """Parse Mikan episode page for poster, title, and season RSS link.
+
+        Args:
+            homepage: URL of the Mikan episode page.
+
+        Returns:
+            MikanParserResult containing poster_link, official_title, and season_rss_link.
+        """
+        return mikan_parser_with_rss(homepage)

@@ -26,6 +26,7 @@
       "delete_bad_torrent": "Delete Bad Torrent",
       "enable": "Enable",
       "eps": "EPS complete",
+      "eps_from_source": "EPS from source only",
       "group_tag": "Add Group Tag",
       "method": "Rename Method",
       "title": "Manage Setting"

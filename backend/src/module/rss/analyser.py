@@ -13,11 +13,30 @@ logger = logging.getLogger(__name__)
 
 class RSSAnalyser(TitleParser):
     def official_title_parser(self, bangumi: Bangumi, rss: RSSItem, torrent: Torrent):
+        """Parse official title and metadata from torrent homepage.
+
+        For Mikan parser, also extracts the season-specific RSS link and stores
+        it in bangumi.rss_link for use with eps_complete_from_source.
+
+        Args:
+            bangumi: Bangumi object to update with parsed metadata.
+            rss: RSSItem containing parser configuration.
+            torrent: Torrent object with homepage URL.
+        """
         if rss.parser == "mikan":
             try:
-                bangumi.poster_link, bangumi.official_title = self.mikan_parser(
-                    torrent.homepage
-                )
+                # Use mikan_parser_with_rss to also extract season RSS link
+                result = self.mikan_parser_with_rss(torrent.homepage)
+                bangumi.poster_link = result.poster_link
+                bangumi.official_title = result.official_title
+
+                # Store season-specific RSS link if extracted
+                # This enables eps_complete_from_source to use the specific season feed
+                if result.season_rss_link:
+                    bangumi.rss_link = result.season_rss_link
+                    logger.debug(
+                        f"[Parser] Extracted season RSS: {result.season_rss_link}"
+                    )
             except AttributeError:
                 logger.warning("[Parser] Mikan torrent has no homepage info.")
                 pass

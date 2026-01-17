@@ -29,6 +29,11 @@ const items: SettingItem<BangumiManage>[] = [
     type: 'switch',
   },
   {
+    configKey: 'eps_complete_from_source',
+    label: () => t('config.manage_set.eps_from_source'),
+    type: 'switch',
+  },
+  {
     configKey: 'group_tag',
     label: () => t('config.manage_set.group_tag'),
     type: 'switch',

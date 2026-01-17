@@ -45,6 +45,7 @@ export interface RssParser {
 export interface BangumiManage {
   enable: boolean;
   eps_complete: boolean;
+  eps_complete_from_source: boolean;
   rename_method: TupleToUnion<RenameMethod>;
   group_tag: boolean;
   remove_bad_torrent: boolean;
@@ -114,6 +115,7 @@ export const initConfig: Config = {
   bangumi_manage: {
     enable: true,
     eps_complete: true,
+    eps_complete_from_source: true,
     rename_method: 'normal',
     group_tag: true,
     remove_bad_torrent: true,

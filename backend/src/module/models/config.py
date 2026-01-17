@@ -42,6 +42,9 @@ class RSSParser(BaseModel):
 class BangumiManage(BaseModel):
     enable: bool = Field(True, description="Enable bangumi manage")
     eps_complete: bool = Field(False, description="Enable eps complete")
+    eps_complete_from_source: bool = Field(
+        True, description="Only collect from source RSS, not search"
+    )
     rename_method: str = Field("pn", description="Rename method")
     group_tag: bool = Field(False, description="Enable group tag")
     remove_bad_torrent: bool = Field(False, description="Remove bad torrent")
