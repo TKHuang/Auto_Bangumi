@@ -29,6 +29,7 @@ export const useRSSStore = defineStore('rss', () => {
   const { execute: disableRSS } = useApi(apiRSS.disableMany, opts);
   const { execute: deleteRSS } = useApi(apiRSS.deleteMany, opts);
   const { execute: enableRSS } = useApi(apiRSS.enableMany, opts);
+  const { execute: refreshRSS } = useApi(apiRSS.refresh, opts);
 
   const disableSelected = () => disableRSS(selectedRSS.value);
   const deleteSelected = () => deleteRSS(selectedRSS.value);
@@ -43,6 +44,7 @@ export const useRSSStore = defineStore('rss', () => {
     disableRSS,
     deleteRSS,
     enableRSS,
+    refreshRSS,
     disableSelected,
     deleteSelected,
     enableSelected,

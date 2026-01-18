@@ -72,6 +72,13 @@ class BangumiDatabase:
         logger.debug(f"[Database] Update {title_raw} poster_link to {poster_link}.")
 
     def delete_one(self, _id: int):
+        # First, delete all torrents associated with this bangumi
+        from module.models import Torrent
+        torrent_delete_stmt = delete(Torrent).where(Torrent.bangumi_id == _id)
+        self.session.exec(torrent_delete_stmt)
+        logger.debug(f"[Database] Deleted torrents for bangumi id: {_id}.")
+        
+        # Then delete the bangumi itself
         statement = select(Bangumi).where(Bangumi.id == _id)
         bangumi = self.session.exec(statement).first()
         self.session.delete(bangumi)

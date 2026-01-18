@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime
 from typing import Optional
 
 from module.database import Database, engine
@@ -30,6 +31,88 @@ class RSSEngine(Database):
             return self.torrent.search_rss(rss_id)
         else:
             return []
+
+    def create_bangumi_from_torrent(self, torrent_id: int) -> ResponseModel:
+        """Create a new Bangumi rule from an RSS torrent.
+        
+        Args:
+            torrent_id: ID of the torrent to create Bangumi from
+            
+        Returns:
+            ResponseModel with success/failure status
+        """
+        # Get torrent from database
+        torrent = self.torrent.search(torrent_id)
+        if not torrent:
+            return ResponseModel(
+                status=False,
+                status_code=404,
+                msg_en="Torrent not found in database.",
+                msg_zh="数据库中未找到该种子。",
+            )
+        
+        # Get associated RSS item
+        if not torrent.rss_id:
+            return ResponseModel(
+                status=False,
+                status_code=406,
+                msg_en="Torrent is not from an RSS feed.",
+                msg_zh="该种子不是来自 RSS 订阅。",
+            )
+        
+        rss = self.rss.search_id(torrent.rss_id)
+        if not rss:
+            return ResponseModel(
+                status=False,
+                status_code=404,
+                msg_en="Associated RSS feed not found.",
+                msg_zh="未找到关联的 RSS 订阅。",
+            )
+        
+        # Use RSSAnalyser to parse torrent into Bangumi
+        from module.rss import RSSAnalyser
+        
+        analyser = RSSAnalyser()
+        bangumi = analyser.torrent_to_data(torrent, rss)
+        
+        if not bangumi:
+            return ResponseModel(
+                status=False,
+                status_code=406,
+                msg_en="Failed to parse torrent. The torrent name may not be in a recognized format.",
+                msg_zh="无法解析种子。种子名称可能不是可识别的格式。",
+            )
+        
+        # Check if similar Bangumi already exists
+        existing = self.bangumi.match_torrent(torrent.name)
+        if existing:
+            return ResponseModel(
+                status=False,
+                status_code=406,
+                msg_en=f"A similar Bangumi rule already exists: {existing.official_title}",
+                msg_zh=f"已存在相似的番剧规则：{existing.official_title}",
+            )
+        
+        # Add Bangumi to database
+        self.bangumi.add(bangumi)
+        self.commit()
+        
+        # Link torrent to new Bangumi
+        torrent.bangumi_id = bangumi.id
+        self.torrent.update(torrent)
+        
+        # Try to download the torrent
+        with DownloadClient() as client:
+            if client.add_torrent(torrent, bangumi):
+                torrent.downloaded = True
+                self.torrent.update(torrent)
+        
+        return ResponseModel(
+            status=True,
+            status_code=200,
+            msg_en=f"Successfully created Bangumi rule: {bangumi.official_title}",
+            msg_zh=f"成功创建番剧规则：{bangumi.official_title}",
+        )
 
     def add_rss(
         self,
@@ -102,11 +185,21 @@ class RSSEngine(Database):
     def match_torrent(self, torrent: Torrent) -> Optional[Bangumi]:
         matched: Bangumi = self.bangumi.match_torrent(torrent.name)
         if matched:
+            # Always set bangumi_id when we find a match
+            torrent.bangumi_id = matched.id
+            
+            # If no filter, accept the torrent
             if matched.filter == "":
                 return matched
+            
+            # If filter exists, check if torrent name should be excluded
             _filter = matched.filter.replace(",", "|")
-            if not re.search(_filter, torrent.name, re.IGNORECASE):
-                torrent.bangumi_id = matched.id
+            if re.search(_filter, torrent.name, re.IGNORECASE):
+                # Filter MATCHES, so we EXCLUDE this torrent (don't return matched)
+                logger.debug(f"[Engine] Torrent {torrent.name} excluded by filter: {matched.filter}")
+                return None
+            else:
+                # Filter does not match, so we accept this torrent
                 return matched
         return None
 
@@ -120,36 +213,92 @@ class RSSEngine(Database):
         # From RSS Items, get all torrents
         logger.debug(f"[Engine] Get {len(rss_items)} RSS items")
         for rss_item in rss_items:
-            new_torrents = self.pull_rss(rss_item)
-            # Get all enabled bangumi data
-            for torrent in new_torrents:
-                matched_data = self.match_torrent(torrent)
-                if matched_data:
-                    if client.add_torrent(torrent, matched_data):
-                        logger.debug(f"[Engine] Add torrent {torrent.name} to client")
-                    torrent.downloaded = True
-            # Add all torrents to database
-            self.torrent.add_all(new_torrents)
+            try:
+                new_torrents = self.pull_rss(rss_item)
+                rss_item.last_status = "Success"
+                rss_item.last_error = None
+                
+                # Only keep torrents that match a Bangumi rule
+                matched_torrents = []
+                for torrent in new_torrents:
+                    matched_data = self.match_torrent(torrent)
+                    if matched_data:
+                        # This torrent has a matching Bangumi rule
+                        if client.add_torrent(torrent, matched_data):
+                            logger.debug(f"[Engine] Add torrent {torrent.name} to client")
+                        torrent.downloaded = True
+                        matched_torrents.append(torrent)
+                    else:
+                        logger.debug(f"[Engine] Skip torrent {torrent.name} - no matching Bangumi rule")
+                
+                # Only add torrents that have matched Bangumi rules to database
+                if matched_torrents:
+                    self.torrent.add_all(matched_torrents)
+                    logger.debug(f"[Engine] Stored {len(matched_torrents)} matched torrents out of {len(new_torrents)} total")
+            except Exception as e:
+                logger.error(f"[Engine] Refresh RSS {rss_item.name} failed: {e}")
+                rss_item.last_status = "Error"
+                rss_item.last_error = str(e)
+            finally:
+                rss_item.last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.rss.update(rss_item.id, rss_item)
 
     def download_bangumi(self, bangumi: Bangumi):
         with RequestContent() as req:
-            torrents = req.get_torrents(
-                bangumi.rss_link, bangumi.filter.replace(",", "|")
-            )
-            if torrents:
-                with DownloadClient() as client:
-                    client.add_torrent(torrents, bangumi)
-                    self.torrent.add_all(torrents)
-                    return ResponseModel(
-                        status=True,
-                        status_code=200,
-                        msg_en=f"[Engine] Download {bangumi.official_title} successfully.",
-                        msg_zh=f"下载 {bangumi.official_title} 成功。",
-                    )
-            else:
+            # Fetch all torrents from the RSS feed (pass empty filter to get all)
+            all_torrents = req.get_torrents(bangumi.rss_link, _filter="")
+            logger.debug(f"[Engine] Fetched {len(all_torrents)} torrents from {bangumi.rss_link}")
+            
+            if not all_torrents:
                 return ResponseModel(
                     status=False,
                     status_code=406,
-                    msg_en=f"[Engine] Download {bangumi.official_title} failed.",
-                    msg_zh=f"[Engine] 下载 {bangumi.official_title} 失败。",
+                    msg_en=f"No torrents found for {bangumi.official_title} in the RSS feed.",
+                    msg_zh=f"在 RSS 订阅中未找到 {bangumi.official_title} 的种子。",
+                )
+            
+            # Apply exclusion filter if it exists
+            torrents = []
+            logger.debug(f"[Engine] Bangumi filter: '{bangumi.filter}'")
+            if bangumi.filter:
+                _filter = bangumi.filter.replace(",", "|")
+                logger.debug(f"[Engine] Applying exclusion filter: {_filter}")
+                for torrent in all_torrents:
+                    if not re.search(_filter, torrent.name, re.IGNORECASE):
+                        # Torrent does not match exclusion filter, include it
+                        torrents.append(torrent)
+                        logger.debug(f"[Engine] ✓ Accepted: {torrent.name}")
+                    else:
+                        logger.debug(f"[Engine] ✗ Excluded: {torrent.name} (matched filter)")
+            else:
+                # No filter, use all torrents
+                logger.debug(f"[Engine] No filter set, accepting all {len(all_torrents)} torrents")
+                torrents = all_torrents
+            
+            logger.debug(f"[Engine] After filtering: {len(torrents)}/{len(all_torrents)} torrents accepted")
+            
+            if not torrents:
+                return ResponseModel(
+                    status=False,
+                    status_code=406,
+                    msg_en=f"Subscription failed: All found torrents for {bangumi.official_title} were filtered out. Please check your filter settings.",
+                    msg_zh=f"订阅失败：{bangumi.official_title} 的所有种子都被过滤。请检查过滤规则。",
+                )
+            
+            # Set bangumi_id and rss_id on torrents
+            for torrent in torrents:
+                torrent.bangumi_id = bangumi.id
+                # Use the rss_id from bangumi if available
+                if bangumi.rss_id:
+                    torrent.rss_id = bangumi.rss_id
+            
+            # Add torrents to downloader and database
+            with DownloadClient() as client:
+                client.add_torrent(torrents, bangumi)
+                self.torrent.add_all(torrents)
+                return ResponseModel(
+                    status=True,
+                    status_code=200,
+                    msg_en=f"[Engine] Downloaded {len(torrents)} torrents for {bangumi.official_title}.",
+                    msg_zh=f"[Engine] 为 {bangumi.official_title} 下载了 {len(torrents)} 个种子。",
                 )

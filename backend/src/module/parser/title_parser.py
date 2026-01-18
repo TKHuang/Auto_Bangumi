@@ -67,7 +67,9 @@ class TitleParser:
                 episode_dict = gpt.parse(raw, asdict=True)
                 episode = Episode(**episode_dict)
             else:
+                logger.debug(f"Using raw parser to parse {raw}")
                 episode = raw_parser(raw)
+                logger.debug(f"Raw parser result: {episode}")
 
             titles = {
                 "zh": episode.title_zh,

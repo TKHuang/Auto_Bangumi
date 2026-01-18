@@ -29,6 +29,10 @@ axios.interceptors.response.use(
         isLoggedIn.value = false;
         if (errorMsg) message.error(errorMsg);
         break;
+      /** 资源未找到 */
+      case 404:
+        if (errorMsg) message.error(errorMsg);
+        break;
       /** 执行失败 */
       case 406:
         if (errorMsg) message.error(errorMsg);

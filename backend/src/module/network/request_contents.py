@@ -23,14 +23,33 @@ class RequestContent(RequestURL):
         if soup:
             torrent_titles, torrent_urls, torrent_homepage = rss_parser(soup)
             torrents: list[Torrent] = []
+            # Handle filter: None uses default, empty string means no filter
             if _filter is None:
                 _filter = "|".join(settings.rss_parser.filter)
+            elif _filter == "":
+                # Empty string means don't filter anything
+                _filter = None
+            
             for _title, torrent_url, homepage in zip(
                 torrent_titles, torrent_urls, torrent_homepage
             ):
-                if re.search(_filter, _title) is None:
+                # Only apply filter if it's not None
+                if _filter is None or re.search(_filter, _title) is None:
+                    # Extract hash from URL or magnet
+                    _hash = None
+                    if "Download/" in torrent_url:
+                        # Mikanani URL: /Download/YYYYMMDD/{HASH}.torrent
+                        match = re.search(r"Download/\d+/([A-Fa-f0-9]{40})\.torrent", torrent_url)
+                        if match:
+                            _hash = match.group(1).lower()
+                    elif "magnet:?" in torrent_url:
+                        # Magnet link: magnet:?xt=urn:btih:{HASH}
+                        match = re.search(r"btih:([A-Fa-f0-9]{40})", torrent_url)
+                        if match:
+                            _hash = match.group(1).lower()
+                    
                     torrents.append(
-                        Torrent(name=_title, url=torrent_url, homepage=homepage)
+                        Torrent(name=_title, url=torrent_url, homepage=homepage, hash=_hash)
                     )
                 if isinstance(limit, int):
                     if len(torrents) >= limit:

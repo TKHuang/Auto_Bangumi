@@ -1,6 +1,7 @@
 import type { RSS } from '#/rss';
 import type { Torrent } from '#/torrent';
 import type { ApiSuccess } from '#/api';
+import type { BangumiAPI } from '#/bangumi';
 
 export const apiRSS = {
   async get() {
@@ -72,7 +73,14 @@ export const apiRSS = {
   },
 
   async getTorrent(rss_id: number) {
-    const { data } = await axios.get<Torrent[]>(`api/v1/rss/torrent/${rss_id}`);
+    const { data } = await axios.get<Torrent[]>(`api/v1/rss/torrent?rss_id=${rss_id}`);
+    return data!;
+  },
+
+  async recreate(rss_id: number) {
+    const { data } = await axios.post<BangumiAPI[]>(
+      `api/v1/rss/recreate/${rss_id}`
+    );
     return data!;
   },
 };

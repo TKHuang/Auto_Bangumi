@@ -20,6 +20,28 @@ class Database(Session):
 
     def create_table(self):
         SQLModel.metadata.create_all(self.engine)
+        # Migration for new columns in rssitem
+        cursor = self.execute("PRAGMA table_info(rssitem)")
+        columns = [row[1] for row in cursor]
+        if "last_update" not in columns:
+            self.execute("ALTER TABLE rssitem ADD COLUMN last_update TEXT")
+            self.execute("ALTER TABLE rssitem ADD COLUMN last_status TEXT")
+            self.execute("ALTER TABLE rssitem ADD COLUMN last_error TEXT")
+            self.commit()
+        
+        # Migration for new rss_id column in bangumi
+        cursor = self.execute("PRAGMA table_info(bangumi)")
+        bangumi_columns = [row[1] for row in cursor]
+        if "rss_id" not in bangumi_columns:
+            self.execute("ALTER TABLE bangumi ADD COLUMN rss_id INTEGER REFERENCES rssitem(id)")
+            self.commit()
+        
+        # Migration for new hash column in torrent
+        cursor = self.execute("PRAGMA table_info(torrent)")
+        torrent_columns = [row[1] for row in cursor]
+        if "hash" not in torrent_columns:
+            self.execute("ALTER TABLE torrent ADD COLUMN hash TEXT")
+            self.commit()
 
     def drop_table(self):
         SQLModel.metadata.drop_all(self.engine)

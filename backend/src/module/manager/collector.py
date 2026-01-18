@@ -57,14 +57,40 @@ class SeasonCollector(DownloadClient):
         with RSSEngine() as engine:
             data.added = True
             data.eps_collect = True
+            
+            # First, add the RSS feed
             engine.add_rss(
                 rss_link=data.rss_link,
                 name=data.official_title,
                 aggregate=False,
                 parser=parser,
             )
-            result = engine.download_bangumi(data)
+            
+            # Get the RSS ID by searching for the RSS item with matching URL
+            all_rss = engine.rss.search_all()
+            for rss_item in all_rss:
+                if rss_item.url == data.rss_link:
+                    data.rss_id = rss_item.id
+                    break
+            
+            # Check if a Bangumi rule already exists for this RSS feed
+            # If it does, delete it (this will cascade delete associated torrents)
+            if data.rss_id:
+                existing_bangumi = engine.bangumi.search_all()
+                for bangumi in existing_bangumi:
+                    if bangumi.rss_id == data.rss_id and not bangumi.deleted:
+                        logger.debug(f"[Collector] Deleting existing Bangumi rule: {bangumi.official_title} (ID: {bangumi.id})")
+                        engine.bangumi.delete_one(bangumi.id)
+                        engine.commit()
+                        break
+            
+            # IMPORTANT: Add Bangumi to database BEFORE downloading torrents
+            # so that torrents can be linked to bangumi_id
             engine.bangumi.add(data)
+            engine.commit()  # Ensure Bangumi is committed and has an ID
+            
+            # Now download torrents - they will be linked to the Bangumi
+            result = engine.download_bangumi(data)
             return result
 
 

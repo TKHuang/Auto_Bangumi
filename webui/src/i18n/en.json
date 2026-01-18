@@ -120,6 +120,11 @@
     "update_failed": "Update Failed!",
     "update_success": "Update Success!"
   },
+  "bangumi": {
+    "no_torrents_hint": "No torrents found for this Bangumi. Try refreshing the RSS feed.",
+    "download": "Download",
+    "downloaded": "Downloaded"
+  },
   "player": {
     "hit": "Please set up the media player"
   },
@@ -131,7 +136,21 @@
     "selectbox": "Select",
     "status": "Status",
     "title": "RSS Item",
-    "url": "Url"
+    "url": "Url",
+    "last_update": "Last Update",
+    "action": "Action",
+    "refresh": "Refresh",
+    "edit": "Edit",
+    "edit_title": "Edit RSS",
+    "edit_button": "Update",
+    "torrents": "Torrents",
+    "torrent_name": "Name",
+    "recreate": "Recreate",
+    "review_rules": "Review Bangumi Rules",
+    "subscribe_all": "Subscribe All",
+    "no_new_rules": "All Bangumi rules already exist",
+    "parsing_torrents": "Parsing torrents from RSS feed...",
+    "no_torrents_hint": "No torrents found. Please refresh this RSS feed first."
   },
   "sidebar": {
     "calendar": "Calendar",

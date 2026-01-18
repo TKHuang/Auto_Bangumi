@@ -134,4 +134,32 @@ export const apiBangumi = {
     );
     return data;
   },
+
+  /**
+   * 获取指定 bangumiId 的种子状态
+   * @param bangumiId
+   */
+  async getTorrentStatus(bangumiId: number) {
+    const { data } = await axios.get<any[]>(
+      `api/v1/bangumi/torrent/${bangumiId}`
+    );
+    return data;
+  },
+
+  /**
+   * 重新下载指定 torrentId 的种子
+   * @param torrentId
+   */
+  async downloadTorrent(torrent_id: number) {
+    const { data } = await axios.post<ApiSuccess>(
+      `api/v1/bangumi/torrent/download`,
+      null,
+      {
+        params: {
+          torrent_id,
+        },
+      }
+    );
+    return data;
+  },
 };

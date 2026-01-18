@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from module.manager import TorrentManager
-from module.models import APIResponse, Bangumi, BangumiUpdate
+from module.manager import TorrentManager, TorrentStatusManager
+from module.models import APIResponse, Bangumi, BangumiUpdate, ResponseModel
 from module.security.api import UNAUTHORIZED, get_current_user
 
 from .response import u_response
@@ -121,7 +121,7 @@ async def refresh_poster():
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def refresh_poster(bangumi_id: int):
+async def refresh_poster_by_id(bangumi_id: int):
     with TorrentManager() as manager:
         resp = manager.refind_poster(bangumi_id)
     return u_response(resp)
@@ -137,3 +137,24 @@ async def reset_all():
             status_code=200,
             content={"msg_en": "Reset all rules successfully.", "msg_zh": "重置所有规则成功。"},
         )
+
+
+@router.get(
+    "/torrent/{bangumi_id}",
+    response_model=list[dict],
+    dependencies=[Depends(get_current_user)],
+)
+async def get_torrent_status(bangumi_id: int):
+    with TorrentStatusManager() as manager:
+        return manager.get_bangumi_torrents_status(bangumi_id)
+
+
+@router.post(
+    "/torrent/download",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def download_torrent(torrent_id: int = Query(...)):
+    with TorrentStatusManager() as manager:
+        resp = manager.download_torrent(torrent_id)
+    return u_response(resp)

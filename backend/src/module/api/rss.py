@@ -1,14 +1,17 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from module.downloader import DownloadClient
-from module.manager import SeasonCollector
+from module.manager import SeasonCollector, TorrentStatusManager
 from module.models import APIResponse, Bangumi, RSSItem, RSSUpdate, Torrent
 from module.rss import RSSAnalyser, RSSEngine
 from module.security.api import UNAUTHORIZED, get_current_user
 
 from .response import u_response
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rss", tags=["rss"])
 
 
@@ -156,15 +159,63 @@ async def refresh_rss(rss_id: int):
 
 
 @router.get(
-    path="/torrent/{rss_id}",
-    response_model=list[Torrent],
+    path="/torrent",
+    response_model=list[dict],
     dependencies=[Depends(get_current_user)],
 )
 async def get_torrent(
     rss_id: int,
 ):
+    """Get torrents from database that match this rss_id and check their status in qBittorrent."""
+    with TorrentStatusManager() as manager:
+        return manager.get_rss_torrents_status(rss_id)
+
+
+
+
+@router.post(
+    path="/recreate/{rss_id}",
+    response_model=list[Bangumi],
+    dependencies=[Depends(get_current_user)],
+)
+async def recreate_rss_rules(rss_id: int):
+    """Parse first torrent from RSS feed and return Bangumi rule for review."""
     with RSSEngine() as engine:
-        return engine.get_rss_torrents(rss_id)
+        rss = engine.rss.search_id(rss_id)
+        if not rss:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "msg_en": "RSS feed not found.",
+                    "msg_zh": "RSS订阅未找到。",
+                },
+            )
+        
+        try:
+            analyser = RSSAnalyser()
+            # Use the same logic as original Add RSS: parse only first torrent
+            bangumi = analyser.link_to_data(rss)
+            
+            if isinstance(bangumi, Bangumi):
+                return [bangumi]
+            else:
+                # bangumi is a ResponseModel error
+                return JSONResponse(
+                    status_code=bangumi.status_code,
+                    content={
+                        "msg_en": bangumi.msg_en,
+                        "msg_zh": bangumi.msg_zh,
+                    },
+                )
+        except Exception as e:
+            logger.error(f"[RSS] Recreate rules failed: {e}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "msg_en": f"Failed to parse RSS feed: {str(e)}",
+                    "msg_zh": f"解析 RSS 订阅失败：{str(e)}",
+                },
+            )
 
 
 # Old API

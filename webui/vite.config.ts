@@ -100,9 +100,10 @@ export default defineConfig(({ mode }) => ({
     },
   },
   server: {
+    host: '0.0.0.0',
     proxy: {
-      '^/api/.*': 'http://localhost:7892',
-      '^/posters/.*': 'http://localhost:7892',
+      '^/api/.*': 'http://localhost:7893',
+      '^/posters/.*': 'http://localhost:7893',
     },
   },
 }));

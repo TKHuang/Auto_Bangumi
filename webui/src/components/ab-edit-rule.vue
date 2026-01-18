@@ -25,6 +25,9 @@ const deleteFileDialog = reactive<{
   show: false,
   type: 'disable',
 });
+
+const showTorrents = ref(false);
+
 watch(show, (val) => {
   if (!val) {
     deleteFileDialog.show = false;
@@ -108,8 +111,16 @@ const boxSize = computed(() => {
         <ab-button size="small" @click="emitApply">
           {{ $t('homepage.rule.apply') }}
         </ab-button>
+        <ab-button size="small" @click="() => (showTorrents = true)">
+          {{ $t('rss.torrents') }}
+        </ab-button>
       </div>
     </div>
+
+    <ab-bangumi-torrents
+      v-model:show="showTorrents"
+      :bangumi-id="rule.id"
+    ></ab-bangumi-torrents>
 
     <ab-popup
       v-model:show="deleteFileDialog.show"

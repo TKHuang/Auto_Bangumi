@@ -120,6 +120,11 @@
     "update_failed": "更新失败!",
     "update_success": "更新成功!"
   },
+  "bangumi": {
+    "no_torrents_hint": "未找到此番剧的种子。请尝试刷新 RSS 订阅。",
+    "download": "下载",
+    "downloaded": "已下载"
+  },
   "player": {
     "hit": "请设置媒体播放器地址"
   },
@@ -131,7 +136,21 @@
     "selectbox": "选择",
     "status": "状态",
     "title": "RSS 条目",
-    "url": "链接"
+    "url": "链接",
+    "last_update": "最后更新",
+    "action": "操作",
+    "refresh": "刷新",
+    "edit": "编辑",
+    "edit_title": "编辑 RSS",
+    "edit_button": "更新",
+    "torrents": "种子列表",
+    "torrent_name": "名称",
+    "recreate": "重建规则",
+    "review_rules": "审阅番剧规则",
+    "subscribe_all": "全部订阅",
+    "no_new_rules": "所有番剧规则已存在",
+    "parsing_torrents": "正在从 RSS 订阅解析种子...",
+    "no_torrents_hint": "未找到种子。请先刷新此 RSS 订阅。"
   },
   "sidebar": {
     "calendar": "番剧日历",

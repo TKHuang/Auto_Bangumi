@@ -9,9 +9,10 @@ const show = defineModel('show', { default: false });
 
 const message = useMessage();
 const { getAll } = useBangumiStore();
+const { getAll: getRSS } = useRSSStore();
 const { t } = useMyI18n();
 
-const rss = ref<RSS>(rssTemplate);
+const rss = defineModel<RSS>('rss', { default: rssTemplate });
 const rule = defineModel<BangumiRule>('rule', { default: ruleTemplate });
 const parserType = ['mikan', 'tmdb', 'parser'];
 
@@ -40,6 +41,20 @@ watch(show, (val) => {
 function addRss() {
   if (rss.value.url === '') {
     message.error(t('notify.please_enter', [t('notify.rss_link')]));
+  } else if (rss.value.id !== 0) {
+    useApi(apiRSS.update, {
+      showMessage: true,
+      onBeforeExecute() {
+        windowState.loading = true;
+      },
+      onSuccess() {
+        show.value = false;
+        getRSS();
+      },
+      onFinally() {
+        windowState.loading = false;
+      },
+    }).execute(rss.value.id, rss.value);
   } else if (rss.value.aggregate) {
     useApi(apiRSS.add, {
       showMessage: true,
@@ -109,7 +124,11 @@ function subscribe() {
 </script>
 
 <template>
-  <ab-popup v-model:show="show" :title="$t('topbar.add.title')" css="w-360">
+  <ab-popup
+    v-model:show="show"
+    :title="rss.id !== 0 ? $t('rss.edit_title') || 'Edit RSS' : $t('topbar.add.title')"
+    css="w-360"
+  >
     <div v-if="!windowState.next" space-y-12>
       <ab-setting
         v-model:data="rss.url"
@@ -147,7 +166,11 @@ function subscribe() {
 
       <div flex="~ justify-end">
         <ab-button size="small" :loading="windowState.loading" @click="addRss">
-          {{ $t('topbar.add.button') }}
+          {{
+            rss.id !== 0
+              ? $t('rss.edit_button') || 'Update'
+              : $t('topbar.add.button')
+          }}
         </ab-button>
       </div>
     </div>

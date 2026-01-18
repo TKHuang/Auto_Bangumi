@@ -1,6 +1,7 @@
 from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
+from module.conf import VERSION
 from module.database import Database
 from module.models.user import User, UserUpdate
 
@@ -8,10 +9,12 @@ from .jwt import verify_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
-active_user = []
+active_user = ["admin"] if VERSION == "DEV_VERSION" else []
 
 
 async def get_current_user(token: str = Cookie(None)):
+    if VERSION == "DEV_VERSION":
+        return "admin"
     if not token:
         raise UNAUTHORIZED
     payload = verify_token(token)

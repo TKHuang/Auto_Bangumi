@@ -81,13 +81,36 @@ class RSSDatabase:
         ).all()
 
     def delete(self, _id: int) -> bool:
-        condition = delete(RSSItem).where(RSSItem.id == _id)
+        """Delete RSS and cascade delete all associated Bangumi rules and torrents."""
         try:
-            self.session.exec(condition)
+            # First, get all Bangumi rules for this RSS
+            from module.models import Bangumi, Torrent
+            
+            # Find all Bangumi with this rss_id
+            bangumi_statement = select(Bangumi).where(Bangumi.rss_id == _id)
+            bangumi_list = self.session.exec(bangumi_statement).all()
+            
+            # Delete torrents and Bangumi for each
+            for bangumi in bangumi_list:
+                # Delete torrents associated with this Bangumi
+                torrent_condition = delete(Torrent).where(Torrent.bangumi_id == bangumi.id)
+                self.session.exec(torrent_condition)
+                logger.debug(f"[RSS] Deleted torrents for Bangumi ID: {bangumi.id}")
+                
+                # Delete the Bangumi rule
+                bangumi_condition = delete(Bangumi).where(Bangumi.id == bangumi.id)
+                self.session.exec(bangumi_condition)
+                logger.debug(f"[RSS] Deleted Bangumi rule: {bangumi.official_title}")
+            
+            # Finally, delete the RSS item
+            rss_condition = delete(RSSItem).where(RSSItem.id == _id)
+            self.session.exec(rss_condition)
             self.session.commit()
+            logger.debug(f"[RSS] Successfully deleted RSS ID: {_id} with cascade")
             return True
         except Exception as e:
             logger.error(f"Delete RSS Item failed. Because: {e}")
+            self.session.rollback()
             return False
 
     def delete_all(self):
