@@ -200,5 +200,6 @@ def raw_parser(raw: str) -> Episode | None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     title = "[动漫国字幕组&LoliHouse] THE MARGINAL SERVICE - 08 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
-    print(raw_parser(title))
+    logger.info(raw_parser(title))

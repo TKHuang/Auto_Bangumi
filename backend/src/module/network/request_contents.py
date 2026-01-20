@@ -32,7 +32,7 @@ class RequestContent(RequestURL):
         retry: int = 3,
     ) -> list[Torrent]:
         soup = self.get_xml(_url, retry)
-        if soup:
+        if soup is not None:
             torrent_titles, torrent_urls, torrent_homepage = rss_parser(soup)
             torrents: list[Torrent] = []
             
@@ -75,7 +75,7 @@ class RequestContent(RequestURL):
         retry: int = 3,
     ) -> list[dict]:
         """Get torrents from RSS with optional filtering.
-        
+
         Args:
             _url: RSS URL to fetch torrents from
             _filter: Regex pattern to exclude torrents (mark as filtered=True)
@@ -83,7 +83,7 @@ class RequestContent(RequestURL):
             retry: Number of retries for network requests
         """
         soup = self.get_xml(_url, retry)
-        if soup:
+        if soup is not None:
             torrent_titles, torrent_urls, torrent_homepage = rss_parser(soup)
             torrents: list[dict] = []
             
@@ -157,5 +157,5 @@ class RequestContent(RequestURL):
 
     def get_rss_title(self, _url):
         soup = self.get_xml(_url)
-        if soup:
+        if soup is not None:
             return soup.find("./channel/title").text

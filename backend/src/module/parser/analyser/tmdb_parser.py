@@ -1,8 +1,11 @@
+import logging
 import re
 import time
 from dataclasses import dataclass
 
 from module.conf import TMDB_API
+
+logger = logging.getLogger(__name__)
 from module.network import RequestContent
 from module.utils import save_image
 
@@ -107,4 +110,5 @@ def tmdb_parser(title, language, test: bool = False) -> TMDBInfo | None:
 
 
 if __name__ == "__main__":
-    print(tmdb_parser("魔法禁书目录", "zh"))
+    logging.basicConfig(level=logging.INFO)
+    logger.info(tmdb_parser("魔法禁书目录", "zh"))

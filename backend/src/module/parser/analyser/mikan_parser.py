@@ -169,8 +169,9 @@ def _extract_season_rss_link(soup: BeautifulSoup, base_url: str) -> Optional[str
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     homepage = "https://mikanani.me/Home/Episode/c89b3c6f0c1c0567a618f5288b853823c87a9862"
     result = mikan_parser_with_rss(homepage)
-    print(f"Poster: {result.poster_link}")
-    print(f"Title: {result.official_title}")
-    print(f"Season RSS: {result.season_rss_link}")
+    logger.info(f"Poster: {result.poster_link}")
+    logger.info(f"Title: {result.official_title}")
+    logger.info(f"Season RSS: {result.season_rss_link}")
