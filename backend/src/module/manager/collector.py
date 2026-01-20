@@ -124,7 +124,7 @@ class SeasonCollector(DownloadClient):
             # This prevents orphan RSS entries when duplicate is detected
             group_name = data.group_name if data.group_name else "Unknown"
             existing = engine.bangumi.search_by_composite_key(
-                title_raw=data.title_raw,
+                official_title=data.official_title,
                 season=data.season,
                 group_name=group_name,
             )
@@ -138,7 +138,7 @@ class SeasonCollector(DownloadClient):
                     # Different RSS source - this is a conflict (duplicate subscription)
                     logger.warning(
                         f"[Collector] Bangumi already subscribed from different RSS: "
-                        f"title_raw='{data.title_raw}', season={data.season}, group='{group_name}' "
+                        f"official_title='{data.official_title}', season={data.season}, group='{group_name}' "
                         f"(existing RSS URL: {existing_rss_url}, new RSS URL: {data.rss_link})"
                     )
                     raise ValueError(

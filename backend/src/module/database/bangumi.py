@@ -14,9 +14,22 @@ class BangumiDatabase:
         self.session = session
 
     def add(self, data: Bangumi):
-        statement = select(Bangumi).where(Bangumi.title_raw == data.title_raw)
+        # Use composite key (official_title, season, group_name) for duplicate check
+        # This matches search_by_composite_key logic
+        normalized_group = data.group_name if data.group_name else "Unknown"
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.official_title == data.official_title,
+                Bangumi.season == data.season,
+                Bangumi.group_name == normalized_group,
+                Bangumi.deleted == false(),
+            )
+        )
         bangumi = self.session.exec(statement).first()
         if bangumi:
+            logger.debug(
+                f"[Database] Bangumi already exists: {data.official_title} S{data.season} ({normalized_group})"
+            )
             return False
         self.session.add(data)
         self.session.commit()
@@ -137,9 +150,9 @@ class BangumiDatabase:
             return self.session.exec(statement).first()
 
     def search_by_composite_key(
-        self, title_raw: str, season: int, group_name: str
+        self, official_title: str, season: int, group_name: str
     ) -> Optional[Bangumi]:
-        """Search for active bangumi by composite key (title_raw, season, group_name).
+        """Search for active bangumi by composite key (official_title, season, group_name).
 
         This allows subscribing to the same anime from different subgroups:
         - [LoliHouse] Anime X S1 → OK
@@ -147,7 +160,7 @@ class BangumiDatabase:
         - [LoliHouse] Anime X S1 → BLOCKED (duplicate)
 
         Args:
-            title_raw: The raw title pattern.
+            official_title: The official/standardized title.
             season: Season number.
             group_name: Subgroup name (defaults to "Unknown" if empty/None).
 
@@ -159,7 +172,7 @@ class BangumiDatabase:
 
         statement = select(Bangumi).where(
             and_(
-                Bangumi.title_raw == title_raw,
+                Bangumi.official_title == official_title,
                 Bangumi.season == season,
                 Bangumi.group_name == normalized_group,
                 Bangumi.deleted == false(),
@@ -169,7 +182,7 @@ class BangumiDatabase:
         if result:
             logger.debug(
                 f"[Database] Found existing bangumi by composite key: "
-                f"title_raw='{title_raw}', season={season}, group='{normalized_group}'"
+                f"official_title='{official_title}', season={season}, group='{normalized_group}'"
             )
         return result
 
