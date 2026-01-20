@@ -55,3 +55,34 @@ class TorrentDatabase:
             if torrent.url not in old_urls:
                 new_torrents.append(torrent)
         return new_torrents
+
+    def check_new_by_hash(self, torrents_list: list[Torrent]) -> list[Torrent]:
+        """Check for new torrents by hash to prevent duplicates.
+
+        Uses hash as the unique identifier instead of URL, which is more reliable
+        for detecting duplicate torrents from different sources (aggregate vs season RSS).
+
+        Args:
+            torrents_list: List of torrents to check.
+
+        Returns:
+            List of torrents that don't exist in the database (by hash).
+        """
+        new_torrents = []
+        old_torrents = self.search_all()
+        # Build set of existing hashes (None hashes are treated as unique)
+        old_hashes = {t.hash for t in old_torrents if t.hash is not None}
+
+        for torrent in torrents_list:
+            # If torrent has no hash, treat as new (edge case for old data)
+            if torrent.hash is None:
+                new_torrents.append(torrent)
+            # If hash not in database, it's new
+            elif torrent.hash not in old_hashes:
+                new_torrents.append(torrent)
+            else:
+                logger.debug(
+                    f"[Database] Skipping duplicate torrent (hash exists): {torrent.name}"
+                )
+
+        return new_torrents

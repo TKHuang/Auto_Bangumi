@@ -83,26 +83,57 @@ class RSSDatabase:
     def delete(self, _id: int) -> bool:
         """Delete RSS and cascade delete all associated Bangumi rules and torrents."""
         try:
-            # First, get all Bangumi rules for this RSS
+            from sqlalchemy.sql import func
+
             from module.models import Bangumi, Torrent
-            
-            # Find all Bangumi with this rss_id
-            bangumi_statement = select(Bangumi).where(Bangumi.rss_id == _id)
-            bangumi_list = self.session.exec(bangumi_statement).all()
-            
-            # Delete torrents and Bangumi for each
+
+            # Get RSS URL for fallback lookup
+            rss_item = self.search_id(_id)
+            if not rss_item:
+                logger.warning(f"[RSS] RSS ID {_id} not found.")
+                return False
+
+            # Step 1: Delete all torrents with this rss_id
+            # This catches all torrents from this RSS, regardless of bangumi_id
+            torrent_by_rss = delete(Torrent).where(Torrent.rss_id == _id)
+            self.session.exec(torrent_by_rss)
+            logger.debug(f"[RSS] Deleted all torrents with rss_id: {_id}")
+
+            # Step 2: Find all Bangumi with this rss_id OR matching rss_link (fallback)
+            # Primary: Find by rss_id (fast, indexed)
+            bangumi_by_id = select(Bangumi).where(Bangumi.rss_id == _id)
+            bangumi_list = list(self.session.exec(bangumi_by_id).all())
+
+            # Fallback: Find by rss_link for bangumi with NULL rss_id (historical data)
+            bangumi_by_link = select(Bangumi).where(
+                and_(
+                    Bangumi.rss_id.is_(None),
+                    func.instr(Bangumi.rss_link, rss_item.url) > 0,
+                )
+            )
+            bangumi_list_fallback = self.session.exec(bangumi_by_link).all()
+            bangumi_list.extend(bangumi_list_fallback)
+
+            if bangumi_list_fallback:
+                logger.info(
+                    f"[RSS] Found {len(bangumi_list_fallback)} bangumi with NULL rss_id via fallback lookup."
+                )
+
+            # Step 3: Delete torrents by bangumi_id and the Bangumi rules
             for bangumi in bangumi_list:
-                # Delete torrents associated with this Bangumi
-                torrent_condition = delete(Torrent).where(Torrent.bangumi_id == bangumi.id)
+                # Delete any remaining torrents for this bangumi (with different rss_id)
+                torrent_condition = delete(Torrent).where(
+                    Torrent.bangumi_id == bangumi.id
+                )
                 self.session.exec(torrent_condition)
                 logger.debug(f"[RSS] Deleted torrents for Bangumi ID: {bangumi.id}")
-                
+
                 # Delete the Bangumi rule
                 bangumi_condition = delete(Bangumi).where(Bangumi.id == bangumi.id)
                 self.session.exec(bangumi_condition)
                 logger.debug(f"[RSS] Deleted Bangumi rule: {bangumi.official_title}")
-            
-            # Finally, delete the RSS item
+
+            # Step 4: Delete the RSS item
             rss_condition = delete(RSSItem).where(RSSItem.id == _id)
             self.session.exec(rss_condition)
             self.session.commit()

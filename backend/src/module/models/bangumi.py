@@ -7,6 +7,7 @@ from sqlmodel import Field, SQLModel
 
 class Bangumi(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
+    rss_id: Optional[int] = Field(default=None, foreign_key="rssitem.id", alias="rss_id", title="RSS订阅ID")
     official_title: str = Field(
         default="official_title", alias="official_title", title="番剧中文名"
     )
@@ -22,7 +23,6 @@ class Bangumi(SQLModel, table=True):
     offset: int = Field(default=0, alias="offset", title="番剧偏移量")
     filter: str = Field(default="720,\\d+-\\d+", alias="filter", title="番剧过滤器")
     rss_link: str = Field(default="", alias="rss_link", title="番剧RSS链接")
-    rss_id: Optional[int] = Field(default=None, foreign_key="rssitem.id", alias="rss_id", title="RSS订阅ID")
     poster_link: Optional[str] = Field(alias="poster_link", title="番剧海报链接")
     added: bool = Field(default=False, alias="added", title="是否已添加")
     rule_name: Optional[str] = Field(alias="rule_name", title="番剧规则名")
@@ -31,6 +31,7 @@ class Bangumi(SQLModel, table=True):
 
 
 class BangumiUpdate(SQLModel):
+    rss_id: Optional[int] = Field(default=None, alias="rss_id", title="RSS订阅ID")
     official_title: str = Field(
         default="official_title", alias="official_title", title="番剧中文名"
     )
@@ -46,7 +47,6 @@ class BangumiUpdate(SQLModel):
     offset: int = Field(default=0, alias="offset", title="番剧偏移量")
     filter: str = Field(default="720,\\d+-\\d+", alias="filter", title="番剧过滤器")
     rss_link: str = Field(default="", alias="rss_link", title="番剧RSS链接")
-    rss_id: Optional[int] = Field(default=None, alias="rss_id", title="RSS订阅ID")
     poster_link: Optional[str] = Field(alias="poster_link", title="番剧海报链接")
     added: bool = Field(default=False, alias="added", title="是否已添加")
     rule_name: Optional[str] = Field(alias="rule_name", title="番剧规则名")

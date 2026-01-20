@@ -13,6 +13,7 @@ export interface BangumiRule {
   offset: number;
   poster_link: string | null;
   rss_link: string[];
+  rss_id: number | null;
   rule_name: string;
   save_path: string;
   season: number;
@@ -47,6 +48,7 @@ export const ruleTemplate: BangumiRule = {
   offset: 0,
   poster_link: '',
   rss_link: [],
+  rss_id: null,
   rule_name: '',
   save_path: '',
   season: 1,

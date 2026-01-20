@@ -1,3 +1,5 @@
+import logging
+
 from sqlmodel import Session, SQLModel
 
 from module.models import Bangumi, User
@@ -7,6 +9,8 @@ from .engine import engine as e
 from .rss import RSSDatabase
 from .torrent import TorrentDatabase
 from .user import UserDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class Database(Session):
@@ -22,23 +26,25 @@ class Database(Session):
         SQLModel.metadata.create_all(self.engine)
         # Migration for new columns in rssitem
         cursor = self.execute("PRAGMA table_info(rssitem)")
-        columns = [row[1] for row in cursor]
+        columns = [row[1] for row in cursor.fetchall()]
         if "last_update" not in columns:
             self.execute("ALTER TABLE rssitem ADD COLUMN last_update TEXT")
             self.execute("ALTER TABLE rssitem ADD COLUMN last_status TEXT")
             self.execute("ALTER TABLE rssitem ADD COLUMN last_error TEXT")
             self.commit()
         
-        # Migration for new rss_id column in bangumi
+        # Migration for bangumi table - ensure rss_id column exists
         cursor = self.execute("PRAGMA table_info(bangumi)")
-        bangumi_columns = [row[1] for row in cursor]
+        bangumi_columns = [row[1] for row in cursor.fetchall()]
+        
         if "rss_id" not in bangumi_columns:
+            logger.info("[Migration] Adding rss_id column to bangumi table")
             self.execute("ALTER TABLE bangumi ADD COLUMN rss_id INTEGER REFERENCES rssitem(id)")
             self.commit()
         
         # Migration for new hash column in torrent
         cursor = self.execute("PRAGMA table_info(torrent)")
-        torrent_columns = [row[1] for row in cursor]
+        torrent_columns = [row[1] for row in cursor.fetchall()]
         if "hash" not in torrent_columns:
             self.execute("ALTER TABLE torrent ADD COLUMN hash TEXT")
             self.commit()

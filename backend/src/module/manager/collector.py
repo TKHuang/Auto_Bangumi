@@ -25,16 +25,36 @@ class SeasonCollector(DownloadClient):
                 torrents = st.search_season(bangumi)
             else:
                 torrents = st.get_torrents(link, bangumi.filter.replace(",", "|"))
-            if self.add_torrent(torrents, bangumi):
+
+            # Set foreign keys for all level 2 torrents before checking/adding
+            for torrent in torrents:
+                torrent.bangumi_id = bangumi.id
+                if bangumi.rss_id:
+                    torrent.rss_id = bangumi.rss_id
+
+            # Use hash-based deduplication to prevent duplicate torrents
+            new_torrents = engine.torrent.check_new_by_hash(torrents)
+            if not new_torrents:
+                logger.info(
+                    f"No new torrents for {bangumi.official_title} (all duplicates filtered)."
+                )
+                return ResponseModel(
+                    status=False,
+                    status_code=406,
+                    msg_en=f"No new episodes found for {bangumi.official_title}.",
+                    msg_zh=f"{bangumi.official_title} 没有找到新剧集。",
+                )
+
+            if self.add_torrent(new_torrents, bangumi):
                 logger.info(
                     f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
                 )
-                for torrent in torrents:
+                for torrent in new_torrents:
                     torrent.downloaded = True
                 bangumi.eps_collect = True
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
-                engine.torrent.add_all(torrents)
+                engine.torrent.add_all(new_torrents)
                 return ResponseModel(
                     status=True,
                     status_code=200,
@@ -57,38 +77,46 @@ class SeasonCollector(DownloadClient):
         with RSSEngine() as engine:
             data.added = True
             data.eps_collect = True
-            
-            # First, add the RSS feed
-            engine.add_rss(
-                rss_link=data.rss_link,
-                name=data.official_title,
-                aggregate=False,
-                parser=parser,
-            )
-            
-            # Get the RSS ID by searching for the RSS item with matching URL
-            all_rss = engine.rss.search_all()
-            for rss_item in all_rss:
-                if rss_item.url == data.rss_link:
-                    data.rss_id = rss_item.id
-                    break
-            
-            # Check if a Bangumi rule already exists for this RSS feed
-            # If it does, delete it (this will cascade delete associated torrents)
-            if data.rss_id:
+
+            # Only create RSS if not already set (for aggregate RSS recreation)
+            if not data.rss_id:
+                # First, add the RSS feed
+                engine.add_rss(
+                    rss_link=data.rss_link,
+                    name=data.official_title,
+                    aggregate=False,
+                    parser=parser,
+                )
+
+                # Get the RSS ID by searching for the RSS item with matching URL
+                all_rss = engine.rss.search_all()
+                for rss_item in all_rss:
+                    if rss_item.url == data.rss_link:
+                        data.rss_id = rss_item.id
+                        break
+
+            # Check if this exact Bangumi already exists (by title_raw)
+            # If it does, delete it to allow recreation with updated settings
+            # Note: For aggregate RSS, multiple bangumi share the same rss_id,
+            # so we must match by title_raw, not just rss_id
+            if data.rss_id and data.title_raw:
                 existing_bangumi = engine.bangumi.search_all()
                 for bangumi in existing_bangumi:
-                    if bangumi.rss_id == data.rss_id and not bangumi.deleted:
-                        logger.debug(f"[Collector] Deleting existing Bangumi rule: {bangumi.official_title} (ID: {bangumi.id})")
+                    if (bangumi.rss_id == data.rss_id 
+                        and bangumi.title_raw == data.title_raw 
+                        and not bangumi.deleted):
+                        logger.debug(
+                            f"[Collector] Deleting existing Bangumi rule: {bangumi.official_title} (ID: {bangumi.id})"
+                        )
                         engine.bangumi.delete_one(bangumi.id)
                         engine.commit()
                         break
-            
+
             # IMPORTANT: Add Bangumi to database BEFORE downloading torrents
             # so that torrents can be linked to bangumi_id
             engine.bangumi.add(data)
             engine.commit()  # Ensure Bangumi is committed and has an ID
-            
+
             # Now download torrents - they will be linked to the Bangumi
             result = engine.download_bangumi(data)
             return result
@@ -132,7 +160,9 @@ def eps_complete():
                 if not data.eps_collect:
                     # Extract the first RSS link (rss_link may contain multiple URLs separated by comma)
                     # The first URL is typically the season-specific RSS when eps_complete_from_source is used
-                    first_rss_link = data.rss_link.split(",")[0] if data.rss_link else ""
+                    first_rss_link = (
+                        data.rss_link.split(",")[0] if data.rss_link else ""
+                    )
                     with SeasonCollector() as collector:
                         # Check if we should use source RSS instead of search
                         if use_source and _is_mikan_season_rss(first_rss_link):

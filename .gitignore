@@ -219,3 +219,5 @@ test.*
 
 # dev
 dev
+.serena
+.claude

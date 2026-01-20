@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
 from module.manager import TorrentManager, TorrentStatusManager
@@ -29,7 +29,7 @@ async def get_all_data():
     response_model=Bangumi,
     dependencies=[Depends(get_current_user)],
 )
-async def get_data(bangumi_id: str):
+async def get_data(bangumi_id: int):
     with TorrentManager() as manager:
         resp = manager.search_one(bangumi_id)
     return resp
@@ -54,18 +54,18 @@ async def update_rule(
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def delete_rule(bangumi_id: str, file: bool = False):
+async def delete_rule(bangumi_id: int, file: bool = False):
     with TorrentManager() as manager:
         resp = manager.delete_rule(bangumi_id, file)
     return u_response(resp)
 
 
 @router.delete(
-    path="/delete/many/",
+    path="/delete",
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def delete_many_rule(bangumi_id: list, file: bool = False):
+async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False):
     with TorrentManager() as manager:
         for i in bangumi_id:
             resp = manager.delete_rule(i, file)
@@ -77,18 +77,18 @@ async def delete_many_rule(bangumi_id: list, file: bool = False):
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def disable_rule(bangumi_id: str, file: bool = False):
+async def disable_rule(bangumi_id: int, file: bool = False):
     with TorrentManager() as manager:
         resp = manager.disable_rule(bangumi_id, file)
     return u_response(resp)
 
 
 @router.delete(
-    path="/disable/many/",
+    path="/disable",
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def disable_many_rule(bangumi_id: list, file: bool = False):
+async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = False):
     with TorrentManager() as manager:
         for i in bangumi_id:
             resp = manager.disable_rule(i, file)
@@ -100,7 +100,7 @@ async def disable_many_rule(bangumi_id: list, file: bool = False):
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def enable_rule(bangumi_id: str):
+async def enable_rule(bangumi_id: int):
     with TorrentManager() as manager:
         resp = manager.enable_rule(bangumi_id)
     return u_response(resp)

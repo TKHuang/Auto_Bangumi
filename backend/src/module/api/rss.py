@@ -179,7 +179,14 @@ async def get_torrent(
     dependencies=[Depends(get_current_user)],
 )
 async def recreate_rss_rules(rss_id: int):
-    """Parse first torrent from RSS feed and return Bangumi rule for review."""
+    """Parse torrents from RSS feed and return Bangumi rules for review.
+    
+    For aggregate RSS (aggregate=True): Parse ALL torrents and return multiple Bangumi.
+    For non-aggregate RSS: Parse only first torrent (original behavior).
+    
+    Both modes use full parsing (Level 2) to get official_title, poster, and season RSS.
+    This enables the torrent preview feature in the UI.
+    """
     with RSSEngine() as engine:
         rss = engine.rss.search_id(rss_id)
         if not rss:
@@ -193,20 +200,56 @@ async def recreate_rss_rules(rss_id: int):
         
         try:
             analyser = RSSAnalyser()
-            # Use the same logic as original Add RSS: parse only first torrent
-            bangumi = analyser.link_to_data(rss)
             
-            if isinstance(bangumi, Bangumi):
-                return [bangumi]
+            if rss.aggregate:
+                # For aggregate RSS: Full parse all torrents to get multiple Bangumi
+                # Each bangumi gets its own official_title, poster, and season RSS
+                logger.info(f"[RSS] Recreate aggregate RSS: {rss.name}")
+                
+                # Get all torrents from the RSS feed
+                torrents = analyser.get_rss_torrents(rss.url, full_parse=True)
+                
+                if not torrents:
+                    return JSONResponse(
+                        status_code=406,
+                        content={
+                            "msg_en": "Cannot find any torrent in the RSS feed.",
+                            "msg_zh": "无法在 RSS 订阅中找到任何种子。",
+                        },
+                    )
+                
+                # Full parse using torrents_to_data (includes official_title_parser)
+                bangumi_list = analyser.torrents_to_data(torrents, rss, full_parse=True)
+                
+                if not bangumi_list:
+                    return JSONResponse(
+                        status_code=406,
+                        content={
+                            "msg_en": "Cannot parse any torrent from the RSS feed.",
+                            "msg_zh": "无法解析 RSS 订阅中的任何种子。",
+                        },
+                    )
+                
+                logger.info(f"[RSS] Recreate found {len(bangumi_list)} bangumi rules")
+                return bangumi_list
+            
             else:
-                # bangumi is a ResponseModel error
-                return JSONResponse(
-                    status_code=bangumi.status_code,
-                    content={
-                        "msg_en": bangumi.msg_en,
-                        "msg_zh": bangumi.msg_zh,
-                    },
-                )
+                # For non-aggregate RSS: Parse only FIRST torrent (original behavior)
+                logger.info(f"[RSS] Recreate non-aggregate RSS: {rss.name}")
+                bangumi = analyser.link_to_data(rss)
+                
+                if isinstance(bangumi, Bangumi):
+                    return [bangumi]
+                else:
+                    # bangumi is a ResponseModel error
+                    return JSONResponse(
+                        status_code=bangumi.status_code,
+                        content={
+                            "msg_en": bangumi.msg_en,
+                            "msg_zh": bangumi.msg_zh,
+                        },
+                    )
+                    
         except Exception as e:
             logger.error(f"[RSS] Recreate rules failed: {e}")
             return JSONResponse(
@@ -231,6 +274,21 @@ async def analysis(rss: RSSItem):
         return data
     else:
         return u_response(data)
+
+
+@router.post(
+    "/analysis/torrents", response_model=list[dict], dependencies=[Depends(get_current_user)]
+)
+async def analysis_torrents(rss: RSSItem, _filter: str = None, title_raw: str = None):
+    """Analyse torrents from RSS with optional filtering.
+    
+    Args:
+        rss: RSS item to fetch torrents from
+        _filter: Regex pattern to exclude torrents (mark as filtered=True)
+        title_raw: If provided, only include torrents that parse to this title_raw
+                  (useful for aggregate RSS to show only torrents for a specific bangumi)
+    """
+    return analyser.analyse_torrents(rss, _filter, title_raw)
 
 
 @router.post(

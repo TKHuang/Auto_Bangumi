@@ -22,6 +22,24 @@ export const apiDownload = {
   },
 
   /**
+   * 分析 RSS 种子
+   * @param rss_item - RSS 链接
+   * @param filter - 过滤器
+   * @param titleRaw - 可选，仅返回解析后title_raw匹配的种子（用于聚合RSS）
+   */
+  async analysisTorrents(rss_item: RSS, filter: string, titleRaw?: string) {
+    const params = new URLSearchParams();
+    params.set('_filter', filter);
+    if (titleRaw) {
+      params.set('title_raw', titleRaw);
+    }
+    const { data } = await axios.post<
+      { name: string; url: string; homepage: string; filter: boolean }[]
+    >(`api/v1/rss/analysis/torrents?${params.toString()}`, rss_item);
+    return data;
+  },
+
+  /**
    * 旧番
    * @param bangumiData - Bangumi 数据
    */

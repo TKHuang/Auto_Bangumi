@@ -12,6 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 class RequestContent(RequestURL):
+    def _get_filter(self, _filter: str = None) -> str | None:
+        # Handle filter: None uses default, empty string means no filter
+        if _filter is None:
+            return "|".join(settings.rss_parser.filter)
+        elif _filter == "":
+            # Empty string means don't filter anything
+            return None
+        else:
+            return _filter.replace(",", "|")
+
     def get_torrents(
         self,
         _url: str,
@@ -23,18 +33,14 @@ class RequestContent(RequestURL):
         if soup:
             torrent_titles, torrent_urls, torrent_homepage = rss_parser(soup)
             torrents: list[Torrent] = []
-            # Handle filter: None uses default, empty string means no filter
-            if _filter is None:
-                _filter = "|".join(settings.rss_parser.filter)
-            elif _filter == "":
-                # Empty string means don't filter anything
-                _filter = None
+            
+            _filter = self._get_filter(_filter)
             
             for _title, torrent_url, homepage in zip(
                 torrent_titles, torrent_urls, torrent_homepage
             ):
                 # Only apply filter if it's not None
-                if _filter is None or re.search(_filter, _title) is None:
+                if _filter is None or re.search(_filter, _title, re.IGNORECASE) is None:
                     # Extract hash from URL or magnet
                     _hash = None
                     if "Download/" in torrent_url:
@@ -54,6 +60,58 @@ class RequestContent(RequestURL):
                 if isinstance(limit, int):
                     if len(torrents) >= limit:
                         break
+            return torrents
+        else:
+            logger.warning(f"[Network] Failed to get torrents: {_url}")
+            return []
+
+    def get_torrents_with_filter(
+        self,
+        _url: str,
+        _filter: str = None,
+        title_raw: str = None,
+        retry: int = 3,
+    ) -> list[dict]:
+        """Get torrents from RSS with optional filtering.
+        
+        Args:
+            _url: RSS URL to fetch torrents from
+            _filter: Regex pattern to exclude torrents (mark as filtered=True)
+            title_raw: If provided, only include torrents that parse to this title_raw
+            retry: Number of retries for network requests
+        """
+        soup = self.get_xml(_url, retry)
+        if soup:
+            torrent_titles, torrent_urls, torrent_homepage = rss_parser(soup)
+            torrents: list[dict] = []
+            
+            _filter = self._get_filter(_filter)
+            
+            # Lazy import to avoid circular dependency
+            raw_parser = None
+            if title_raw:
+                from module.parser import TitleParser
+                raw_parser = TitleParser()
+            
+            for _title, torrent_url, homepage in zip(
+                torrent_titles, torrent_urls, torrent_homepage
+            ):
+                # If title_raw is specified, filter to only matching torrents
+                if title_raw and raw_parser:
+                    parsed = raw_parser.raw_parser(_title)
+                    if not parsed or parsed.title_raw != title_raw:
+                        continue
+                
+                filtered = False
+                if _filter and re.search(_filter, _title, re.IGNORECASE):
+                    filtered = True
+                
+                torrents.append({
+                    "name": _title,
+                    "url": torrent_url,
+                    "homepage": homepage,
+                    "filter": filtered
+                })
             return torrents
         else:
             logger.warning(f"[Network] Failed to get torrents: {_url}")

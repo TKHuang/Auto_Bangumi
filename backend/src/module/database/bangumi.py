@@ -74,10 +74,11 @@ class BangumiDatabase:
     def delete_one(self, _id: int):
         # First, delete all torrents associated with this bangumi
         from module.models import Torrent
+
         torrent_delete_stmt = delete(Torrent).where(Torrent.bangumi_id == _id)
         self.session.exec(torrent_delete_stmt)
         logger.debug(f"[Database] Deleted torrents for bangumi id: {_id}.")
-        
+
         # Then delete the bangumi itself
         statement = select(Bangumi).where(Bangumi.id == _id)
         bangumi = self.session.exec(statement).first()
@@ -92,6 +93,11 @@ class BangumiDatabase:
 
     def search_all(self) -> list[Bangumi]:
         statement = select(Bangumi)
+        return self.session.exec(statement).all()
+
+    def search_active(self) -> list[Bangumi]:
+        """Search all active (not disabled) bangumi."""
+        statement = select(Bangumi).where(Bangumi.deleted == false())
         return self.session.exec(statement).all()
 
     def search_id(self, _id: int) -> Optional[Bangumi]:
@@ -115,11 +121,22 @@ class BangumiDatabase:
         else:
             return ""
 
-    def match_list(self, torrent_list: list, rss_link: str) -> list:
-        match_datas = self.search_all()
+    def match_list(self, torrent_list: list, rss_link: str) -> tuple[list, list]:
+        """Match torrents against existing bangumi rules.
+
+        Args:
+            torrent_list: List of torrents to match.
+            rss_link: The aggregate RSS link to append to matched bangumi.
+
+        Returns:
+            Tuple of (unmatched_torrents, matched_pairs) where matched_pairs
+            is a list of (bangumi, torrent) tuples for further processing.
+        """
+        match_datas = self.search_active()
         if not match_datas:
-            return torrent_list
-        # Match title
+            return torrent_list, []
+
+        matched_pairs = []
         i = 0
         while i < len(torrent_list):
             torrent = torrent_list[i]
@@ -128,13 +145,13 @@ class BangumiDatabase:
                     if rss_link not in match_data.rss_link:
                         match_data.rss_link += f",{rss_link}"
                         self.update_rss(match_data.title_raw, match_data.rss_link)
-                    # if not match_data.poster_link:
-                    #     self.update_poster(match_data.title_raw, torrent.poster_link)
+                    # Track matched pair for season RSS extraction
+                    matched_pairs.append((match_data, torrent))
                     torrent_list.pop(i)
                     break
             else:
                 i += 1
-        return torrent_list
+        return torrent_list, matched_pairs
 
     def match_torrent(self, torrent_name: str) -> Optional[Bangumi]:
         statement = select(Bangumi).where(
@@ -178,3 +195,33 @@ class BangumiDatabase:
     def search_rss(self, rss_link: str) -> list[Bangumi]:
         statement = select(Bangumi).where(func.instr(rss_link, Bangumi.rss_link) > 0)
         return self.session.exec(statement).all()
+
+    def backfill_rss_id(self, rss_id: int, rss_url: str) -> int:
+        """Backfill rss_id for bangumi that have NULL rss_id but matching rss_link.
+
+        This auto-fixes historical data where bangumi.rss_id was not set during creation.
+
+        Args:
+            rss_id: The RSS item ID to set.
+            rss_url: The RSS URL to match against bangumi.rss_link.
+
+        Returns:
+            Number of bangumi records updated.
+        """
+        statement = select(Bangumi).where(
+            and_(Bangumi.rss_id.is_(None), func.instr(Bangumi.rss_link, rss_url) > 0)
+        )
+        bangumi_list = self.session.exec(statement).all()
+
+        if not bangumi_list:
+            return 0
+
+        for bangumi in bangumi_list:
+            bangumi.rss_id = rss_id
+            self.session.add(bangumi)
+
+        self.session.commit()
+        logger.info(
+            f"[Database] Backfilled rss_id={rss_id} for {len(bangumi_list)} bangumi records."
+        )
+        return len(bangumi_list)

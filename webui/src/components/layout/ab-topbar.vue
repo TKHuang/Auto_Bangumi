@@ -77,7 +77,7 @@ function addSearchResult(bangumi: BangumiRule) {
 
 watch(showAddRSS, (val) => {
   if (!val) {
-    searchRule.value = ruleTemplate;
+    searchRule.value = { ...ruleTemplate };
     setTimeout(() => {
       onSearchFocus.value = false;
     }, 300);
