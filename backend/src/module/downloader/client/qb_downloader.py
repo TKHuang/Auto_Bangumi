@@ -82,6 +82,15 @@ class QbDownloader:
             status_filter=status_filter, category=category, tag=tag
         )
 
+    def get_existing_hashes(self, category: str = "Bangumi") -> set:
+        """Get all existing torrent hashes from qBittorrent for the given category."""
+        try:
+            torrents = self._client.torrents_info(category=category)
+            return {t.hash for t in torrents}
+        except Exception as e:
+            logger.warning(f"[Downloader] Failed to get existing hashes: {e}")
+            return set()
+
     def add_torrents(self, torrent_urls, torrent_files, save_path, category):
         resp = self._client.torrents_add(
             is_paused=False,

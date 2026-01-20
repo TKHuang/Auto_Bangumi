@@ -27,17 +27,62 @@ class SeasonCollector(DownloadClient):
                 if bangumi.rss_id:
                     torrent.rss_id = bangumi.rss_id
 
-            # Use hash-based deduplication to prevent duplicate torrents
+            # Use hash-based deduplication to prevent duplicate torrents (against database)
             new_torrents = engine.torrent.check_new_by_hash(torrents)
             if not new_torrents:
                 logger.info(
-                    f"No new torrents for {bangumi.official_title} (all duplicates filtered)."
+                    f"No new torrents for {bangumi.official_title} (all duplicates filtered by database)."
                 )
                 return ResponseModel(
                     status=False,
                     status_code=406,
                     msg_en=f"No new episodes found for {bangumi.official_title}.",
                     msg_zh=f"{bangumi.official_title} 没有找到新剧集。",
+                )
+
+            # Pre-filter against qBittorrent existing hashes to avoid batch add failures
+            # This handles cases where qBittorrent has torrents that aren't in our database
+            # (e.g., after database reset while keeping qBittorrent tasks)
+            # Track torrents already in qB for database sync
+            already_in_qb_torrents = []
+            qb_existing_hashes = self.get_existing_hashes()
+            if qb_existing_hashes:
+                truly_new_torrents = []
+                for t in new_torrents:
+                    if t.hash in qb_existing_hashes:
+                        # Already in qBittorrent - mark as downloaded for DB sync
+                        t.downloaded = True
+                        already_in_qb_torrents.append(t)
+                    else:
+                        truly_new_torrents.append(t)
+                if already_in_qb_torrents:
+                    logger.info(
+                        f"[Collector] Found {len(already_in_qb_torrents)} torrents already in qBittorrent "
+                        f"for {bangumi.official_title}, will sync to database"
+                    )
+                new_torrents = truly_new_torrents
+
+            if not new_torrents:
+                # All torrents already exist in qBittorrent
+                # Add them to database for tracking, mark as collected
+                logger.info(
+                    f"All episodes for {bangumi.official_title} already in qBittorrent."
+                )
+                bangumi.eps_collect = True
+                if engine.bangumi.update(bangumi):
+                    engine.bangumi.add(bangumi)
+                # Sync torrents that exist in qB but not in DB
+                if already_in_qb_torrents:
+                    engine.torrent.add_all(already_in_qb_torrents)
+                    logger.info(
+                        f"[Collector] Synced {len(already_in_qb_torrents)} existing torrents to database "
+                        f"for {bangumi.official_title}"
+                    )
+                return ResponseModel(
+                    status=True,
+                    status_code=200,
+                    msg_en=f"All episodes for {bangumi.official_title} already in download client.",
+                    msg_zh=f"{bangumi.official_title} 的所有剧集已在下载客户端中。",
                 )
 
             if self.add_torrent(new_torrents, bangumi):
@@ -49,7 +94,9 @@ class SeasonCollector(DownloadClient):
                 bangumi.eps_collect = True
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
-                engine.torrent.add_all(new_torrents)
+                # Add both newly downloaded and already-in-qB torrents to database
+                all_torrents_to_add = new_torrents + already_in_qb_torrents
+                engine.torrent.add_all(all_torrents_to_add)
                 return ResponseModel(
                     status=True,
                     status_code=200,

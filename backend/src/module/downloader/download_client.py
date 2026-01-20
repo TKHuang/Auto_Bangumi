@@ -104,6 +104,10 @@ class DownloadClient(TorrentPath):
             status_filter=status_filter, category=category, tag=tag
         )
 
+    def get_existing_hashes(self) -> set:
+        """Get all existing torrent hashes from qBittorrent."""
+        return self.client.get_existing_hashes()
+
     def rename_torrent_file(self, _hash, old_path, new_path) -> bool:
         logger.info(f"{old_path} >> {new_path}")
         return self.client.torrents_rename_file(

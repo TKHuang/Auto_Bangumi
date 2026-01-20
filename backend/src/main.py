@@ -18,7 +18,7 @@ uvicorn_logging_config = {
     "handlers": logger.handlers,
     "loggers": {
         "uvicorn": {
-            "level": logger.debug,
+            "level": logger.level,
         },
         "uvicorn.access": {
             "level": "WARNING",
