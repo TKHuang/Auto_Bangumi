@@ -119,15 +119,22 @@ class RequestContent(RequestURL):
             logger.warning(f"[Network] Failed to get torrents: {_url}")
             return []
 
-    def get_xml(self, _url, retry: int = 3) -> ET.Element:
+    def get_xml(self, _url, retry: int = 3) -> ET.Element | None:
         """Parse XML from URL with XXE protection.
 
         Uses defusedxml to prevent XML External Entity (XXE) attacks
         from malicious RSS feeds.
+
+        Returns None if URL is not valid XML (e.g., HTML page).
         """
         req = self.get_url(_url, retry)
         if req:
-            return DefusedET.fromstring(req.text)
+            try:
+                return DefusedET.fromstring(req.text)
+            except ET.ParseError:
+                logger.warning(f"[Request] URL is not valid XML/RSS: {_url}")
+                return None
+        return None
 
     # API JSON
     def get_json(self, _url) -> dict:
@@ -158,4 +165,7 @@ class RequestContent(RequestURL):
     def get_rss_title(self, _url):
         soup = self.get_xml(_url)
         if soup is not None:
-            return soup.find("./channel/title").text
+            title_elem = soup.find("./channel/title")
+            if title_elem is not None:
+                return title_elem.text
+        return None

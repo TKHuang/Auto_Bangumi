@@ -48,6 +48,15 @@ class Database(Session):
         if "hash" not in torrent_columns:
             self.execute("ALTER TABLE torrent ADD COLUMN hash TEXT")
             self.commit()
+        
+        # Migration for group_name: update NULL/empty values to "Unknown"
+        # This ensures composite key (title_raw, season, group_name) works correctly
+        result = self.execute(
+            "UPDATE bangumi SET group_name = 'Unknown' WHERE group_name IS NULL OR group_name = ''"
+        )
+        if result.rowcount > 0:
+            logger.info(f"[Migration] Updated {result.rowcount} bangumi records with NULL/empty group_name to 'Unknown'")
+            self.commit()
 
     def drop_table(self):
         SQLModel.metadata.drop_all(self.engine)

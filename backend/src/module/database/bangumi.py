@@ -136,6 +136,43 @@ class BangumiDatabase:
             logger.debug(f"[Database] Find bangumi id: {_id}.")
             return self.session.exec(statement).first()
 
+    def search_by_composite_key(
+        self, title_raw: str, season: int, group_name: str
+    ) -> Optional[Bangumi]:
+        """Search for active bangumi by composite key (title_raw, season, group_name).
+
+        This allows subscribing to the same anime from different subgroups:
+        - [LoliHouse] Anime X S1 → OK
+        - [ANi] Anime X S1       → OK (different group)
+        - [LoliHouse] Anime X S1 → BLOCKED (duplicate)
+
+        Args:
+            title_raw: The raw title pattern.
+            season: Season number.
+            group_name: Subgroup name (defaults to "Unknown" if empty/None).
+
+        Returns:
+            Bangumi if exact match found, None otherwise.
+        """
+        # Normalize: use "Unknown" for empty/None
+        normalized_group = group_name if group_name else "Unknown"
+
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.title_raw == title_raw,
+                Bangumi.season == season,
+                Bangumi.group_name == normalized_group,
+                Bangumi.deleted == false(),
+            )
+        )
+        result = self.session.exec(statement).first()
+        if result:
+            logger.debug(
+                f"[Database] Found existing bangumi by composite key: "
+                f"title_raw='{title_raw}', season={season}, group='{normalized_group}'"
+            )
+        return result
+
     def match_poster(self, bangumi_name: str) -> str:
         # Use like to match
         statement = select(Bangumi).where(

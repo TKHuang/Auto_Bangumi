@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from module.downloader import DownloadClient
 from module.manager import SeasonCollector, TorrentStatusManager
-from module.models import APIResponse, Bangumi, RSSItem, RSSUpdate, Torrent
+from module.models import APIResponse, Bangumi, ResponseModel, RSSItem, RSSUpdate, Torrent
 from module.rss import RSSAnalyser, RSSEngine
 from module.security.api import UNAUTHORIZED, get_current_user
 
@@ -329,5 +329,15 @@ async def download_collection(data: Bangumi):
 async def subscribe(data: Bangumi, rss: RSSItem):
     def _sync():
         with SeasonCollector() as collector:
-            return collector.subscribe_season(data, parser=rss.parser)
+            try:
+                return collector.subscribe_season(data, parser=rss.parser)
+            except ValueError as e:
+                # Handle duplicate subscription error (composite key conflict)
+                error_msg = str(e)
+                return ResponseModel(
+                    status=False,
+                    status_code=409,
+                    msg_en=error_msg,
+                    msg_zh=f"该番剧已从其他 RSS 源订阅。请先删除现有订阅。({error_msg})",
+                )
     return u_response(await asyncio.to_thread(_sync))

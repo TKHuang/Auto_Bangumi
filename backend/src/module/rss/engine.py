@@ -128,8 +128,8 @@ class RSSEngine(Database):
                     return ResponseModel(
                         status=False,
                         status_code=406,
-                        msg_en="Failed to get RSS title.",
-                        msg_zh="无法获取 RSS 标题。",
+                        msg_en="Invalid RSS URL. Please provide a valid RSS feed link, not a webpage URL.",
+                        msg_zh="无效的 RSS 链接。请提供有效的 RSS 订阅链接，而非网页链接。",
                     )
         rss_data = RSSItem(name=name, url=rss_link, aggregate=aggregate, parser=parser)
         if self.rss.add(rss_data):
@@ -143,8 +143,8 @@ class RSSEngine(Database):
             return ResponseModel(
                 status=False,
                 status_code=406,
-                msg_en="RSS added failed.",
-                msg_zh="RSS 添加失败。",
+                msg_en="RSS already exists or failed to add.",
+                msg_zh="RSS 已存在或添加失败。",
             )
 
     def disable_list(self, rss_id_list: list[int]):
@@ -316,13 +316,27 @@ class RSSEngine(Database):
                 if bangumi.rss_id:
                     torrent.rss_id = bangumi.rss_id
 
-            # Add torrents to downloader and database
-            with DownloadClient() as client:
-                client.add_torrent(torrents, bangumi)
-                self.torrent.add_all(torrents)
+            # Filter out duplicate torrents by hash to prevent duplicates across RSS sources
+            new_torrents = self.torrent.check_new_by_hash(torrents)
+            logger.debug(
+                f"[Engine] After hash deduplication: {len(new_torrents)}/{len(torrents)} new torrents"
+            )
+
+            if not new_torrents:
                 return ResponseModel(
                     status=True,
                     status_code=200,
-                    msg_en=f"[Engine] Downloaded {len(torrents)} torrents for {bangumi.official_title}.",
-                    msg_zh=f"[Engine] 为 {bangumi.official_title} 下载了 {len(torrents)} 个种子。",
+                    msg_en=f"[Engine] No new torrents for {bangumi.official_title} (all already downloaded).",
+                    msg_zh=f"[Engine] {bangumi.official_title} 没有新种子（已全部下载）。",
+                )
+
+            # Add torrents to downloader and database
+            with DownloadClient() as client:
+                client.add_torrent(new_torrents, bangumi)
+                self.torrent.add_all(new_torrents)
+                return ResponseModel(
+                    status=True,
+                    status_code=200,
+                    msg_en=f"[Engine] Downloaded {len(new_torrents)} torrents for {bangumi.official_title}.",
+                    msg_zh=f"[Engine] 为 {bangumi.official_title} 下载了 {len(new_torrents)} 个种子。",
                 )

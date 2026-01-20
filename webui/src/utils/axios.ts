@@ -37,8 +37,12 @@ axios.interceptors.response.use(
       case 406:
         if (errorMsg) message.error(errorMsg);
         break;
+      /** 冲突 (如重复订阅) */
+      case 409:
+        if (errorMsg) message.error(errorMsg);
+        break;
       case 500:
-        isLoggedIn.value = false;
+        // Don't logout on server errors - they don't invalidate the session
         message.error(
           returnUserLangText({
             en: 'Server error!',

@@ -73,9 +73,46 @@ class SeasonCollector(DownloadClient):
             data.added = True
             data.eps_collect = True
 
-            # Only create RSS if not already set (for aggregate RSS recreation)
+            # Check if bangumi with same composite key exists BEFORE adding RSS
+            # This prevents orphan RSS entries when duplicate is detected
+            group_name = data.group_name if data.group_name else "Unknown"
+            existing = engine.bangumi.search_by_composite_key(
+                title_raw=data.title_raw,
+                season=data.season,
+                group_name=group_name,
+            )
+
+            if existing:
+                # Check if it's from a different RSS source by comparing URLs
+                existing_rss = engine.rss.search_id(existing.rss_id) if existing.rss_id else None
+                existing_rss_url = existing_rss.url if existing_rss else None
+
+                if existing_rss_url and existing_rss_url != data.rss_link:
+                    # Different RSS source - this is a conflict (duplicate subscription)
+                    logger.warning(
+                        f"[Collector] Bangumi already subscribed from different RSS: "
+                        f"title_raw='{data.title_raw}', season={data.season}, group='{group_name}' "
+                        f"(existing RSS URL: {existing_rss_url}, new RSS URL: {data.rss_link})"
+                    )
+                    raise ValueError(
+                        f"Bangumi '{data.official_title}' (group: {group_name}) is already subscribed "
+                        f"from another RSS source. Delete the existing subscription first."
+                    )
+                else:
+                    # Same RSS source - allow recreation with updated settings
+                    logger.debug(
+                        f"[Collector] Deleting existing Bangumi rule for recreation: "
+                        f"{existing.official_title} (ID: {existing.id})"
+                    )
+                    # Reuse existing RSS ID if available
+                    if existing.rss_id:
+                        data.rss_id = existing.rss_id
+                    engine.bangumi.delete_one(existing.id)
+                    engine.commit()
+
+            # Only create RSS if not already set (for aggregate RSS recreation or reuse)
             if not data.rss_id:
-                # First, add the RSS feed
+                # Add the RSS feed
                 engine.add_rss(
                     rss_link=data.rss_link,
                     name=data.official_title,
@@ -88,23 +125,6 @@ class SeasonCollector(DownloadClient):
                 for rss_item in all_rss:
                     if rss_item.url == data.rss_link:
                         data.rss_id = rss_item.id
-                        break
-
-            # Check if this exact Bangumi already exists (by title_raw)
-            # If it does, delete it to allow recreation with updated settings
-            # Note: For aggregate RSS, multiple bangumi share the same rss_id,
-            # so we must match by title_raw, not just rss_id
-            if data.rss_id and data.title_raw:
-                existing_bangumi = engine.bangumi.search_all()
-                for bangumi in existing_bangumi:
-                    if (bangumi.rss_id == data.rss_id 
-                        and bangumi.title_raw == data.title_raw 
-                        and not bangumi.deleted):
-                        logger.debug(
-                            f"[Collector] Deleting existing Bangumi rule: {bangumi.official_title} (ID: {bangumi.id})"
-                        )
-                        engine.bangumi.delete_one(bangumi.id)
-                        engine.commit()
                         break
 
             # IMPORTANT: Add Bangumi to database BEFORE downloading torrents
