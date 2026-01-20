@@ -84,6 +84,80 @@ class TorrentManager(Database):
                 msg_zh=f"无法找到 id {_id}",
             )
 
+    def delete_many_rules(self, ids: list[int], file: bool = False) -> ResponseModel:
+        """Delete multiple bangumi rules in a single batch operation.
+
+        Args:
+            ids: List of bangumi IDs to delete.
+            file: Whether to also delete associated torrent files.
+
+        Returns:
+            ResponseModel with operation result.
+        """
+        if not ids:
+            return ResponseModel(
+                status_code=406,
+                status=False,
+                msg_en="No IDs provided",
+                msg_zh="未提供 ID",
+            )
+
+        # If deleting files, need to handle each separately for torrent deletion
+        if file:
+            with DownloadClient() as client:
+                for _id in ids:
+                    data = self.bangumi.search_id(_id)
+                    if isinstance(data, Bangumi):
+                        self.delete_torrents(data, client)
+
+        # Batch delete from database
+        count = self.bangumi.delete_many(ids)
+        logger.info(f"[Manager] Batch deleted {count} bangumi rules")
+
+        return ResponseModel(
+            status_code=200,
+            status=True,
+            msg_en=f"Deleted {count} rules",
+            msg_zh=f"已删除 {count} 条规则",
+        )
+
+    def disable_many_rules(self, ids: list[int], file: bool = False) -> ResponseModel:
+        """Disable multiple bangumi rules in a single batch operation.
+
+        Args:
+            ids: List of bangumi IDs to disable.
+            file: Whether to also delete associated torrent files.
+
+        Returns:
+            ResponseModel with operation result.
+        """
+        if not ids:
+            return ResponseModel(
+                status_code=406,
+                status=False,
+                msg_en="No IDs provided",
+                msg_zh="未提供 ID",
+            )
+
+        # If deleting files, need to handle each separately for torrent deletion
+        if file:
+            with DownloadClient() as client:
+                for _id in ids:
+                    data = self.bangumi.search_id(_id)
+                    if isinstance(data, Bangumi):
+                        self.delete_torrents(data, client)
+
+        # Batch disable in database
+        count = self.bangumi.disable_many(ids)
+        logger.info(f"[Manager] Batch disabled {count} bangumi rules")
+
+        return ResponseModel(
+            status_code=200,
+            status=True,
+            msg_en=f"Disabled {count} rules",
+            msg_zh=f"已禁用 {count} 条规则",
+        )
+
     def enable_rule(self, _id: str | int):
         data = self.bangumi.search_id(int(_id))
         if data:

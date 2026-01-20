@@ -1,6 +1,8 @@
 import logging
 import re
-import xml.etree.ElementTree
+import xml.etree.ElementTree as ET
+
+import defusedxml.ElementTree as DefusedET
 
 from module.conf import settings
 from module.models import Torrent
@@ -117,10 +119,15 @@ class RequestContent(RequestURL):
             logger.warning(f"[Network] Failed to get torrents: {_url}")
             return []
 
-    def get_xml(self, _url, retry: int = 3) -> xml.etree.ElementTree.Element:
+    def get_xml(self, _url, retry: int = 3) -> ET.Element:
+        """Parse XML from URL with XXE protection.
+
+        Uses defusedxml to prevent XML External Entity (XXE) attacks
+        from malicious RSS feeds.
+        """
         req = self.get_url(_url, retry)
         if req:
-            return xml.etree.ElementTree.fromstring(req.text)
+            return DefusedET.fromstring(req.text)
 
     # API JSON
     def get_json(self, _url) -> dict:

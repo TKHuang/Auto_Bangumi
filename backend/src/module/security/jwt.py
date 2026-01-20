@@ -1,16 +1,39 @@
-from datetime import datetime, timedelta
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+logger = logging.getLogger(__name__)
 
-def generate_key():
+
+def _generate_key():
+    """Generate a new random JWT secret key."""
     import secrets
 
     return secrets.token_urlsafe(32)
 
 
-app_pwd_key = generate_key()
+@lru_cache(maxsize=1)
+def _get_secret_key() -> str:
+    """Get JWT secret key from environment or generate a temporary one.
+
+    Set JWT_SECRET_KEY environment variable for persistent tokens across restarts.
+    """
+    key = os.getenv("JWT_SECRET_KEY")
+    if key:
+        logger.debug("[Security] Using JWT_SECRET_KEY from environment.")
+        return key
+    logger.warning(
+        "[Security] JWT_SECRET_KEY not set. Tokens will be invalidated on restart. "
+        "Set JWT_SECRET_KEY environment variable for persistent sessions."
+    )
+    return _generate_key()
+
+
+app_pwd_key = _get_secret_key()
 app_pwd_algorithm = "HS256"
 
 # Hashing 密码
@@ -21,9 +44,9 @@ app_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=1440)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=1440)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, app_pwd_key, algorithm=app_pwd_algorithm)
     return encoded_jwt
@@ -46,7 +69,7 @@ def verify_token(token: str):
     if token_data is None:
         return None
     expires = token_data.get("exp")
-    if datetime.utcnow() >= datetime.fromtimestamp(expires):
+    if datetime.now(timezone.utc) >= datetime.fromtimestamp(expires, tz=timezone.utc):
         raise JWTError("Token expired")
     return token_data
 

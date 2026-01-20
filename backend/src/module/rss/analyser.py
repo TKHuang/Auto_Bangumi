@@ -2,6 +2,7 @@ import logging
 import re
 
 from module.conf import settings
+from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.models import Bangumi, ResponseModel, RSSItem, Torrent
 from module.network import RequestContent
 from module.parser import TitleParser
@@ -10,18 +11,12 @@ from .engine import RSSEngine
 
 logger = logging.getLogger(__name__)
 
-# Pattern to match Mikan season-specific RSS links
-# Same pattern as in collector.py - duplicated to avoid circular imports
-_MIKAN_SEASON_RSS_PATTERN = re.compile(
-    r"mikanani\.me/RSS/Bangumi\?.*bangumiId=\d+.*subgroupid=\d+", re.IGNORECASE
-)
-
 
 def _is_mikan_season_rss(rss_link: str) -> bool:
     """Check if the RSS link is a Mikan season-specific RSS."""
     if not rss_link:
         return False
-    return bool(_MIKAN_SEASON_RSS_PATTERN.search(rss_link))
+    return bool(MIKAN_SEASON_RSS_PATTERN.search(rss_link))
 
 
 def _needs_season_rss_update(bangumi: Bangumi) -> bool:

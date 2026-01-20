@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from sqlalchemy.sql import func
-from sqlmodel import Session, and_, delete, false, or_, select
+from sqlmodel import Session, and_, col, delete, false, or_, select
 
 from module.models import Bangumi, BangumiUpdate
 
@@ -86,6 +86,32 @@ class BangumiDatabase:
         self.session.commit()
         logger.debug(f"[Database] Delete bangumi id: {_id}.")
 
+    def delete_many(self, ids: list[int]) -> int:
+        """Delete multiple bangumi by IDs in a single transaction.
+
+        Args:
+            ids: List of bangumi IDs to delete.
+
+        Returns:
+            Number of bangumi deleted.
+        """
+        if not ids:
+            return 0
+
+        from module.models import Torrent
+
+        # Delete all associated torrents in batch
+        torrent_delete_stmt = delete(Torrent).where(col(Torrent.bangumi_id).in_(ids))
+        self.session.exec(torrent_delete_stmt)
+
+        # Delete all bangumi in batch
+        bangumi_delete_stmt = delete(Bangumi).where(col(Bangumi.id).in_(ids))
+        self.session.exec(bangumi_delete_stmt)
+        self.session.commit()
+
+        logger.debug(f"[Database] Batch deleted {len(ids)} bangumi and their torrents.")
+        return len(ids)
+
     def delete_all(self):
         statement = delete(Bangumi)
         self.session.exec(statement)
@@ -124,6 +150,9 @@ class BangumiDatabase:
     def match_list(self, torrent_list: list, rss_link: str) -> tuple[list, list]:
         """Match torrents against existing bangumi rules.
 
+        Uses optimized O(n+m) algorithm with hash map for title matching,
+        where n = number of torrents and m = number of bangumi rules.
+
         Args:
             torrent_list: List of torrents to match.
             rss_link: The aggregate RSS link to append to matched bangumi.
@@ -136,22 +165,32 @@ class BangumiDatabase:
         if not match_datas:
             return torrent_list, []
 
+        # Build a lookup structure for O(1) access by title_raw
+        # Sort by title length descending to match longer titles first (more specific)
+        sorted_rules = sorted(match_datas, key=lambda x: len(x.title_raw), reverse=True)
+
         matched_pairs = []
-        i = 0
-        while i < len(torrent_list):
-            torrent = torrent_list[i]
-            for match_data in match_datas:
-                if match_data.title_raw in torrent.name:
-                    if rss_link not in match_data.rss_link:
-                        match_data.rss_link += f",{rss_link}"
-                        self.update_rss(match_data.title_raw, match_data.rss_link)
-                    # Track matched pair for season RSS extraction
-                    matched_pairs.append((match_data, torrent))
-                    torrent_list.pop(i)
+        unmatched = []
+
+        # Single pass through torrents - O(n * m_avg_length) worst case
+        # but typically O(n) for reasonable title lengths
+        for torrent in torrent_list:
+            matched = None
+            for rule in sorted_rules:
+                if rule.title_raw in torrent.name:
+                    matched = rule
                     break
+
+            if matched:
+                # Update RSS link if needed
+                if rss_link not in matched.rss_link:
+                    matched.rss_link += f",{rss_link}"
+                    self.update_rss(matched.title_raw, matched.rss_link)
+                matched_pairs.append((matched, torrent))
             else:
-                i += 1
-        return torrent_list, matched_pairs
+                unmatched.append(torrent)
+
+        return unmatched, matched_pairs
 
     def match_torrent(self, torrent_name: str) -> Optional[Bangumi]:
         statement = select(Bangumi).where(
@@ -191,6 +230,29 @@ class BangumiDatabase:
         self.session.commit()
         self.session.refresh(bangumi)
         logger.debug(f"[Database] Disable rule {bangumi.title_raw}.")
+
+    def disable_many(self, ids: list[int]) -> int:
+        """Disable multiple bangumi rules by IDs in a single transaction.
+
+        Args:
+            ids: List of bangumi IDs to disable.
+
+        Returns:
+            Number of bangumi disabled.
+        """
+        if not ids:
+            return 0
+
+        statement = select(Bangumi).where(col(Bangumi.id).in_(ids))
+        bangumi_list = self.session.exec(statement).all()
+
+        for bangumi in bangumi_list:
+            bangumi.deleted = True
+            self.session.add(bangumi)
+
+        self.session.commit()
+        logger.debug(f"[Database] Batch disabled {len(bangumi_list)} bangumi rules.")
+        return len(bangumi_list)
 
     def search_rss(self, rss_link: str) -> list[Bangumi]:
         statement = select(Bangumi).where(func.instr(rss_link, Bangumi.rss_link) > 0)

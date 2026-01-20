@@ -1,5 +1,12 @@
 # -*- encoding: utf-8 -*-
+import re
 from urllib.parse import parse_qs, urlparse
+
+# Shared regex patterns for RSS parsing
+# Pattern to match Mikan season-specific RSS links (with bangumiId and subgroupid)
+MIKAN_SEASON_RSS_PATTERN = re.compile(
+    r"mikanani\.me/RSS/Bangumi\?.*bangumiId=\d+.*subgroupid=\d+", re.IGNORECASE
+)
 
 DEFAULT_SETTINGS = {
     "program": {

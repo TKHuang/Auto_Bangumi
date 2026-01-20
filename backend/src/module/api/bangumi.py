@@ -67,8 +67,7 @@ async def delete_rule(bangumi_id: int, file: bool = False):
 )
 async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False):
     with TorrentManager() as manager:
-        for i in bangumi_id:
-            resp = manager.delete_rule(i, file)
+        resp = manager.delete_many_rules(bangumi_id, file)
     return u_response(resp)
 
 
@@ -90,8 +89,7 @@ async def disable_rule(bangumi_id: int, file: bool = False):
 )
 async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = False):
     with TorrentManager() as manager:
-        for i in bangumi_id:
-            resp = manager.disable_rule(i, file)
+        resp = manager.disable_many_rules(bangumi_id, file)
     return u_response(resp)
 
 

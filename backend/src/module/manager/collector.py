@@ -1,18 +1,13 @@
 import logging
-import re
 
 from module.conf import settings
+from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.downloader import DownloadClient
 from module.models import Bangumi, ResponseModel
 from module.rss import RSSEngine
 from module.searcher import SearchTorrent
 
 logger = logging.getLogger(__name__)
-
-# Pattern to match Mikan season-specific RSS links
-MIKAN_SEASON_RSS_PATTERN = re.compile(
-    r"mikanani\.me/RSS/Bangumi\?.*bangumiId=\d+.*subgroupid=\d+"
-)
 
 
 class SeasonCollector(DownloadClient):
