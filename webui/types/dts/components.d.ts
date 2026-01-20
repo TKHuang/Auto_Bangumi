@@ -32,6 +32,7 @@ declare module '@vue/runtime-core' {
     AbSelect: typeof import('./../../src/components/basic/ab-select.vue')['default']
     AbSetting: typeof import('./../../src/components/ab-setting.vue')['default']
     AbSidebar: typeof import('./../../src/components/layout/ab-sidebar.vue')['default']
+    AbSkeletonCard: typeof import('./../../src/components/ab-skeleton-card.vue')['default']
     AbStatus: typeof import('./../../src/components/basic/ab-status.vue')['default']
     AbStatusBar: typeof import('./../../src/components/ab-status-bar.vue')['default']
     AbSwitch: typeof import('./../../src/components/basic/ab-switch.vue')['default']

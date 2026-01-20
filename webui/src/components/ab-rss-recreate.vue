@@ -24,6 +24,9 @@ const loading = reactive({
   subscribe: false,
 });
 
+// Request cancellation management
+let abortController: AbortController | null = null;
+
 // Torrents for single-bangumi mode
 const torrents = ref<
   { name: string; url: string; homepage: string; filter: boolean }[]
@@ -32,6 +35,18 @@ const torrents = ref<
 // Torrents per bangumi for aggregate mode (keyed by index)
 const aggregateTorrents = ref<Map<number, { name: string; url: string; homepage: string; filter: boolean }[]>>(new Map());
 const aggregateTorrentsLoading = ref<Set<number>>(new Set());
+
+// Unified loading state for preventing accidental close
+const isAnyLoading = computed(() =>
+  loading.bangumi ||
+  loading.torrents ||
+  loading.collect ||
+  loading.subscribe ||
+  aggregateTorrentsLoading.value.size > 0
+);
+
+// Can close dialog only when not loading
+const canClose = computed(() => !isAnyLoading.value);
 
 const torrentsKeep = computed(() => torrents.value.filter((t) => !t.filter));
 const torrentsExclude = computed(() => torrents.value.filter((t) => t.filter));
@@ -146,11 +161,49 @@ const { t } = useMyI18n();
 const message = useMessage();
 const { getAll } = useBangumiStore();
 
+// Cleanup function to reset state and cancel pending requests
+function cleanupState() {
+  // Cancel any pending requests
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+
+  // Reset data
+  bangumi.value = null;
+  bangumiList.value = [];
+  torrents.value = [];
+  aggregateTorrents.value.clear();
+  debouncedGetAggregateTorrents.clear();
+  expandedIndex.value = null;
+
+  // Reset loading states
+  loading.bangumi = false;
+  loading.torrents = false;
+  loading.collect = false;
+  loading.subscribe = false;
+  aggregateTorrentsLoading.value.clear();
+}
+
+// Watch for dialog close to cleanup
+watch(show, (visible) => {
+  if (!visible) {
+    cleanupState();
+  }
+});
+
 defineExpose({
   async open(id: number) {
+    // Cleanup any previous state first
+    cleanupState();
+
     rssId.value = id;
     loading.bangumi = true;
     show.value = true;
+
+    // Create new abort controller for this session
+    abortController = new AbortController();
+
     await loadBangumi();
   },
 });
@@ -316,11 +369,23 @@ async function collect() {
     v-model:show="show"
     :title="$t('rss.review_rules')"
     :css="bangumi || isAggregate ? 'max-w-1000' : 'w-360'"
+    :escape-close="canClose"
+    :show-progress="isAnyLoading"
   >
-    <!-- Loading State -->
-    <div v-if="loading.bangumi" f-cer h-200 flex-col gap-y-12>
-      <n-spin size="large" />
-      <div class="text-14 text-gray-500">{{ $t('rss.parsing_torrents') }}</div>
+    <!-- Loading State with Skeleton -->
+    <div v-if="loading.bangumi" class="skeleton-container">
+      <div class="skeleton-header">
+        <span class="text-14 text-gray-500">{{ $t('rss.parsing_torrents') }}</span>
+      </div>
+      <div class="skeleton-grid">
+        <ab-skeleton-card
+          v-for="n in 3"
+          :key="n"
+          :show-poster="true"
+          :lines="3"
+          :style="{ animationDelay: `${(n - 1) * 100}ms` }"
+        />
+      </div>
     </div>
 
     <!-- Empty State -->
@@ -585,6 +650,39 @@ async function collect() {
 </template>
 
 <style scoped>
+/* Skeleton Loading Styles */
+.skeleton-container {
+  min-height: 200px;
+  padding: 16px;
+}
+
+.skeleton-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.skeleton-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Content reveal animation */
+.content-reveal {
+  animation: revealContent 0.3s ease-out;
+}
+
+@keyframes revealContent {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .bangumi-card {
   @apply rounded-xl border bg-white dark:bg-gray-800 transition-all duration-200;
   border: 2px solid rgb(229, 231, 235);
