@@ -59,12 +59,17 @@ const torrentsKeep = computed(() => torrents.value.filter((t) => !t.filter));
 const torrentsExclude = computed(() => torrents.value.filter((t) => t.filter));
 
 async function getTorrents() {
-  if (rss.value.url && rule.value.filter) {
+  // Use rss.value.url if set, otherwise fallback to rule.rss_link (for search results)
+  const rssUrl = rss.value.url || (rule.value.rss_link?.[0] ?? '');
+  if (rssUrl && rule.value.filter) {
     loading.torrents = true;
     try {
+      // Create RSS object with the resolved URL for API call
+      const rssForApi = rss.value.url ? rss.value : { ...rss.value, url: rssUrl };
       const res = await apiDownload.analysisTorrents(
-        rss.value,
-        rule.value.filter.join(',')
+        rssForApi,
+        rule.value.filter.join(','),
+        rule.value.title_raw  // Pass title_raw for aggregate RSS filtering
       );
       torrents.value = res;
     } catch (e) {
