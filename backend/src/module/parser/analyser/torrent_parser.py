@@ -37,8 +37,8 @@ def get_path_basename(torrent_path: str) -> str:
 
 def get_group(group_and_title) -> tuple[str | None, str]:
     n = re.split(r"[\[\]()【】（）]", group_and_title)
-    while "" in n:
-        n.remove("")
+    # Remove empty strings and whitespace-only elements, and strip each element
+    n = [item.strip() for item in n if item and item.strip()]
     if len(n) > 1:
         if re.match(r"\d+", n[1]):
             return None, group_and_title

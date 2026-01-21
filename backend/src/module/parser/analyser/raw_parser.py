@@ -10,12 +10,8 @@ TITLE_RE = [
     re.compile(
         r"(.*|\[.*])( -? \d+|\[\d+]|\[\d+.?[vV]\d]|第\d+[话話集]|\[第?\d+[话話集]]|\[\d+.?END]|[Ee][Pp]?\d+)(.*)"
     ),
-    re.compile(
-        r"(.*)(\[\d{1,3}[~-]\d{1,3}.*?\])(.*)"
-    ),
-    re.compile(
-        r"(.*?\])()((?:\[.*)+)"
-    ),
+    re.compile(r"(.*)(\[\d{1,3}[~-]\d{1,3}.*?\])(.*)"),
+    re.compile(r"(.*?\])()((?:\[.*)+)"),
 ]
 RESOLUTION_RE = re.compile(r"1080|720|2160|4K")
 SOURCE_RE = re.compile(r"B-Global|[Bb]aha|[Bb]ilibili|AT-X|Web")
@@ -150,10 +146,10 @@ def process(raw_title: str):
         match_obj = pattern.match(content_title)
         if match_obj:
             break
-    
+
     if match_obj is None:
         return None
-    
+
     # 处理标题
     season_info, episode_info, other = list(
         map(lambda x: x.strip() if x else "", match_obj.groups())
