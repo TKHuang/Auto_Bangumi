@@ -120,15 +120,54 @@ class RSSAnalyser(TitleParser):
                 logger.info(f"[RSS] New bangumi founded: {bangumi.official_title}")
         return new_data
 
-    def torrent_to_data(self, torrent: Torrent, rss: RSSItem) -> Bangumi:
-        bangumi = self.raw_parser(raw=torrent.name)
-        if bangumi:
-            self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)
-            # Ensure rss_link is set (fallback to aggregate URL if not set by parser)
-            if not bangumi.rss_link:
-                bangumi.rss_link = rss.url
-            bangumi.rss_id = rss.id
-            return bangumi
+    def torrent_to_data(
+        self,
+        torrent: Torrent,
+        rss: RSSItem,
+        title: str | None = None,
+        season: int | None = None,
+        group_name: str | None = None,
+    ) -> Bangumi:
+        """Convert a torrent to a Bangumi object.
+
+        Args:
+            torrent: Torrent object to parse.
+            rss: RSSItem containing parser configuration.
+            title: Optional manual title override. When provided, skips raw_parser
+                   title extraction (avoids BangumiParsingError).
+            season: Optional manual season override.
+            group_name: Optional manual group name override.
+
+        Returns:
+            Bangumi object with parsed or manual data, or None if parsing fails.
+        """
+        if title:
+            # Manual override mode: create Bangumi with provided title
+            # This avoids calling raw_parser which could raise BangumiParsingError
+            bangumi = Bangumi(
+                official_title=title,
+                title_raw=title,
+                season=season if season is not None else 1,
+                group_name=group_name if group_name else "Unknown",
+                filter=",".join(settings.rss_parser.filter),
+            )
+        else:
+            # Normal mode: use raw_parser to extract data
+            bangumi = self.raw_parser(raw=torrent.name)
+            if not bangumi:
+                return None
+            # Apply manual overrides to parsed data if provided
+            if season is not None:
+                bangumi.season = season
+            if group_name:
+                bangumi.group_name = group_name
+
+        self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)
+        # Ensure rss_link is set (fallback to aggregate URL if not set by parser)
+        if not bangumi.rss_link:
+            bangumi.rss_link = rss.url
+        bangumi.rss_id = rss.id
+        return bangumi
 
     def rss_to_data(
         self, rss: RSSItem, engine: RSSEngine, full_parse: bool = True
@@ -289,6 +328,18 @@ class RSSAnalyser(TitleParser):
         season: int | None = None,
         group_name: str | None = None,
     ) -> Bangumi | ResponseModel:
+        """Convert an RSS link to a Bangumi object.
+
+        Args:
+            rss: RSSItem to parse.
+            title: Optional manual title override. When provided, skips raw_parser
+                   title extraction (avoids BangumiParsingError).
+            season: Optional manual season override.
+            group_name: Optional manual group name override.
+
+        Returns:
+            Bangumi object on success, or ResponseModel with error details.
+        """
         torrents = self.get_rss_torrents(rss.url, False)
         if not torrents:
             return ResponseModel(
@@ -298,7 +349,9 @@ class RSSAnalyser(TitleParser):
                 msg_zh="无法找到种子。",
             )
         for torrent in torrents:
-            data = self.torrent_to_data(torrent, rss)
+            data = self.torrent_to_data(
+                torrent, rss, title=title, season=season, group_name=group_name
+            )
             if data:
                 return data
         return ResponseModel(
