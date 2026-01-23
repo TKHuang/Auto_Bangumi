@@ -2,7 +2,7 @@ import logging
 
 from module.conf import settings
 from module.models import Bangumi
-from module.models.bangumi import Episode
+from module.models.bangumi import BangumiParsingError, Episode
 from module.parser.analyser import (
     MikanParserResult,
     OpenAIParser,
@@ -102,6 +102,9 @@ class TitleParser:
                 offset=0,
                 filter=",".join(settings.rss_parser.filter),
             )
+        except BangumiParsingError:
+            # Re-raise BangumiParsingError to allow caller to handle it
+            raise
         except Exception as e:
             logger.debug(e)
             logger.warning(f"Cannot parse {raw}.")
