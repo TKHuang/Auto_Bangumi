@@ -282,7 +282,13 @@ class RSSAnalyser(TitleParser):
                     f"[RSS] Failed to extract season RSS for {bangumi.official_title}: {e}"
                 )
 
-    def link_to_data(self, rss: RSSItem) -> Bangumi | ResponseModel:
+    def link_to_data(
+        self,
+        rss: RSSItem,
+        title: str | None = None,
+        season: int | None = None,
+        group_name: str | None = None,
+    ) -> Bangumi | ResponseModel:
         torrents = self.get_rss_torrents(rss.url, False)
         if not torrents:
             return ResponseModel(

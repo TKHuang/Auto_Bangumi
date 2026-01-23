@@ -37,10 +37,34 @@ async def get_rss():
 @router.post(
     path="/add", response_model=APIResponse, dependencies=[Depends(get_current_user)]
 )
-async def add_rss(rss: RSSItem):
+async def add_rss(
+    rss: RSSItem,
+    title: str | None = None,
+    season: int | None = None,
+    group_name: str | None = None,
+):
+    analyser = RSSAnalyser()
+
     def _sync():
         with RSSEngine() as engine:
-            return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+            # First add the RSS to database
+            result = engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+            if not result.status:
+                return result
+
+            # For non-aggregate RSS, trigger parsing with optional manual overrides
+            # This allows BangumiParsingError to be raised when parsing fails
+            if not rss.aggregate:
+                data = analyser.link_to_data(rss, title, season, group_name)
+                if isinstance(data, Bangumi):
+                    # Parsing succeeded, add bangumi to database
+                    engine.bangumi.add(data)
+                    engine.commit()
+                elif isinstance(data, ResponseModel) and not data.status:
+                    return data
+
+            return result
+
     try:
         return u_response(await asyncio.to_thread(_sync))
     except BangumiParsingError as e:
