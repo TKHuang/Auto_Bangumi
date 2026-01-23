@@ -6,7 +6,15 @@ from fastapi.responses import JSONResponse
 
 from module.downloader import DownloadClient
 from module.manager import SeasonCollector, TorrentStatusManager
-from module.models import APIResponse, Bangumi, ResponseModel, RSSItem, RSSUpdate, Torrent
+from module.models import (
+    APIResponse,
+    Bangumi,
+    ResponseModel,
+    RSSItem,
+    RSSUpdate,
+    Torrent,
+)
+from module.models.bangumi import BangumiParsingError
 from module.rss import RSSAnalyser, RSSEngine
 from module.security.api import UNAUTHORIZED, get_current_user
 
@@ -33,7 +41,26 @@ async def add_rss(rss: RSSItem):
     def _sync():
         with RSSEngine() as engine:
             return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
-    return u_response(await asyncio.to_thread(_sync))
+    try:
+        return u_response(await asyncio.to_thread(_sync))
+    except BangumiParsingError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": False,
+                "status_code": 422,
+                "error_type": "bangumi_parsing_failed",
+                "msg_en": e.msg_en,
+                "msg_zh": e.msg_zh,
+                "partial_data": {
+                    "raw_title": e.raw_title,
+                    "group": e.partial_data.get("group"),
+                    "season": e.partial_data.get("season"),
+                    "resolution": e.partial_data.get("resolution"),
+                    "subtitle": e.partial_data.get("subtitle"),
+                },
+            },
+        )
 
 
 @router.post(
