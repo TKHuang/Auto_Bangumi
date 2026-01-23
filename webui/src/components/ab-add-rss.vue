@@ -308,13 +308,31 @@ function submitManualInput() {
     );
     return;
   }
-  // Note: Actual submission with manual override parameters will be implemented in US-008
-  message.info(
-    returnUserLangText({
-      en: 'Manual input submission coming soon',
-      'zh-CN': '手动输入提交功能即将推出',
-    })
-  );
+
+  // Submit with manual override parameters
+  useApi(apiRSS.add, {
+    showMessage: true,
+    onBeforeExecute() {
+      windowState.loading = true;
+    },
+    onSuccess() {
+      show.value = false;
+      getRSS();
+      message.success(
+        returnUserLangText({
+          en: 'RSS added successfully with manual input',
+          'zh-CN': 'RSS 已通过手动输入成功添加',
+        })
+      );
+    },
+    onFinally() {
+      windowState.loading = false;
+    },
+  }).execute(rss.value, {
+    title: manualInputForm.title.trim(),
+    season: manualInputForm.season,
+    groupName: manualInputForm.groupName.trim() || undefined,
+  });
 }
 </script>
 
