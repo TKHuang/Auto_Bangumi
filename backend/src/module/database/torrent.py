@@ -47,6 +47,22 @@ class TorrentDatabase:
     def search_rss(self, rss_id: int) -> list[Torrent]:
         return self.session.exec(select(Torrent).where(Torrent.rss_id == rss_id)).all()
 
+    def search_by_bangumi_id_with_homepage(self, bangumi_id: int) -> Torrent | None:
+        """Find a torrent with homepage URL for a given bangumi_id.
+
+        Args:
+            bangumi_id: The bangumi ID to search for.
+
+        Returns:
+            Torrent with homepage if found, None otherwise.
+        """
+        statement = select(Torrent).where(
+            Torrent.bangumi_id == bangumi_id,
+            Torrent.homepage.is_not(None),
+            Torrent.homepage != "",
+        )
+        return self.session.exec(statement).first()
+
     def check_new(self, torrents_list: list[Torrent]) -> list[Torrent]:
         new_torrents = []
         old_torrents = self.search_all()

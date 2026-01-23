@@ -467,3 +467,33 @@ class BangumiDatabase:
         self.session.refresh(bangumi)
         logger.debug(f"[Database] Activated pending bangumi: {bangumi.official_title}")
         return True, "Bangumi activated successfully"
+
+    def update_pending_review(
+        self, bangumi_id: int, pending: bool, global_filter_matches: Optional[str] = None
+    ) -> bool:
+        """Update the pending_review status of a bangumi.
+
+        Args:
+            bangumi_id: The bangumi ID to update.
+            pending: Whether to set pending_review to True or False.
+            global_filter_matches: Optional filter pattern that caused the pending status.
+
+        Returns:
+            True if successful, False if bangumi not found.
+        """
+        bangumi = self.session.get(Bangumi, bangumi_id)
+        if not bangumi:
+            return False
+
+        bangumi.pending_review = pending
+        if pending and global_filter_matches:
+            bangumi.global_filter_matches = global_filter_matches
+        elif not pending:
+            bangumi.global_filter_matches = None
+
+        self.session.add(bangumi)
+        self.session.commit()
+        logger.debug(
+            f"[Database] Updated pending_review for {bangumi.official_title}: {pending}"
+        )
+        return True

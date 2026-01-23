@@ -41,7 +41,13 @@ def _needs_season_rss_update(bangumi: Bangumi) -> bool:
 
 
 class RSSAnalyser(TitleParser):
-    def official_title_parser(self, bangumi: Bangumi, rss: RSSItem, torrent: Torrent):
+    def official_title_parser(
+        self,
+        bangumi: Bangumi,
+        rss: RSSItem,
+        torrent: Torrent,
+        skip_title_update: bool = False,
+    ):
         """Parse official title and metadata from torrent homepage.
 
         For Mikan parser, also extracts the season-specific RSS link and stores
@@ -51,13 +57,16 @@ class RSSAnalyser(TitleParser):
             bangumi: Bangumi object to update with parsed metadata.
             rss: RSSItem containing parser configuration.
             torrent: Torrent object with homepage URL.
+            skip_title_update: If True, only fetch poster/RSS link but preserve
+                existing official_title (used for manual input mode).
         """
         if rss.parser == "mikan":
             try:
                 # Use mikan_parser_with_rss to also extract season RSS link
                 result = self.mikan_parser_with_rss(torrent.homepage)
                 bangumi.poster_link = result.poster_link
-                bangumi.official_title = result.official_title
+                if not skip_title_update:
+                    bangumi.official_title = result.official_title
 
                 # Store season-specific RSS link if extracted
                 # This enables eps_complete_from_source to use the specific season feed
@@ -73,13 +82,15 @@ class RSSAnalyser(TitleParser):
             tmdb_title, season, year, poster_link = self.tmdb_parser(
                 bangumi.official_title, bangumi.season, settings.rss_parser.language
             )
-            bangumi.official_title = tmdb_title
+            if not skip_title_update:
+                bangumi.official_title = tmdb_title
+                bangumi.season = season
             bangumi.year = year
-            bangumi.season = season
             bangumi.poster_link = poster_link
         else:
             pass
-        bangumi.official_title = re.sub(r"[/:.\\]", " ", bangumi.official_title)
+        if not skip_title_update:
+            bangumi.official_title = re.sub(r"[/:.\\]", " ", bangumi.official_title)
 
     @staticmethod
     def get_rss_torrents(rss_link: str, full_parse: bool = True, apply_filter: bool = True) -> list[Torrent]:
@@ -124,7 +135,7 @@ class RSSAnalyser(TitleParser):
         self,
         torrent: Torrent,
         rss: RSSItem,
-        title: str | None = None,
+        official_title: str | None = None,
         season: int | None = None,
         group_name: str | None = None,
     ) -> Bangumi:
@@ -133,7 +144,7 @@ class RSSAnalyser(TitleParser):
         Args:
             torrent: Torrent object to parse.
             rss: RSSItem containing parser configuration.
-            title: Optional manual title override. When provided, skips raw_parser
+            official_title: Optional manual title override. When provided, skips raw_parser
                    title extraction (avoids BangumiParsingError).
             season: Optional manual season override.
             group_name: Optional manual group name override.
@@ -141,12 +152,13 @@ class RSSAnalyser(TitleParser):
         Returns:
             Bangumi object with parsed or manual data, or None if parsing fails.
         """
-        if title:
-            # Manual override mode: create Bangumi with provided title
+        if official_title:
+            # Manual override mode: create Bangumi with provided official_title
             # This avoids calling raw_parser which could raise BangumiParsingError
+            # title_raw keeps the original torrent name for reference
             bangumi = Bangumi(
-                official_title=title,
-                title_raw=title,
+                official_title=official_title,
+                title_raw=torrent.name,
                 season=season if season is not None else 1,
                 group_name=group_name if group_name else "Unknown",
                 filter=",".join(settings.rss_parser.filter),
@@ -162,7 +174,13 @@ class RSSAnalyser(TitleParser):
             if group_name:
                 bangumi.group_name = group_name
 
-        self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)
+        # Fetch poster and RSS link, but skip title update if manually provided
+        self.official_title_parser(
+            bangumi=bangumi,
+            rss=rss,
+            torrent=torrent,
+            skip_title_update=bool(official_title),
+        )
         # Ensure rss_link is set (fallback to aggregate URL if not set by parser)
         if not bangumi.rss_link:
             bangumi.rss_link = rss.url
@@ -324,7 +342,7 @@ class RSSAnalyser(TitleParser):
     def link_to_data(
         self,
         rss: RSSItem,
-        title: str | None = None,
+        official_title: str | None = None,
         season: int | None = None,
         group_name: str | None = None,
     ) -> Bangumi | ResponseModel:
@@ -332,7 +350,7 @@ class RSSAnalyser(TitleParser):
 
         Args:
             rss: RSSItem to parse.
-            title: Optional manual title override. When provided, skips raw_parser
+            official_title: Optional manual title override. When provided, skips raw_parser
                    title extraction (avoids BangumiParsingError).
             season: Optional manual season override.
             group_name: Optional manual group name override.
@@ -350,7 +368,7 @@ class RSSAnalyser(TitleParser):
             )
         for torrent in torrents:
             data = self.torrent_to_data(
-                torrent, rss, title=title, season=season, group_name=group_name
+                torrent, rss, official_title=official_title, season=season, group_name=group_name
             )
             if data:
                 return data

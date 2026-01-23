@@ -26,6 +26,11 @@ const props = defineProps<{
   rssName: string;
 }>();
 
+// Emit when bangumi are activated (to refresh parent data)
+const emit = defineEmits<{
+  (e: 'activated', count: number): void;
+}>();
+
 const show = defineModel<boolean>('show', { default: false });
 
 const loading = ref(false);
@@ -58,13 +63,15 @@ const activating = ref(false);
 // Computed: check if all bangumi are selected
 const isAllSelected = computed(() => {
   if (pendingBangumi.value.length === 0) return false;
-  return pendingBangumi.value.every(b => selectedIds.value.has(b.id));
+  return pendingBangumi.value.every((b) => selectedIds.value.has(b.id));
 });
 
 // Computed: check if some (but not all) bangumi are selected
 const isSomeSelected = computed(() => {
   if (pendingBangumi.value.length === 0) return false;
-  const selectedCount = pendingBangumi.value.filter(b => selectedIds.value.has(b.id)).length;
+  const selectedCount = pendingBangumi.value.filter((b) =>
+    selectedIds.value.has(b.id)
+  ).length;
   return selectedCount > 0 && selectedCount < pendingBangumi.value.length;
 });
 
@@ -78,13 +85,13 @@ function toggleAll() {
     selectedIds.value = new Set();
   } else {
     // Select all
-    selectedIds.value = new Set(pendingBangumi.value.map(b => b.id));
+    selectedIds.value = new Set(pendingBangumi.value.map((b) => b.id));
   }
 }
 
 // Select all
 function selectAll() {
-  selectedIds.value = new Set(pendingBangumi.value.map(b => b.id));
+  selectedIds.value = new Set(pendingBangumi.value.map((b) => b.id));
 }
 
 // Check if a bangumi is selected
@@ -116,7 +123,7 @@ function toggleExpand(id: number) {
     expandedId.value = id;
     // Initialize local filter if not already set
     if (!localFilters.value.has(id)) {
-      const bangumi = pendingBangumi.value.find(b => b.id === id);
+      const bangumi = pendingBangumi.value.find((b) => b.id === id);
       if (bangumi) {
         // Start with the global filter matches as default
         localFilters.value.set(id, [...(bangumi.global_filter_matches || [])]);
@@ -151,7 +158,7 @@ function clearFilter(id: number) {
 
 // Reset to global filter for a bangumi
 function resetToGlobal(id: number) {
-  const bangumi = pendingBangumi.value.find(b => b.id === id);
+  const bangumi = pendingBangumi.value.find((b) => b.id === id);
   if (bangumi) {
     localFilters.value.set(id, [...(bangumi.global_filter_matches || [])]);
     localFilters.value = new Map(localFilters.value);
@@ -163,20 +170,20 @@ function resetToGlobal(id: number) {
 // Get torrents that will be kept (not filtered out)
 function getTorrentsKeep(id: number): TorrentPreview[] {
   const torrents = torrentPreviews.value.get(id) || [];
-  return torrents.filter(t => !t.filter);
+  return torrents.filter((t) => !t.filter);
 }
 
 // Get torrents that will be excluded (filtered out)
 function getTorrentsExclude(id: number): TorrentPreview[] {
   const torrents = torrentPreviews.value.get(id) || [];
-  return torrents.filter(t => t.filter);
+  return torrents.filter((t) => t.filter);
 }
 
 // Fetch torrent preview for a specific bangumi
 async function fetchTorrentPreview(id: number) {
   if (!rssItem.value?.url) return;
 
-  const bangumi = pendingBangumi.value.find(b => b.id === id);
+  const bangumi = pendingBangumi.value.find((b) => b.id === id);
   if (!bangumi) return;
 
   const filters = localFilters.value.get(id) || [];
@@ -216,7 +223,7 @@ async function fetchPendingBangumi() {
   try {
     // Fetch RSS list to get the RSS item for torrent analysis
     const rssList = await apiRSS.get();
-    rssItem.value = rssList.find(r => r.id === props.rssId) || null;
+    rssItem.value = rssList.find((r) => r.id === props.rssId) || null;
 
     const { data } = await axios.get<PendingResponse>(
       `api/v1/rss/aggregate/pending/${props.rssId}`
@@ -234,11 +241,6 @@ async function fetchPendingBangumi() {
     loading.value = false;
   }
 }
-
-// Emit when bangumi are activated (to refresh parent data)
-const emit = defineEmits<{
-  (e: 'activated', count: number): void;
-}>();
 
 // Activate selected bangumi
 async function activateSelected() {
@@ -322,7 +324,7 @@ watch(show, (visible) => {
       <div class="summary-header" flex="~ items-center justify-between">
         <div flex="~ items-center gap-x-12">
           <!-- Select All Checkbox -->
-          <n-checkbox
+          <NCheckbox
             :checked="isAllSelected"
             :indeterminate="isSomeSelected"
             @update:checked="toggleAll"
@@ -356,7 +358,10 @@ watch(show, (visible) => {
           <!-- Main Row -->
           <div
             class="bangumi-row"
-            :class="{ expanded: isExpanded(item.id), selected: isSelected(item.id) }"
+            :class="{
+              expanded: isExpanded(item.id),
+              selected: isSelected(item.id),
+            }"
             flex="~ items-center gap-x-12"
             py-12
             px-12
@@ -365,7 +370,7 @@ watch(show, (visible) => {
             @click="toggleExpand(item.id)"
           >
             <!-- Checkbox -->
-            <n-checkbox
+            <NCheckbox
               :checked="isSelected(item.id)"
               @update:checked="toggleSelection(item.id)"
               @click.stop
@@ -374,7 +379,11 @@ watch(show, (visible) => {
             <!-- Title -->
             <div flex="~ col" flex-1 min-w-0>
               <div flex="~ items-center gap-x-8">
-                <span text="14 gray-800 dark:gray-200" font-medium class="truncate">
+                <span
+                  text="14 gray-800 dark:gray-200"
+                  font-medium
+                  class="truncate"
+                >
                   {{ item.official_title }}
                 </span>
               </div>
@@ -391,7 +400,11 @@ watch(show, (visible) => {
               </div>
 
               <!-- Global Filter Matches -->
-              <div v-if="item.global_filter_matches?.length > 0" flex="~ items-center gap-x-4 wrap" mt-6>
+              <div
+                v-if="item.global_filter_matches?.length > 0"
+                flex="~ items-center gap-x-4 wrap"
+                mt-6
+              >
                 <span text="11 gray-400">{{ $t('rss.matched_filters') }}:</span>
                 <n-tag
                   v-for="pattern in item.global_filter_matches"
@@ -415,14 +428,24 @@ watch(show, (visible) => {
           </div>
 
           <!-- Expanded Edit Panel -->
-          <div v-if="isExpanded(item.id)" class="edit-panel" px-8 py-12 bg="gray-50 dark:gray-800">
+          <div
+            v-if="isExpanded(item.id)"
+            class="edit-panel"
+            px-8
+            py-12
+            bg="gray-50 dark:gray-800"
+          >
             <div flex="~ gap-x-16">
               <!-- Left Side: Filter Editor -->
               <div class="filter-section" flex="~ col" w-320 shrink-0>
                 <!-- Matched from global info -->
                 <div v-if="item.global_filter_matches?.length > 0" mb-12>
                   <span text="12 gray-500">
-                    {{ $t('rss.matched_from_global', { patterns: item.global_filter_matches.join(', ') }) }}
+                    {{
+                      $t('rss.matched_from_global', {
+                        patterns: item.global_filter_matches.join(', '),
+                      })
+                    }}
                   </span>
                 </div>
 
@@ -453,9 +476,16 @@ watch(show, (visible) => {
 
               <!-- Right Side: Torrent Preview -->
               <div flex="~ col" flex-1 overflow-hidden min-w-0>
-                <div text="14 gray-500" mb-8 flex="~ justify-between items-center">
+                <div
+                  text="14 gray-500"
+                  mb-8
+                  flex="~ justify-between items-center"
+                >
                   <span>{{ $t('rss.torrent_preview') }}</span>
-                  <span v-if="torrentPreviewLoading.has(item.id)" class="animate-spin">
+                  <span
+                    v-if="torrentPreviewLoading.has(item.id)"
+                    class="animate-spin"
+                  >
                     <div i-carbon-renew text="16 blue-500" />
                   </span>
                 </div>
@@ -464,7 +494,9 @@ watch(show, (visible) => {
                   <!-- Keep List -->
                   <div flex="~ col" flex-1 overflow-hidden>
                     <div text="12 gray-400" mb-4 px-4>
-                      {{ $t('rss.keep') }} ({{ getTorrentsKeep(item.id).length }})
+                      {{ $t('rss.keep') }} ({{
+                        getTorrentsKeep(item.id).length
+                      }})
                     </div>
                     <div
                       flex-1
@@ -485,7 +517,10 @@ watch(show, (visible) => {
                         {{ torrent.name }}
                       </div>
                       <div
-                        v-if="getTorrentsKeep(item.id).length === 0 && !torrentPreviewLoading.has(item.id)"
+                        v-if="
+                          getTorrentsKeep(item.id).length === 0 &&
+                          !torrentPreviewLoading.has(item.id)
+                        "
                         text="12 gray-400 center"
                         py-20
                       >
@@ -497,7 +532,9 @@ watch(show, (visible) => {
                   <!-- Exclude List -->
                   <div flex="~ col" flex-1 overflow-hidden>
                     <div text="12 gray-400" mb-4 px-4>
-                      {{ $t('rss.exclude') }} ({{ getTorrentsExclude(item.id).length }})
+                      {{ $t('rss.exclude') }} ({{
+                        getTorrentsExclude(item.id).length
+                      }})
                     </div>
                     <div
                       flex-1
@@ -519,7 +556,10 @@ watch(show, (visible) => {
                         {{ torrent.name }}
                       </div>
                       <div
-                        v-if="getTorrentsExclude(item.id).length === 0 && !torrentPreviewLoading.has(item.id)"
+                        v-if="
+                          getTorrentsExclude(item.id).length === 0 &&
+                          !torrentPreviewLoading.has(item.id)
+                        "
                         text="12 gray-400 center"
                         py-20
                       >
@@ -535,9 +575,18 @@ watch(show, (visible) => {
       </div>
 
       <!-- Action Footer -->
-      <div class="action-footer" flex="~ items-center justify-end gap-x-10" mt-16 pt-12>
+      <div
+        class="action-footer"
+        flex="~ items-center justify-end gap-x-10"
+        mt-16
+        pt-12
+      >
         <div text="12 gray-500" flex-1 flex="~ items-center">
-          {{ selectedCount > 0 ? $t('rss.selected_count', { count: selectedCount }) : '' }}
+          {{
+            selectedCount > 0
+              ? $t('rss.selected_count', { count: selectedCount })
+              : ''
+          }}
         </div>
         <ab-button
           size="small"
@@ -576,13 +625,21 @@ watch(show, (visible) => {
 .summary-header {
   margin-bottom: 16px;
   padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.08));
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.08),
+    rgba(168, 85, 247, 0.08)
+  );
   border-radius: 10px;
   border: 1px solid rgba(99, 102, 241, 0.15);
 }
 
 .dark .summary-header {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.12));
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.12),
+    rgba(168, 85, 247, 0.12)
+  );
   border-color: rgba(99, 102, 241, 0.25);
 }
 

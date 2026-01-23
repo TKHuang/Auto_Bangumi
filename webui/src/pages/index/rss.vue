@@ -30,6 +30,16 @@ function openManageDialog(rss: RSS) {
   showManageDialog.value = true;
 }
 
+function handlePendingClick(rss: RSS) {
+  if (rss.aggregate) {
+    // For aggregate RSS: open the manage dialog
+    openManageDialog(rss);
+  } else {
+    // For non-aggregate RSS: open the recreate dialog to review and re-activate
+    handleRecreate(rss.id);
+  }
+}
+
 // Context menu state
 const showContextMenu = ref(false);
 const contextMenuX = ref(0);
@@ -37,12 +47,18 @@ const contextMenuY = ref(0);
 const contextMenuRss = ref<RSS | null>(null);
 
 const contextMenuOptions = computed<DropdownOption[]>(() => {
-  if (!contextMenuRss.value?.aggregate) {
+  const rssItem = contextMenuRss.value;
+  if (!rssItem) {
+    return [];
+  }
+  // Show context menu for aggregate RSS (always) or non-aggregate RSS with pending review
+  const pendingCount = pendingCounts.value[rssItem.id] || 0;
+  if (!rssItem.aggregate && pendingCount === 0) {
     return [];
   }
   return [
     {
-      label: t('rss.manage_bangumi'),
+      label: rssItem.aggregate ? t('rss.manage_bangumi') : t('rss.review_pending'),
       key: 'manage',
     },
   ];
@@ -62,7 +78,7 @@ function handleContextMenu(e: MouseEvent, rss: RSS) {
 function handleContextMenuSelect(key: string | number) {
   showContextMenu.value = false;
   if (key === 'manage' && contextMenuRss.value) {
-    openManageDialog(contextMenuRss.value);
+    handlePendingClick(contextMenuRss.value);
   }
 }
 
@@ -71,9 +87,9 @@ function handleClickOutside() {
 }
 
 async function fetchPendingCounts() {
-  const aggregateRss = rss.value.filter((r) => r.aggregate);
+  // Fetch pending counts for ALL RSS items (both aggregate and non-aggregate)
   const results = await Promise.all(
-    aggregateRss.map(async (r) => {
+    rss.value.map(async (r) => {
       try {
         const res = await apiRSS.getPendingCount(r.id);
         return { id: r.id, count: res.pending_count };
@@ -94,11 +110,13 @@ function handleEdit(item: RSS) {
   showEdit.value = true;
 }
 
-
 const message = useMessage();
 const dialog = useDialog();
 
-const recreateDialog = ref<InstanceType<typeof import('./components/ab-rss-recreate.vue').default>>();
+const recreateDialog =
+  ref<
+    InstanceType<typeof import('./components/ab-rss-recreate.vue').default>
+  >();
 
 async function handleRecreate(rssId: number) {
   recreateDialog.value?.open(rssId);
@@ -215,7 +233,7 @@ const RSSTableOptions = computed(() => {
           <div flex="~ col gap-y-4 items-end">
             {/* Row 1: Pending badge, Status, Parser */}
             <div flex="~ gap-x-4 items-center">
-              {rss.aggregate && pendingCount > 0 && (
+              {pendingCount > 0 && (
                 <NTooltip trigger="hover">
                   {{
                     trigger: () => (
@@ -227,14 +245,22 @@ const RSSTableOptions = computed(() => {
                         style={{ gap: '4px' }}
                         onClick={(e: Event) => {
                           e.stopPropagation();
-                          openManageDialog(rss);
+                          handlePendingClick(rss);
                         }}
                       >
-                        <span class="i-mdi:alert-circle" style={{ width: '12px', height: '12px', flexShrink: 0 }} />
+                        <span
+                          class="i-mdi:alert-circle"
+                          style={{
+                            width: '12px',
+                            height: '12px',
+                            flexShrink: 0,
+                          }}
+                        />
                         <span>{pendingCount}</span>
                       </div>
                     ),
-                    default: () => t('rss.pending_review_count', { count: pendingCount }),
+                    default: () =>
+                      t('rss.pending_review_count', { count: pendingCount }),
                   }}
                 </NTooltip>
               )}

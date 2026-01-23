@@ -9,9 +9,10 @@ export type ApiErrorMessage = AuthError | LoginError;
  * 404 Not Found
  * 406 Not Acceptable
  * 409 Conflict (重复订阅)
+ * 422 Unprocessable Entity (解析失败需要手动输入)
  * 500 Internal Server Error
  */
-export type StatusCode = 401 | 404 | 406 | 409 | 500;
+export type StatusCode = 401 | 404 | 406 | 409 | 422 | 500;
 
 export interface ApiError {
   status: StatusCode;

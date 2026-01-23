@@ -16,9 +16,11 @@ const { t, returnUserLangText } = useMyI18n();
 const message = useMessage();
 
 const totalCount = computed(() => torrents.value.length);
-const existCount = computed(() => torrents.value.filter(row => row.status !== 'missing').length);
-const dialogTitle = computed(() => 
-  totalCount.value > 0 
+const existCount = computed(
+  () => torrents.value.filter((row) => row.status !== 'missing').length
+);
+const dialogTitle = computed(() =>
+  totalCount.value > 0
     ? `${t('rss.torrents')} (${existCount.value}/${totalCount.value})`
     : t('rss.torrents')
 );
@@ -35,8 +37,8 @@ const columns = computed<any[]>(() => [
     minWidth: 400,
     resizable: true,
     ellipsis: {
-      tooltip: true
-    }
+      tooltip: true,
+    },
   },
   {
     title: 'Status',
@@ -47,13 +49,18 @@ const columns = computed<any[]>(() => [
       return h(
         NTag,
         {
-          type: row.status === 'missing' ? 'error' : row.status === 'downloading' ? 'info' : 'success',
+          type:
+            row.status === 'missing'
+              ? 'error'
+              : row.status === 'downloading'
+              ? 'info'
+              : 'success',
           size: 'small',
-          round: true
+          round: true,
         },
         { default: () => row.status }
-      )
-    }
+      );
+    },
   },
   {
     title: 'Progress',
@@ -61,8 +68,10 @@ const columns = computed<any[]>(() => [
     width: 80,
     fixed: 'right',
     render: (row: any) => {
-      return row.status !== 'missing' ? `${(row.progress * 100).toFixed(1)}%` : '-'
-    }
+      return row.status !== 'missing'
+        ? `${(row.progress * 100).toFixed(1)}%`
+        : '-';
+    },
   },
   {
     title: 'Action',
@@ -76,12 +85,17 @@ const columns = computed<any[]>(() => [
           size: 'small',
           type: row.status === 'missing' ? 'primary' : undefined,
           disabled: row.status !== 'missing',
-          onClick: () => handleDownload(row.id)
+          onClick: () => handleDownload(row.id),
         },
-        { default: () => row.status === 'missing' ? t('bangumi.download') : t('bangumi.downloaded') }
-      )
-    }
-  }
+        {
+          default: () =>
+            row.status === 'missing'
+              ? t('bangumi.download')
+              : t('bangumi.downloaded'),
+        }
+      );
+    },
+  },
 ]);
 
 async function getTorrents() {
@@ -104,9 +118,10 @@ async function handleDownload(torrentId: number) {
     getTorrents();
   } catch (e: any) {
     // Show specific backend error message or generic fallback
-    const errorMsg = e?.msg_en || e?.msg_zh
-      ? returnUserLangText({ en: e.msg_en || '', 'zh-CN': e.msg_zh || '' })
-      : t('notify.update_failed');
+    const errorMsg =
+      e?.msg_en || e?.msg_zh
+        ? returnUserLangText({ en: e.msg_en || '', 'zh-CN': e.msg_zh || '' })
+        : t('notify.update_failed');
     message.error(errorMsg);
   }
 }
@@ -116,7 +131,7 @@ async function handleBatchDownload() {
     message.warning('Please select torrents first');
     return;
   }
-  
+
   let successCount = 0;
   for (const torrentId of checkedRowKeys.value) {
     try {
@@ -126,8 +141,10 @@ async function handleBatchDownload() {
       console.error(`Failed to download torrent ${torrentId}`, e);
     }
   }
-  
-  message.success(`Downloaded ${successCount}/${checkedRowKeys.value.length} torrents`);
+
+  message.success(
+    `Downloaded ${successCount}/${checkedRowKeys.value.length} torrents`
+  );
   checkedRowKeys.value = [];
   getTorrents();
 }
@@ -161,16 +178,26 @@ watch(show, (val) => {
         <div v-else-if="torrents.length === 0" f-cer h-200 flex-col gap-y-12>
           <NEmpty :description="$t('bangumi.no_torrents_hint')">
             <template #icon>
-              <div class="i-mdi-file-document-outline w-48 h-48 text-gray-400" />
+              <div
+                class="i-mdi-file-document-outline w-48 h-48 text-gray-400"
+              />
             </template>
           </NEmpty>
         </div>
         <div v-else class="flex flex-col h-full bg-white">
-          <div class="mb-12 flex items-center justify-between px-8 flex-shrink-0">
+          <div
+            class="mb-12 flex items-center justify-between px-8 flex-shrink-0"
+          >
             <div class="flex items-center gap-x-8 h-34">
               <template v-if="checkedRowKeys.length > 0">
-                <span class="text-14 font-medium">{{ checkedRowKeys.length }} selected</span>
-                <NButton size="small" type="primary" @click="handleBatchDownload">
+                <span class="text-14 font-medium"
+                  >{{ checkedRowKeys.length }} selected</span
+                >
+                <NButton
+                  size="small"
+                  type="primary"
+                  @click="handleBatchDownload"
+                >
                   Batch Download
                 </NButton>
               </template>

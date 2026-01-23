@@ -41,6 +41,11 @@ axios.interceptors.response.use(
       case 409:
         if (errorMsg) message.error(errorMsg);
         break;
+      /** 验证失败 (如解析失败需要手动输入) */
+      case 422:
+        // Pass full response data for special error types (e.g., bangumi_parsing_failed)
+        // Don't show generic error message - let the caller handle it
+        return Promise.reject(err.response?.data);
       case 500:
         // Don't logout on server errors - they don't invalidate the session
         message.error(

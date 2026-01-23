@@ -208,7 +208,36 @@ class TorrentManager(Database):
         bangumis = self.bangumi.search_all()
         for bangumi in bangumis:
             if not bangumi.poster_link:
-                TitleParser().tmdb_poster_parser(bangumi)
+                poster_fetched = False
+
+                # Try Mikan parser if RSS uses mikan parser
+                if bangumi.rss_id:
+                    rss = self.rss.search_id(bangumi.rss_id)
+                    if rss and rss.parser == "mikan":
+                        # Find a torrent with homepage for this bangumi
+                        torrent = self.torrent.search_by_bangumi_id_with_homepage(
+                            bangumi.id
+                        )
+                        if torrent and torrent.homepage:
+                            try:
+                                result = TitleParser().mikan_parser_with_rss(
+                                    torrent.homepage
+                                )
+                                if result.poster_link:
+                                    bangumi.poster_link = result.poster_link
+                                    poster_fetched = True
+                                    logger.debug(
+                                        f"[Poster] Fetched from Mikan: {bangumi.official_title}"
+                                    )
+                            except Exception as e:
+                                logger.warning(
+                                    f"[Poster] Mikan parser failed for {bangumi.official_title}: {e}"
+                                )
+
+                # Fallback to TMDB if Mikan didn't work or not applicable
+                if not poster_fetched:
+                    TitleParser().tmdb_poster_parser(bangumi)
+
         self.bangumi.update_all(bangumis)
         return ResponseModel(
             status_code=200,
@@ -219,7 +248,32 @@ class TorrentManager(Database):
 
     def refind_poster(self, bangumi_id: int):
         bangumi = self.bangumi.search_id(bangumi_id)
-        TitleParser().tmdb_poster_parser(bangumi)
+        poster_fetched = False
+
+        # Try Mikan parser if RSS uses mikan parser
+        if bangumi.rss_id:
+            rss = self.rss.search_id(bangumi.rss_id)
+            if rss and rss.parser == "mikan":
+                # Find a torrent with homepage for this bangumi
+                torrent = self.torrent.search_by_bangumi_id_with_homepage(bangumi.id)
+                if torrent and torrent.homepage:
+                    try:
+                        result = TitleParser().mikan_parser_with_rss(torrent.homepage)
+                        if result.poster_link:
+                            bangumi.poster_link = result.poster_link
+                            poster_fetched = True
+                            logger.debug(
+                                f"[Poster] Fetched from Mikan: {bangumi.official_title}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"[Poster] Mikan parser failed for {bangumi.official_title}: {e}"
+                        )
+
+        # Fallback to TMDB if Mikan didn't work or not applicable
+        if not poster_fetched:
+            TitleParser().tmdb_poster_parser(bangumi)
+
         self.bangumi.update(bangumi)
         return ResponseModel(
             status_code=200,

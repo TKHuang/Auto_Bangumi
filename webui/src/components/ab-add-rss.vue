@@ -32,7 +32,7 @@ const manualInputPartialData = reactive({
   subtitle: '',
 });
 const manualInputForm = reactive({
-  title: '',
+  officialTitle: '',
   season: 1,
   groupName: '',
 });
@@ -135,7 +135,7 @@ watch(show, (val) => {
     manualInputPartialData.season = 1;
     manualInputPartialData.resolution = '';
     manualInputPartialData.subtitle = '';
-    manualInputForm.title = '';
+    manualInputForm.officialTitle = '';
     manualInputForm.season = 1;
     manualInputForm.groupName = '';
     setTimeout(() => {
@@ -191,7 +191,7 @@ function handleParsingFailedError(err: BangumiParsingFailedError) {
   manualInputPartialData.subtitle = err.partial_data.subtitle || '';
 
   // Pre-fill form with partial data
-  manualInputForm.title = '';
+  manualInputForm.officialTitle = '';
   manualInputForm.season = manualInputPartialData.season;
   manualInputForm.groupName = manualInputPartialData.group;
 }
@@ -296,9 +296,9 @@ function subscribe() {
 
 function submitManualInput() {
   // Validation
-  if (!manualInputForm.title.trim()) {
+  if (!manualInputForm.officialTitle.trim()) {
     message.error(
-      t('notify.please_enter', [t('rss.manual_input.title') || 'Title'])
+      t('notify.please_enter', [t('rss.manual_input.official_title') || 'Official Title'])
     );
     return;
   }
@@ -329,7 +329,7 @@ function submitManualInput() {
       windowState.loading = false;
     },
   }).execute(rss.value, {
-    title: manualInputForm.title.trim(),
+    officialTitle: manualInputForm.officialTitle.trim(),
     season: manualInputForm.season,
     groupName: manualInputForm.groupName.trim() || undefined,
   });
@@ -342,7 +342,7 @@ function submitManualInput() {
     :title="
       rss.id !== 0 ? $t('rss.edit_title') || 'Edit RSS' : $t('topbar.add.title')
     "
-    :css="windowState.rule ? 'max-w-900' : 'w-360'"
+    :css="windowState.rule ? 'max-w-900' : manualInputMode ? 'w-480' : 'w-360'"
   >
     <div v-if="!windowState.next" space-y-12>
       <ab-setting
@@ -391,7 +391,7 @@ function submitManualInput() {
     </div>
 
     <!-- Manual Input Mode (when parsing failed) -->
-    <div v-else-if="manualInputMode" class="w-400" space-y-16>
+    <div v-else-if="manualInputMode" space-y-16>
       <!-- Error Message -->
       <div
         rounded-8
@@ -445,13 +445,13 @@ function submitManualInput() {
       <div line my-12></div>
 
       <ab-setting
-        v-model:data="manualInputForm.title"
-        :label="$t('rss.manual_input.title') || 'Title'"
+        v-model:data="manualInputForm.officialTitle"
+        :label="$t('rss.manual_input.official_title') || 'Official Title'"
         type="input"
         :prop="{
           placeholder:
-            $t('rss.manual_input.title_placeholder') ||
-            'Enter bangumi title (required)',
+            $t('rss.manual_input.official_title_placeholder') ||
+            'Enter bangumi official title (required)',
         }"
       ></ab-setting>
 

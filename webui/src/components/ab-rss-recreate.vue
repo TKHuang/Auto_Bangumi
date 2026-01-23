@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { useDebounceFn } from '@vueuse/core';
-import type { BangumiRule } from '#/bangumi';
+import type { BangumiAPI, BangumiRule } from '#/bangumi';
+import { ruleTemplate } from '#/bangumi';
 import type { RSS } from '#/rss';
 
 const show = defineModel<boolean>('show', { default: false });
@@ -16,6 +17,16 @@ const isAggregate = computed(() => bangumiList.value.length > 1);
 
 // Track which bangumi is currently expanded for preview (aggregate mode)
 const expandedIndex = ref<number | null>(null);
+
+// Track if we're in pending review mode (official_title should be read-only)
+const isPendingReview = ref(false);
+
+// Parsing error state (shown as warning in single-bangumi mode)
+const parsingError = reactive({
+  hasError: false,
+  msgEn: '',
+  msgZh: '',
+});
 
 const loading = reactive({
   bangumi: false,
@@ -33,16 +44,22 @@ const torrents = ref<
 >([]);
 
 // Torrents per bangumi for aggregate mode (keyed by index)
-const aggregateTorrents = ref<Map<number, { name: string; url: string; homepage: string; filter: boolean }[]>>(new Map());
+const aggregateTorrents = ref<
+  Map<
+    number,
+    { name: string; url: string; homepage: string; filter: boolean }[]
+  >
+>(new Map());
 const aggregateTorrentsLoading = ref<Set<number>>(new Set());
 
 // Unified loading state for preventing accidental close
-const isAnyLoading = computed(() =>
-  loading.bangumi ||
-  loading.torrents ||
-  loading.collect ||
-  loading.subscribe ||
-  aggregateTorrentsLoading.value.size > 0
+const isAnyLoading = computed(
+  () =>
+    loading.bangumi ||
+    loading.torrents ||
+    loading.collect ||
+    loading.subscribe ||
+    aggregateTorrentsLoading.value.size > 0
 );
 
 // Can close dialog only when not loading
@@ -88,7 +105,7 @@ async function getAggregateTorrentsForBangumi(index: number) {
     // Use the bangumi's season-specific RSS link if available
     // This is the RSS that will actually be used when eps_complete_from_source is enabled
     const bangumiRssUrl = b.rss_link?.[0];
-    
+
     if (bangumiRssUrl && bangumiRssUrl !== rssItem.value?.url) {
       // Bangumi has a season-specific RSS (different from aggregate RSS)
       // Use it directly without title_raw filtering since it's already specific
@@ -146,7 +163,7 @@ watch(
   () => bangumiList.value.map((b) => b.filter),
   (newFilters, oldFilters) => {
     if (!isAggregate.value) return;
-    
+
     // Find which bangumi's filter changed
     newFilters.forEach((filter, index) => {
       if (JSON.stringify(filter) !== JSON.stringify(oldFilters?.[index])) {
@@ -157,9 +174,72 @@ watch(
   { deep: true }
 );
 
-const { t } = useMyI18n();
+const { t, returnUserLangText } = useMyI18n();
 const message = useMessage();
 const { getAll } = useBangumiStore();
+
+// Error type guard for parsing failures
+interface BangumiParsingFailedError {
+  status: boolean;
+  status_code: number;
+  error_type: string;
+  msg_en: string;
+  msg_zh: string;
+  partial_data: {
+    raw_title: string;
+    group: string | null;
+    season: number | null;
+    resolution: string | null;
+    subtitle: string | null;
+  };
+}
+
+function isBangumiParsingFailedError(
+  err: unknown
+): err is BangumiParsingFailedError {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'error_type' in err &&
+    (err as BangumiParsingFailedError).error_type === 'bangumi_parsing_failed'
+  );
+}
+
+function handleParsingFailedError(
+  err: BangumiParsingFailedError,
+  pendingBangumi: BangumiAPI[]
+) {
+  // Store error info for display
+  parsingError.hasError = true;
+  parsingError.msgEn = err.msg_en;
+  parsingError.msgZh = err.msg_zh;
+
+  // Create skeleton BangumiRule from partial data - show in ab-rule form directly
+  const partial = err.partial_data;
+
+  // If there's a pending bangumi, use its official_title (read-only)
+  let officialTitle = '';
+  if (pendingBangumi.length > 0) {
+    officialTitle = pendingBangumi[0].official_title;
+    isPendingReview.value = true;
+  }
+
+  bangumi.value = {
+    ...ruleTemplate,
+    rss_id: rssId.value,
+    official_title: officialTitle, // Prefill from pending if exists, otherwise empty
+    title_raw: partial.raw_title || '',
+    season: partial.season ?? 1,
+    group_name: partial.group || '',
+    dpi: partial.resolution || '',
+    subtitle: partial.subtitle || '',
+    filter: [], // Empty filter - user can adjust
+    rss_link: rssItem.value?.url ? [rssItem.value.url] : [],
+  };
+
+  // Load torrents for preview (may show all since no filter)
+  getTorrents();
+}
 
 // Cleanup function to reset state and cancel pending requests
 function cleanupState() {
@@ -176,6 +256,14 @@ function cleanupState() {
   aggregateTorrents.value.clear();
   debouncedGetAggregateTorrents.clear();
   expandedIndex.value = null;
+
+  // Reset parsing error state
+  parsingError.hasError = false;
+  parsingError.msgEn = '';
+  parsingError.msgZh = '';
+
+  // Reset pending review state
+  isPendingReview.value = false;
 
   // Reset loading states
   loading.bangumi = false;
@@ -215,35 +303,75 @@ async function loadBangumi() {
   expandedIndex.value = null;
   aggregateTorrents.value.clear();
   debouncedGetAggregateTorrents.clear();
-  
+  parsingError.hasError = false;
+  isPendingReview.value = false;
+
+  // Fetch pending bangumi first (outside inner try-catch so it's available in error handling)
+  let pendingBangumi: BangumiAPI[] = [];
+
   try {
     const rss = await apiRSS.get();
     rssItem.value = rss.find((r) => r.id === rssId.value) || null;
 
+    // Check if there are existing pending bangumi for this RSS
+    // If so, we'll use their official_title (read-only) to prevent duplicates
+    try {
+      pendingBangumi = await apiRSS.getPendingBangumi(rssId.value);
+    } catch {
+      // Ignore errors - proceed with fresh parse
+    }
+
     const data = await apiRSS.recreate(rssId.value);
+
     if (data && data.length > 0) {
       if (data.length === 1) {
         // Single bangumi - use original behavior (non-aggregate RSS)
         const first = data[0];
+
+        // If there's a pending bangumi, use its official_title (read-only)
+        let officialTitle = first.official_title;
+        if (pendingBangumi.length > 0) {
+          officialTitle = pendingBangumi[0].official_title;
+          isPendingReview.value = true;
+        }
+
         bangumi.value = {
           ...first,
+          official_title: officialTitle,
           filter: first.filter.split(','),
           rss_link: first.rss_link.split(','),
         };
         getTorrents();
       } else {
         // Multiple bangumi - aggregate RSS mode
-        bangumiList.value = data.map((b, index) => ({
-          ...b,
-          filter: b.filter.split(','),
-          rss_link: b.rss_link.split(','),
-        }));
-        
+        // For aggregate RSS, also check pending and apply read-only official_title
+        const pendingByTitleRaw = new Map(
+          pendingBangumi.map((b) => [b.title_raw, b])
+        );
+        const hasPending = pendingBangumi.length > 0;
+
+        bangumiList.value = data.map((b) => {
+          // If this bangumi has a pending version, use its official_title
+          const pendingMatch = pendingByTitleRaw.get(b.title_raw);
+          return {
+            ...b,
+            official_title: pendingMatch?.official_title || b.official_title,
+            filter: b.filter.split(','),
+            rss_link: b.rss_link.split(','),
+          };
+        });
+
+        if (hasPending) {
+          isPendingReview.value = true;
+        }
+
         // Load torrents for all bangumi in parallel
         await Promise.all(
-          bangumiList.value.map((_, index) => getAggregateTorrentsForBangumi(index))
+          bangumiList.value.map((_, index) =>
+            getAggregateTorrentsForBangumi(index)
+          )
         );
-        
+
         // Expand first bangumi by default
         if (bangumiList.value.length > 0) {
           expandedIndex.value = 0;
@@ -254,8 +382,13 @@ async function loadBangumi() {
       show.value = false;
     }
   } catch (e) {
-    message.error(t('notify.update_failed'));
-    show.value = false;
+    // Check if this is a bangumi parsing failed error
+    if (isBangumiParsingFailedError(e)) {
+      handleParsingFailedError(e, pendingBangumi);
+    } else {
+      message.error(t('notify.update_failed'));
+      show.value = false;
+    }
   } finally {
     loading.bangumi = false;
   }
@@ -289,7 +422,9 @@ async function subscribe() {
       }
 
       if (successCount > 0) {
-        message.success(t('rss.subscribe_success_count', { count: successCount }));
+        message.success(
+          t('rss.subscribe_success_count', { count: successCount })
+        );
         getAll();
         show.value = false;
       } else {
@@ -334,7 +469,9 @@ async function collect() {
       }
 
       if (successCount > 0) {
-        message.success(t('rss.collect_success_count', { count: successCount }));
+        message.success(
+          t('rss.collect_success_count', { count: successCount })
+        );
         getAll();
         show.value = false;
       } else {
@@ -375,7 +512,9 @@ async function collect() {
     <!-- Loading State with Skeleton -->
     <div v-if="loading.bangumi" class="skeleton-container">
       <div class="skeleton-header">
-        <span class="text-14 text-gray-500">{{ $t('rss.parsing_torrents') }}</span>
+        <span class="text-14 text-gray-500">{{
+          $t('rss.parsing_torrents')
+        }}</span>
       </div>
       <div class="skeleton-grid">
         <ab-skeleton-card
@@ -394,22 +533,51 @@ async function collect() {
     </div>
 
     <!-- Single Bangumi Mode (Non-Aggregate RSS) -->
-    <div v-else-if="bangumi && !isAggregate" flex="~ gap-x-12">
-      <div class="w-360" space-y-12>
-        <ab-rule v-model:rule="bangumi"></ab-rule>
-        <div flex="~ justify-end gap-x-10" mt-16>
-          <ab-button size="small" :loading="loading.collect" @click="collect">
-            {{ $t('topbar.add.collect') }}
-          </ab-button>
-          <ab-button
-            size="small"
-            :loading="loading.subscribe"
-            @click="subscribe"
-          >
-            {{ $t('topbar.add.subscribe') }}
-          </ab-button>
+    <div v-else-if="bangumi && !isAggregate" flex="~ col gap-y-12">
+      <!-- Parsing Error Warning -->
+      <div
+        v-if="parsingError.hasError"
+        rounded-8
+        bg="amber-50 dark:amber-900/20"
+        p-12
+        border="~ amber-200 dark:amber-700"
+      >
+        <div flex="~ items-start gap-x-8">
+          <div i-carbon-warning-alt text="amber-500" text-18 mt-2 shrink-0></div>
+          <div>
+            <div text="14 amber-700 dark:amber-300" font-medium mb-4>
+              {{
+                $t('rss.manual_input.parsing_failed_title') || 'Parsing Failed'
+              }}
+            </div>
+            <div text="13 amber-600 dark:amber-400">
+              {{
+                returnUserLangText({
+                  en: parsingError.msgEn,
+                  'zh-CN': parsingError.msgZh,
+                })
+              }}
+            </div>
+          </div>
         </div>
       </div>
+
+      <div flex="~ gap-x-12">
+        <div class="w-360" space-y-12>
+          <ab-rule v-model:rule="bangumi" :readonly-official-title="isPendingReview"></ab-rule>
+          <div flex="~ justify-end gap-x-10" mt-16>
+            <ab-button size="small" :loading="loading.collect" @click="collect">
+              {{ $t('topbar.add.collect') }}
+            </ab-button>
+            <ab-button
+              size="small"
+              :loading="loading.subscribe"
+              @click="subscribe"
+            >
+              {{ $t('topbar.add.subscribe') }}
+            </ab-button>
+          </div>
+        </div>
 
       <div class="w-500" flex="~ col">
         <div text="14 gray-500" mb-8 flex="~ justify-between items-center">
@@ -456,7 +624,9 @@ async function collect() {
           <!-- Exclude List -->
           <div flex="~ col" flex-1 overflow-hidden>
             <div text="12 gray-400" mb-4 px-4>
-              {{ $t('rss.exclude') || 'Exclude' }} ({{ torrentsExclude.length }})
+              {{ $t('rss.exclude') || 'Exclude' }} ({{
+                torrentsExclude.length
+              }})
             </div>
             <div
               flex-1
@@ -487,6 +657,7 @@ async function collect() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
 
@@ -521,7 +692,16 @@ async function collect() {
                 class="expand-icon"
                 :class="{ rotated: expandedIndex === index }"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-16 h-16">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="w-16 h-16"
+                >
                   <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
               </div>
@@ -530,7 +710,8 @@ async function collect() {
               </div>
             </div>
             <div text="12 gray-500">
-              {{ getAggregateTorrentsKeep(index).length }} {{ $t('rss.torrents_will_download') || 'torrents' }}
+              {{ getAggregateTorrentsKeep(index).length }}
+              {{ $t('rss.torrents_will_download') || 'torrents' }}
             </div>
           </div>
 
@@ -539,12 +720,16 @@ async function collect() {
             <div flex="~ gap-x-16">
               <!-- Edit Form (Left) -->
               <div class="w-320 shrink-0">
-                <ab-rule v-model:rule="bangumiList[index]"></ab-rule>
+                <ab-rule v-model:rule="bangumiList[index]" :readonly-official-title="isPendingReview"></ab-rule>
               </div>
 
               <!-- Torrent Preview (Right) -->
               <div flex="~ col" flex-1 overflow-hidden min-w-0>
-                <div text="14 gray-500" mb-8 flex="~ justify-between items-center">
+                <div
+                  text="14 gray-500"
+                  mb-8
+                  flex="~ justify-between items-center"
+                >
                   <span>{{ $t('rss.torrent_list') || 'Torrent List' }}</span>
                   <span v-if="aggregateTorrentsLoading.has(index)" animate-spin>
                     <div i-carbon-renew></div>
@@ -555,7 +740,9 @@ async function collect() {
                   <!-- Keep List -->
                   <div flex="~ col" flex-1 overflow-hidden>
                     <div text="12 gray-400" mb-4 px-4>
-                      {{ $t('rss.keep') || 'Keep' }} ({{ getAggregateTorrentsKeep(index).length }})
+                      {{ $t('rss.keep') || 'Keep' }} ({{
+                        getAggregateTorrentsKeep(index).length
+                      }})
                     </div>
                     <div
                       flex-1
@@ -576,7 +763,10 @@ async function collect() {
                         {{ torrent.name }}
                       </div>
                       <div
-                        v-if="getAggregateTorrentsKeep(index).length === 0 && !aggregateTorrentsLoading.has(index)"
+                        v-if="
+                          getAggregateTorrentsKeep(index).length === 0 &&
+                          !aggregateTorrentsLoading.has(index)
+                        "
                         text="12 gray-400 center"
                         py-20
                       >
@@ -588,7 +778,9 @@ async function collect() {
                   <!-- Exclude List -->
                   <div flex="~ col" flex-1 overflow-hidden>
                     <div text="12 gray-400" mb-4 px-4>
-                      {{ $t('rss.exclude') || 'Exclude' }} ({{ getAggregateTorrentsExclude(index).length }})
+                      {{ $t('rss.exclude') || 'Exclude' }} ({{
+                        getAggregateTorrentsExclude(index).length
+                      }})
                     </div>
                     <div
                       flex-1
@@ -610,7 +802,10 @@ async function collect() {
                         {{ torrent.name }}
                       </div>
                       <div
-                        v-if="getAggregateTorrentsExclude(index).length === 0 && !aggregateTorrentsLoading.has(index)"
+                        v-if="
+                          getAggregateTorrentsExclude(index).length === 0 &&
+                          !aggregateTorrentsLoading.has(index)
+                        "
                         text="12 gray-400 center"
                         py-20
                       >
@@ -626,22 +821,22 @@ async function collect() {
       </div>
 
       <!-- Action Buttons -->
-      <div flex="~ justify-end gap-x-10" px-8 pt-8 border-t="1 solid gray-200 dark:gray-700">
+      <div
+        flex="~ justify-end gap-x-10"
+        px-8
+        pt-8
+        border-t="1 solid gray-200 dark:gray-700"
+      >
         <div text="12 gray-500" flex-1 flex="~ items-center">
-          {{ $t('rss.will_subscribe_count', { count: bangumiList.length }) || `Will subscribe ${bangumiList.length} bangumi` }}
+          {{
+            $t('rss.will_subscribe_count', { count: bangumiList.length }) ||
+            `Will subscribe ${bangumiList.length} bangumi`
+          }}
         </div>
-        <ab-button
-          size="small"
-          :loading="loading.collect"
-          @click="collect"
-        >
+        <ab-button size="small" :loading="loading.collect" @click="collect">
           {{ $t('topbar.add.collect') }}
         </ab-button>
-        <ab-button
-          size="small"
-          :loading="loading.subscribe"
-          @click="subscribe"
-        >
+        <ab-button size="small" :loading="loading.subscribe" @click="subscribe">
           {{ $t('topbar.add.subscribe') }}
         </ab-button>
       </div>
@@ -697,11 +892,13 @@ async function collect() {
 
 .bangumi-card.expanded {
   border-color: rgb(59, 130, 246);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12),
+    0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .dark .bangumi-card.expanded {
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2),
+    0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
 .bangumi-card:hover {
