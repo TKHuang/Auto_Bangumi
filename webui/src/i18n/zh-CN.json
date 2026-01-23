@@ -189,7 +189,20 @@
     "delete_success": "RSS 删除成功",
     "delete_failed": "删除 RSS 失败",
     "confirm": "确定",
-    "cancel": "取消"
+    "cancel": "取消",
+    "manual_input": {
+      "parsing_failed_title": "解析失败",
+      "original_torrent": "原始种子名称",
+      "rss_url": "RSS 链接",
+      "title": "标题",
+      "title_placeholder": "请输入番剧标题（必填）",
+      "season": "季度",
+      "group_name": "字幕组",
+      "group_placeholder": "可选",
+      "detected_info": "已检测信息",
+      "resolution": "分辨率",
+      "subtitle": "字幕"
+    }
   },
   "sidebar": {
     "calendar": "番剧日历",
