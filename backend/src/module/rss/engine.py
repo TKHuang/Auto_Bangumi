@@ -103,9 +103,13 @@ class RSSEngine(Database):
 
         # Try to download the torrent
         with DownloadClient() as client:
+            save_path_before = bangumi.save_path
             if client.add_torrent(torrent, bangumi):
                 torrent.downloaded = True
                 self.torrent.update(torrent)
+                # Persist newly generated save_path to database
+                if not save_path_before and bangumi.save_path:
+                    self.bangumi.update_save_path(bangumi.id, bangumi.save_path)
 
         return ResponseModel(
             status=True,
@@ -234,10 +238,14 @@ class RSSEngine(Database):
                     matched_data = self.match_torrent(torrent)
                     if matched_data:
                         # This torrent has a matching Bangumi rule
+                        save_path_before = matched_data.save_path
                         if client.add_torrent(torrent, matched_data):
                             logger.debug(
                                 f"[Engine] Add torrent {torrent.name} to client"
                             )
+                            # Persist newly generated save_path to database
+                            if not save_path_before and matched_data.save_path:
+                                self.bangumi.update_save_path(matched_data.id, matched_data.save_path)
                         torrent.downloaded = True
                         matched_torrents.append(torrent)
                     else:
@@ -332,7 +340,11 @@ class RSSEngine(Database):
 
             # Add torrents to downloader and database
             with DownloadClient() as client:
+                save_path_before = bangumi.save_path
                 client.add_torrent(new_torrents, bangumi)
+                # Persist newly generated save_path to database
+                if not save_path_before and bangumi.save_path:
+                    self.bangumi.update_save_path(bangumi.id, bangumi.save_path)
                 self.torrent.add_all(new_torrents)
                 return ResponseModel(
                     status=True,

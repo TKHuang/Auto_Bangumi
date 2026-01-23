@@ -341,3 +341,88 @@ async def subscribe(data: Bangumi, rss: RSSItem):
                     msg_zh=f"该番剧已从其他 RSS 源订阅。请先删除现有订阅。({error_msg})",
                 )
     return u_response(await asyncio.to_thread(_sync))
+
+
+
+@router.get(
+    path="/{rss_id}/pending-count",
+    response_model=dict,
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_count(rss_id: int):
+    """Get the count of pending review bangumi for a specific RSS feed."""
+    def _sync():
+        with RSSEngine() as engine:
+            return {"pending_count": engine.bangumi.count_pending_by_rss_id(rss_id)}
+    return await asyncio.to_thread(_sync)
+
+
+@router.get(
+    path="/aggregate/pending/{rss_id}",
+    response_model=dict,
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_bangumi_list(rss_id: int):
+    """Get all pending review bangumi for a specific aggregate RSS feed.
+
+    Returns list of pending bangumi with parsed global_filter_matches as arrays,
+    plus summary counts for pending and active bangumi.
+
+    Returns 400 if the RSS is not an aggregate RSS feed.
+    """
+    def _sync():
+        with RSSEngine() as engine:
+            # Check if RSS exists and is aggregate
+            rss = engine.rss.search_id(rss_id)
+            if not rss:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": "RSS feed not found"}
+                )
+            if not rss.aggregate:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "This endpoint only works for aggregate RSS feeds"}
+                )
+
+            # Get pending bangumi list
+            pending_list = engine.bangumi.get_pending_by_rss_id(rss_id)
+
+            # Convert to dict and parse global_filter_matches as array
+            bangumi_data = []
+            for bangumi in pending_list:
+                data = {
+                    "id": bangumi.id,
+                    "rss_id": bangumi.rss_id,
+                    "official_title": bangumi.official_title,
+                    "year": bangumi.year,
+                    "title_raw": bangumi.title_raw,
+                    "season": bangumi.season,
+                    "season_raw": bangumi.season_raw,
+                    "group_name": bangumi.group_name,
+                    "dpi": bangumi.dpi,
+                    "source": bangumi.source,
+                    "subtitle": bangumi.subtitle,
+                    "filter": bangumi.filter,
+                    "rss_link": bangumi.rss_link,
+                    "poster_link": bangumi.poster_link,
+                    "pending_review": bangumi.pending_review,
+                    # Parse comma-separated global_filter_matches into array
+                    "global_filter_matches": (
+                        [m.strip() for m in bangumi.global_filter_matches.split(",")]
+                        if bangumi.global_filter_matches
+                        else []
+                    ),
+                }
+                bangumi_data.append(data)
+
+            # Get counts
+            pending_count = len(pending_list)
+            active_count = engine.bangumi.count_active_by_rss_id(rss_id)
+
+            return {
+                "pending_count": pending_count,
+                "active_count": active_count,
+                "bangumi": bangumi_data,
+            }
+    return await asyncio.to_thread(_sync)

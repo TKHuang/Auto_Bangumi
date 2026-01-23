@@ -114,9 +114,13 @@ class TorrentStatusManager(Database):
             )
 
         with DownloadClient() as client:
+            save_path_before = bangumi.save_path
             if client.add_torrent(torrent, bangumi):
                 torrent.downloaded = True
                 self.torrent.update(torrent)
+                # Persist newly generated save_path to database
+                if not save_path_before and bangumi.save_path:
+                    self.bangumi.update_save_path(bangumi.id, bangumi.save_path)
                 return ResponseModel(
                     status=True,
                     status_code=200,

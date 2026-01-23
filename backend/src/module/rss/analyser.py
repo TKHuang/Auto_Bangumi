@@ -82,10 +82,21 @@ class RSSAnalyser(TitleParser):
         bangumi.official_title = re.sub(r"[/:.\\]", " ", bangumi.official_title)
 
     @staticmethod
-    def get_rss_torrents(rss_link: str, full_parse: bool = True) -> list[Torrent]:
+    def get_rss_torrents(rss_link: str, full_parse: bool = True, apply_filter: bool = True) -> list[Torrent]:
+        """Get torrents from RSS feed.
+        
+        Args:
+            rss_link: The RSS URL to fetch torrents from.
+            full_parse: If True, fetch all torrents. If False, filter out batch releases.
+            apply_filter: If True (default), apply global filter patterns. 
+                         If False, fetch all torrents unfiltered (for aggregate RSS pending review).
+        """
         with RequestContent() as req:
             if full_parse:
-                rss_torrents = req.get_torrents(rss_link)
+                # For aggregate RSS with pending review, we need unfiltered torrents
+                # Pass empty string to bypass global filter
+                filter_arg = None if apply_filter else ""
+                rss_torrents = req.get_torrents(rss_link, _filter=filter_arg)
             else:
                 rss_torrents = req.get_torrents(rss_link, "\\d+-\\d+")
         return rss_torrents
@@ -122,7 +133,11 @@ class RSSAnalyser(TitleParser):
     def rss_to_data(
         self, rss: RSSItem, engine: RSSEngine, full_parse: bool = True
     ) -> list[Bangumi]:
-        rss_torrents = self.get_rss_torrents(rss.url, full_parse)
+        # For aggregate RSS, get unfiltered torrents so we can create pending review records
+        # For non-aggregate RSS, apply global filter as before
+        apply_filter = not rss.aggregate
+        rss_torrents = self.get_rss_torrents(rss.url, full_parse, apply_filter=apply_filter)
+        
         torrents_to_add, matched_pairs = engine.bangumi.match_list(
             rss_torrents, rss.url
         )
@@ -135,14 +150,82 @@ class RSSAnalyser(TitleParser):
         if not torrents_to_add:
             logger.debug("[RSS] No new title has been found.")
             return []
-        # New List
-        new_data = self.torrents_to_data(torrents_to_add, rss, full_parse)
-        if new_data:
-            # Add to database
+
+        # For aggregate RSS, check global filter and create pending review records
+        if rss.aggregate:
+            active_bangumi = []
+            pending_bangumi = []
+            global_filter_patterns = settings.rss_parser.filter
+
+            # Process each torrent individually to preserve original torrent name for filter matching
+            for torrent in torrents_to_add:
+                bangumi = self.raw_parser(raw=torrent.name)
+                if not bangumi:
+                    continue
+                    
+                # Skip duplicates within this batch (same title_raw)
+                if bangumi.title_raw in [b.title_raw for b in active_bangumi + pending_bangumi]:
+                    continue
+                
+                self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)
+                # Ensure rss_link is set (fallback to aggregate URL if not set by parser)
+                if not bangumi.rss_link:
+                    bangumi.rss_link = rss.url
+                # Set foreign key to RSS
+                bangumi.rss_id = rss.id
+                
+                # Check if bangumi already exists (active or pending) by composite key
+                if engine.bangumi.exists_by_composite_key(
+                    bangumi.official_title, bangumi.season, bangumi.group_name
+                ):
+                    logger.debug(
+                        f"[RSS] Skipping duplicate bangumi: {bangumi.official_title} "
+                        f"(season={bangumi.season}, group={bangumi.group_name})"
+                    )
+                    continue
+
+                # Check if ORIGINAL TORRENT NAME matches any global filter pattern
+                # This is the key fix - use torrent.name, not bangumi.title_raw
+                matched_patterns = []
+                for pattern in global_filter_patterns:
+                    if re.search(pattern, torrent.name, re.IGNORECASE):
+                        matched_patterns.append(pattern)
+
+                if matched_patterns:
+                    # Torrent matches global filter - save as pending review
+                    bangumi.pending_review = True
+                    bangumi.global_filter_matches = ",".join(matched_patterns)
+                    pending_bangumi.append(bangumi)
+                    logger.info(
+                        f"[RSS] Pending review bangumi: {bangumi.official_title} "
+                        f"(filtered by: {bangumi.global_filter_matches})"
+                    )
+                else:
+                    # Torrent passes global filter - save as active
+                    active_bangumi.append(bangumi)
+                    logger.info(f"[RSS] New bangumi founded: {bangumi.official_title}")
+                
+                if not full_parse:
+                    # For quick parse, return first bangumi found
+                    if active_bangumi:
+                        engine.bangumi.add_all(active_bangumi)
+                        return active_bangumi
+                    elif pending_bangumi:
+                        engine.bangumi.add_all(pending_bangumi)
+                        return []  # Don't return pending for immediate download
+
+            # Add all bangumi (active and pending) to database
+            all_bangumi = active_bangumi + pending_bangumi
+            if all_bangumi:
+                engine.bangumi.add_all(all_bangumi)
+            return active_bangumi  # Only return active bangumi for immediate download
+        else:
+            # Non-aggregate RSS - original behavior (no global filter check)
+            new_data = self.torrents_to_data(torrents_to_add, rss, full_parse)
+            if not new_data:
+                return []
             engine.bangumi.add_all(new_data)
             return new_data
-        else:
-            return []
 
     def _update_matched_bangumi_rss(
         self,

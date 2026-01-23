@@ -1,5 +1,6 @@
 <script lang="tsx" setup>
-import { NDataTable } from 'naive-ui';
+import { NDataTable, NDropdown, NTooltip, useDialog } from 'naive-ui';
+import type { DropdownOption } from 'naive-ui';
 import type { RSS } from '#/rss';
 import { rssTemplate } from '#/rss';
 
@@ -15,6 +16,78 @@ const { getAll, deleteSelected, disableSelected, enableSelected, refreshRSS } =
 const showEdit = ref(false);
 const editRSS = ref<RSS>(rssTemplate);
 
+// Pending review counts per RSS
+const pendingCounts = ref<Record<number, number>>({});
+
+// AR Manage Dialog state
+const showManageDialog = ref(false);
+const manageDialogRssId = ref(0);
+const manageDialogRssName = ref('');
+
+function openManageDialog(rss: RSS) {
+  manageDialogRssId.value = rss.id;
+  manageDialogRssName.value = rss.name;
+  showManageDialog.value = true;
+}
+
+// Context menu state
+const showContextMenu = ref(false);
+const contextMenuX = ref(0);
+const contextMenuY = ref(0);
+const contextMenuRss = ref<RSS | null>(null);
+
+const contextMenuOptions = computed<DropdownOption[]>(() => {
+  if (!contextMenuRss.value?.aggregate) {
+    return [];
+  }
+  return [
+    {
+      label: t('rss.manage_bangumi'),
+      key: 'manage',
+    },
+  ];
+});
+
+function handleContextMenu(e: MouseEvent, rss: RSS) {
+  e.preventDefault();
+  contextMenuRss.value = rss;
+  showContextMenu.value = false;
+  nextTick().then(() => {
+    showContextMenu.value = true;
+    contextMenuX.value = e.clientX;
+    contextMenuY.value = e.clientY;
+  });
+}
+
+function handleContextMenuSelect(key: string | number) {
+  showContextMenu.value = false;
+  if (key === 'manage' && contextMenuRss.value) {
+    openManageDialog(contextMenuRss.value);
+  }
+}
+
+function handleClickOutside() {
+  showContextMenu.value = false;
+}
+
+async function fetchPendingCounts() {
+  const aggregateRss = rss.value.filter((r) => r.aggregate);
+  const results = await Promise.all(
+    aggregateRss.map(async (r) => {
+      try {
+        const res = await apiRSS.getPendingCount(r.id);
+        return { id: r.id, count: res.pending_count };
+      } catch {
+        return { id: r.id, count: 0 };
+      }
+    })
+  );
+  const counts: Record<number, number> = {};
+  results.forEach((r) => {
+    counts[r.id] = r.count;
+  });
+  pendingCounts.value = counts;
+}
 
 function handleEdit(item: RSS) {
   editRSS.value = { ...item };
@@ -23,6 +96,7 @@ function handleEdit(item: RSS) {
 
 
 const message = useMessage();
+const dialog = useDialog();
 
 const recreateDialog = ref<InstanceType<typeof import('./components/ab-rss-recreate.vue').default>>();
 
@@ -30,11 +104,78 @@ async function handleRecreate(rssId: number) {
   recreateDialog.value?.open(rssId);
 }
 
-onActivated(() => {
-  getAll();
+// Action dropdown options for each RSS row
+const actionOptions: DropdownOption[] = [
+  {
+    label: t('rss.refresh'),
+    key: 'refresh',
+  },
+  {
+    label: t('rss.recreate'),
+    key: 'recreate',
+  },
+  {
+    label: t('rss.edit'),
+    key: 'edit',
+  },
+  {
+    type: 'divider',
+    key: 'd1',
+  },
+  {
+    label: t('rss.delete'),
+    key: 'delete',
+    props: {
+      style: { color: '#e53935' },
+    },
+  },
+];
+
+function handleActionSelect(key: string | number, rss: RSS) {
+  switch (key) {
+    case 'refresh':
+      refreshRSS(rss.id);
+      break;
+    case 'recreate':
+      handleRecreate(rss.id);
+      break;
+    case 'edit':
+      handleEdit(rss);
+      break;
+    case 'delete':
+      handleDeleteRSS(rss);
+      break;
+  }
+}
+
+function handleDeleteRSS(rss: RSS) {
+  dialog.warning({
+    title: t('rss.confirm'),
+    content: t('rss.delete_confirm', { name: rss.name }),
+    positiveText: t('rss.confirm'),
+    negativeText: t('rss.cancel'),
+    onPositiveClick: async () => {
+      try {
+        await apiRSS.delete(rss.id);
+        message.success(t('rss.delete_success'));
+        await getAll();
+        fetchPendingCounts();
+      } catch (e) {
+        message.error(t('rss.delete_failed'));
+      }
+    },
+  });
+}
+
+onActivated(async () => {
+  await getAll();
+  fetchPendingCounts();
 });
 
 const RSSTableOptions = computed(() => {
+  // Access pendingCounts.value at top level to track as dependency for Vue reactivity
+  const currentPendingCounts = pendingCounts.value;
+
   const columns = [
     {
       type: 'selection',
@@ -67,64 +208,79 @@ const RSSTableOptions = computed(() => {
       key: 'status',
       className: 'text-h3',
       align: 'right',
-      width: 200,
+      width: 180,
       render(rss: RSS) {
+        const pendingCount = currentPendingCounts[rss.id] || 0;
         return (
-          <div flex="~ justify-end gap-x-4 items-center">
-            {rss.last_status === 'Success' && (
-              <ab-tag type="active" title="Success" />
-            )}
-            {rss.last_status === 'Error' && (
-              <n-tooltip trigger="hover">
-                {{
-                  trigger: () => <ab-tag type="inactive" title="Error" />,
-                  default: () => rss.last_error,
-                }}
-              </n-tooltip>
-            )}
-            {rss.parser && <ab-tag type="primary" title={rss.parser} />}
-            {rss.aggregate && <ab-tag type="primary" title="Agg" />}
-            {rss.enabled ? (
-              <ab-tag type="active" title="On" />
-            ) : (
-              <ab-tag type="inactive" title="Off" />
-            )}
+          <div flex="~ col gap-y-4 items-end">
+            {/* Row 1: Pending badge, Status, Parser */}
+            <div flex="~ gap-x-4 items-center">
+              {rss.aggregate && pendingCount > 0 && (
+                <NTooltip trigger="hover">
+                  {{
+                    trigger: () => (
+                      <div
+                        class="inline-flex items-center px-6 py-2 rounded-10
+                               bg-amber-500 hover:bg-amber-600
+                               text-white text-11 font-semibold
+                               cursor-pointer transition-colors"
+                        style={{ gap: '4px' }}
+                        onClick={(e: Event) => {
+                          e.stopPropagation();
+                          openManageDialog(rss);
+                        }}
+                      >
+                        <span class="i-mdi:alert-circle" style={{ width: '12px', height: '12px', flexShrink: 0 }} />
+                        <span>{pendingCount}</span>
+                      </div>
+                    ),
+                    default: () => t('rss.pending_review_count', { count: pendingCount }),
+                  }}
+                </NTooltip>
+              )}
+              {rss.last_status === 'Success' && (
+                <ab-tag type="active" title="Success" />
+              )}
+              {rss.last_status === 'Error' && (
+                <NTooltip trigger="hover">
+                  {{
+                    trigger: () => <ab-tag type="inactive" title="Error" />,
+                    default: () => rss.last_error,
+                  }}
+                </NTooltip>
+              )}
+              {rss.parser && <ab-tag type="primary" title={rss.parser} />}
+            </div>
+            {/* Row 2: Agg, On/Off */}
+            <div flex="~ gap-x-4 items-center">
+              {rss.aggregate && <ab-tag type="primary" title="Agg" />}
+              {rss.enabled ? (
+                <ab-tag type="active" title="On" />
+              ) : (
+                <ab-tag type="inactive" title="Off" />
+              )}
+            </div>
           </div>
         );
       },
     },
     {
-      title: t('rss.action') || 'Action',
+      title: '',
       key: 'action',
-      width: 280,
-      align: 'right',
+      width: 50,
+      align: 'center',
       render(rss: RSS) {
         return (
-          <div flex="~ justify-end gap-x-8">
-            <ab-button
-              type="primary"
-              onClick={() => refreshRSS(rss.id)}
-            >
-              <div flex="~ items-center gap-x-4 px-4">
-                <div class="i-mdi:refresh w-16 h-16" />
-                <span class="text-12">{t('rss.refresh')}</span>
-              </div>
-            </ab-button>
-            <ab-button
-              onClick={() => handleRecreate(rss.id)}
-            >
-              <div flex="~ items-center gap-x-4 px-4">
-                <div class="i-mdi:refresh-circle w-16 h-16" />
-                <span class="text-12">{t('rss.recreate')}</span>
-              </div>
-            </ab-button>
-            <ab-button onClick={() => handleEdit(rss)}>
-              <div flex="~ items-center gap-x-4 px-4">
-                <div class="i-mdi:edit w-16 h-16" />
-                <span class="text-12">{t('rss.edit')}</span>
-              </div>
-            </ab-button>
-          </div>
+          <NDropdown
+            trigger="click"
+            placement="bottom-end"
+            options={actionOptions}
+            onSelect={(key: string | number) => handleActionSelect(key, rss)}
+          >
+            <div class="cursor-pointer p-4 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-4">
+              <div class="i-mdi:dots-vertical w-18 h-18" />
+            </div>
+          </NDropdown>
         );
       },
     },
@@ -132,12 +288,19 @@ const RSSTableOptions = computed(() => {
 
   const rowKey = (rss: RSS) => rss.id;
 
+  const rowProps = (row: RSS) => {
+    return {
+      onContextmenu: (e: MouseEvent) => handleContextMenu(e, row),
+    };
+  };
+
   return {
     columns,
     data: rss.value,
     pagination: false,
     bordered: false,
     rowKey,
+    rowProps,
     maxHeight: 500,
   } as unknown as InstanceType<typeof NDataTable>;
 });
@@ -168,5 +331,23 @@ const RSSTableOptions = computed(() => {
     <ab-add-rss v-model:show="showEdit" v-model:rss="editRSS" />
 
     <ab-rss-recreate ref="recreateDialog" />
+
+    <ab-ar-manage
+      v-model:show="showManageDialog"
+      :rss-id="manageDialogRssId"
+      :rss-name="manageDialogRssName"
+      @activated="fetchPendingCounts"
+    />
+
+    <NDropdown
+      placement="bottom-start"
+      trigger="manual"
+      :x="contextMenuX"
+      :y="contextMenuY"
+      :options="contextMenuOptions"
+      :show="showContextMenu"
+      @select="handleContextMenuSelect"
+      @clickoutside="handleClickOutside"
+    />
   </div>
 </template>

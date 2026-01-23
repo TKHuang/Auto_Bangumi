@@ -28,6 +28,8 @@ class Bangumi(SQLModel, table=True):
     rule_name: Optional[str] = Field(alias="rule_name", title="番剧规则名")
     save_path: Optional[str] = Field(alias="save_path", title="番剧保存路径")
     deleted: bool = Field(False, alias="deleted", title="是否已删除")
+    pending_review: bool = Field(default=False, alias="pending_review", title="待审核")
+    global_filter_matches: Optional[str] = Field(default=None, alias="global_filter_matches", title="全局过滤匹配")
 
 
 class BangumiUpdate(SQLModel):

@@ -7,6 +7,10 @@ import {
 import presetRemToPx from '@unocss/preset-rem-to-px';
 
 export default defineConfig({
+  // Safelist for dynamically generated icon classes in JSX
+  safelist: [
+    'i-mdi:alert',
+  ],
   presets: [
     presetUno(),
     presetRemToPx({

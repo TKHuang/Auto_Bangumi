@@ -11,6 +11,7 @@ declare module '@vue/runtime-core' {
   export interface GlobalComponents {
     AbAdd: typeof import('./../../src/components/basic/ab-add.vue')['default']
     AbAddRss: typeof import('./../../src/components/ab-add-rss.vue')['default']
+    AbArManage: typeof import('./../../src/components/ab-ar-manage.vue')['default']
     AbBangumiCard: typeof import('./../../src/components/ab-bangumi-card.vue')['default']
     AbBangumiTorrents: typeof import('./../../src/components/ab-bangumi-torrents.vue')['default']
     AbButton: typeof import('./../../src/components/basic/ab-button.vue')['default']

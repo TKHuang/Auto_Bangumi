@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from sqlalchemy.sql import func
-from sqlmodel import Session, and_, col, delete, false, or_, select
+from sqlmodel import Session, and_, col, delete, false, or_, select, true
 
 from module.models import Bangumi, BangumiUpdate
 
@@ -84,6 +84,22 @@ class BangumiDatabase:
         self.session.refresh(bangumi)
         logger.debug(f"[Database] Update {title_raw} poster_link to {poster_link}.")
 
+    def update_save_path(self, bangumi_id: int, save_path: str):
+        """Update the save_path for a bangumi after torrents are downloaded.
+        
+        This ensures the generated save_path is persisted to the database,
+        allowing future torrents to be downloaded to the correct location.
+        """
+        bangumi = self.session.get(Bangumi, bangumi_id)
+        if not bangumi:
+            logger.warning(f"[Database] Cannot find bangumi id: {bangumi_id} for save_path update.")
+            return
+        bangumi.save_path = save_path
+        self.session.add(bangumi)
+        self.session.commit()
+        self.session.refresh(bangumi)
+        logger.debug(f"[Database] Update bangumi {bangumi_id} save_path to {save_path}.")
+
     def delete_one(self, _id: int):
         # First, delete all torrents associated with this bangumi
         from module.models import Torrent
@@ -131,12 +147,17 @@ class BangumiDatabase:
         self.session.commit()
 
     def search_all(self) -> list[Bangumi]:
-        statement = select(Bangumi)
+        statement = select(Bangumi).where(Bangumi.pending_review == false())
         return self.session.exec(statement).all()
 
     def search_active(self) -> list[Bangumi]:
-        """Search all active (not disabled) bangumi."""
-        statement = select(Bangumi).where(Bangumi.deleted == false())
+        """Search all active (not disabled, not pending review) bangumi."""
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.deleted == false(),
+                Bangumi.pending_review == false(),
+            )
+        )
         return self.session.exec(statement).all()
 
     def search_id(self, _id: int) -> Optional[Bangumi]:
@@ -185,6 +206,36 @@ class BangumiDatabase:
                 f"official_title='{official_title}', season={season}, group='{normalized_group}'"
             )
         return result
+
+    def exists_by_composite_key(
+        self, official_title: str, season: int, group_name: str
+    ) -> bool:
+        """Check if any bangumi exists by composite key (active OR pending).
+
+        Unlike search_by_composite_key, this method checks for ANY bangumi
+        (including pending_review=True) to prevent creating duplicates.
+
+        Args:
+            official_title: The official/standardized title.
+            season: Season number.
+            group_name: Subgroup name (defaults to "Unknown" if empty/None).
+
+        Returns:
+            True if a bangumi exists with this composite key, False otherwise.
+        """
+        # Normalize: use "Unknown" for empty/None
+        normalized_group = group_name if group_name else "Unknown"
+
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.official_title == official_title,
+                Bangumi.season == season,
+                Bangumi.group_name == normalized_group,
+                Bangumi.deleted == false(),
+            )
+        )
+        result = self.session.exec(statement).first()
+        return result is not None
 
     def match_poster(self, bangumi_name: str) -> str:
         # Use like to match
@@ -243,12 +294,18 @@ class BangumiDatabase:
         return unmatched, matched_pairs
 
     def match_torrent(self, torrent_name: str) -> Optional[Bangumi]:
+        """Match a torrent name to an active bangumi rule.
+        
+        Only matches active (non-pending, non-deleted) bangumi to ensure
+        pending review bangumi don't have torrents downloaded until activated.
+        """
         statement = select(Bangumi).where(
             and_(
                 func.instr(torrent_name, Bangumi.title_raw) > 0,
                 # use `false()` to avoid E712 checking
                 # see: https://docs.astral.sh/ruff/rules/true-false-comparison/
                 Bangumi.deleted == false(),
+                Bangumi.pending_review == false(),
             )
         )
         return self.session.exec(statement).first()
@@ -337,3 +394,76 @@ class BangumiDatabase:
             f"[Database] Backfilled rss_id={rss_id} for {len(bangumi_list)} bangumi records."
         )
         return len(bangumi_list)
+
+    def count_pending_by_rss_id(self, rss_id: int) -> int:
+        """Count pending review bangumi for a specific RSS feed.
+
+        Args:
+            rss_id: The RSS item ID to count pending reviews for.
+
+        Returns:
+            Number of pending review bangumi records.
+        """
+        statement = select(func.count()).select_from(Bangumi).where(
+            and_(Bangumi.rss_id == rss_id, Bangumi.pending_review == true())
+        )
+        return self.session.exec(statement).one()
+
+    def get_pending_by_rss_id(self, rss_id: int) -> list[Bangumi]:
+        """Get pending review bangumi for a specific RSS feed.
+
+        Args:
+            rss_id: The RSS item ID to get pending reviews for.
+
+        Returns:
+            List of pending review bangumi records.
+        """
+        statement = select(Bangumi).where(
+            and_(Bangumi.rss_id == rss_id, Bangumi.pending_review == true())
+        )
+        return self.session.exec(statement).all()
+
+    def count_active_by_rss_id(self, rss_id: int) -> int:
+        """Count active (non-pending) bangumi for a specific RSS feed.
+
+        Args:
+            rss_id: The RSS item ID to count active bangumi for.
+
+        Returns:
+            Number of active bangumi records.
+        """
+        statement = select(func.count()).select_from(Bangumi).where(
+            and_(Bangumi.rss_id == rss_id, Bangumi.pending_review == false())
+        )
+        return self.session.exec(statement).one()
+
+
+    def activate_pending(
+        self, bangumi_id: int, filter_value: Optional[str] = None
+    ) -> tuple[bool, str]:
+        """Activate a pending review bangumi.
+
+        Args:
+            bangumi_id: The bangumi ID to activate.
+            filter_value: Optional filter value to set. If None, keeps existing filter.
+
+        Returns:
+            Tuple of (success, message). Returns (False, error_msg) if bangumi
+            is not found or not pending review.
+        """
+        bangumi = self.session.get(Bangumi, bangumi_id)
+        if not bangumi:
+            return False, "Bangumi not found"
+        if not bangumi.pending_review:
+            return False, "Bangumi is not pending review"
+
+        bangumi.pending_review = False
+        bangumi.global_filter_matches = None
+        if filter_value is not None:
+            bangumi.filter = filter_value
+
+        self.session.add(bangumi)
+        self.session.commit()
+        self.session.refresh(bangumi)
+        logger.debug(f"[Database] Activated pending bangumi: {bangumi.official_title}")
+        return True, "Bangumi activated successfully"

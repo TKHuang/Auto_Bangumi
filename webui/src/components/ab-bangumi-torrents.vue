@@ -12,7 +12,7 @@ const torrents = ref<any[]>([]);
 const loading = ref(false);
 const checkedRowKeys = ref<number[]>([]);
 
-const { t } = useMyI18n();
+const { t, returnUserLangText } = useMyI18n();
 const message = useMessage();
 
 const totalCount = computed(() => torrents.value.length);
@@ -102,8 +102,12 @@ async function handleDownload(torrentId: number) {
     await apiBangumi.downloadTorrent(torrentId);
     message.success(t('notify.update_success'));
     getTorrents();
-  } catch (e) {
-    message.error(t('notify.update_failed'));
+  } catch (e: any) {
+    // Show specific backend error message or generic fallback
+    const errorMsg = e?.msg_en || e?.msg_zh
+      ? returnUserLangText({ en: e.msg_en || '', 'zh-CN': e.msg_zh || '' })
+      : t('notify.update_failed');
+    message.error(errorMsg);
   }
 }
 

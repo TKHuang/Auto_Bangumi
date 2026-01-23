@@ -158,4 +158,18 @@ export const apiBangumi = {
     );
     return data;
   },
+
+  /**
+   * 激活待审核的 bangumi
+   * @param bangumiId - 需要激活的 bangumi 的 id
+   * @param filter - 可选的过滤器字符串
+   * @returns axios 请求返回的数据
+   */
+  async activatePending(bangumiId: number, filter?: string) {
+    const { data } = await axios.post<ApiSuccess>(
+      `api/v1/bangumi/${bangumiId}/activate`,
+      filter !== undefined ? { filter } : {}
+    );
+    return data;
+  },
 };

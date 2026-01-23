@@ -83,4 +83,11 @@ export const apiRSS = {
     );
     return data!;
   },
+
+  async getPendingCount(rss_id: number) {
+    const { data } = await axios.get<{ pending_count: number }>(
+      `api/v1/rss/${rss_id}/pending-count`
+    );
+    return data!;
+  },
 };

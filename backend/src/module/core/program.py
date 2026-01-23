@@ -44,6 +44,8 @@ class Program(RenameThread, RSSThread):
             first_run()
             logger.info("[Core] No db file exists, create database file.")
             return {"status": "First run detected."}
+        # Always run migrations on startup for existing databases
+        start_up()
         if self.legacy_data:
             logger.info(
                 "[Core] Legacy data detected, starting data migration, please wait patiently."

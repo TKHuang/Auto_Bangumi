@@ -41,7 +41,18 @@ class Database(Session):
             logger.info("[Migration] Adding rss_id column to bangumi table")
             self.execute("ALTER TABLE bangumi ADD COLUMN rss_id INTEGER REFERENCES rssitem(id)")
             self.commit()
-        
+
+        # Migration for pending_review columns in bangumi
+        if "pending_review" not in bangumi_columns:
+            logger.info("[Migration] Adding pending_review column to bangumi table")
+            self.execute("ALTER TABLE bangumi ADD COLUMN pending_review INTEGER DEFAULT 0")
+            self.commit()
+
+        if "global_filter_matches" not in bangumi_columns:
+            logger.info("[Migration] Adding global_filter_matches column to bangumi table")
+            self.execute("ALTER TABLE bangumi ADD COLUMN global_filter_matches TEXT")
+            self.commit()
+
         # Migration for new hash column in torrent
         cursor = self.execute("PRAGMA table_info(torrent)")
         torrent_columns = [row[1] for row in cursor.fetchall()]
