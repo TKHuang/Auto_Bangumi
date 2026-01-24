@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { type GlobalThemeOverrides, NConfigProvider, NDialogProvider } from 'naive-ui';
+import {
+  type GlobalThemeOverrides,
+  NConfigProvider,
+  NDialogProvider,
+} from 'naive-ui';
 
 const theme: GlobalThemeOverrides = {
   Spin: {

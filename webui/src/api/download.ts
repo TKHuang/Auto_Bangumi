@@ -44,8 +44,9 @@ export const apiDownload = {
    * @param bangumiData - Bangumi 数据
    */
   async collection(bangumiData: BangumiRule) {
-    const postData: BangumiAPI = {
-      ...bangumiData,
+    const { id: _, ...rest } = bangumiData;
+    const postData = {
+      ...rest,
       filter: bangumiData.filter.join(','),
       rss_link: bangumiData.rss_link.join(','),
     };
@@ -61,8 +62,9 @@ export const apiDownload = {
    * @param bangumiData - Bangumi 数据
    */
   async subscribe(bangumiData: BangumiRule, rss: RSS) {
-    const bangumi: BangumiAPI = {
-      ...bangumiData,
+    const { id: _, ...rest } = bangumiData;
+    const bangumi = {
+      ...rest,
       filter: bangumiData.filter.join(','),
       rss_link: bangumiData.rss_link.join(','),
     };

@@ -9,8 +9,28 @@ export const apiRSS = {
     return data!;
   },
 
-  async add(rss: RSS) {
-    const { data } = await axios.post<ApiSuccess>('api/v1/rss/add', rss);
+  async add(
+    rss: RSS,
+    manualOverride?: { officialTitle?: string; season?: number; groupName?: string }
+  ) {
+    // Build query params for manual override
+    const params = new URLSearchParams();
+    if (manualOverride?.officialTitle) {
+      params.append('official_title', manualOverride.officialTitle);
+    }
+    if (manualOverride?.season !== undefined) {
+      params.append('season', String(manualOverride.season));
+    }
+    if (manualOverride?.groupName) {
+      params.append('group_name', manualOverride.groupName);
+    }
+
+    const queryString = params.toString();
+    const url = queryString
+      ? `api/v1/rss/add?${queryString}`
+      : 'api/v1/rss/add';
+
+    const { data } = await axios.post<ApiSuccess>(url, rss);
     return data;
   },
 
@@ -73,20 +93,47 @@ export const apiRSS = {
   },
 
   async getTorrent(rss_id: number) {
-    const { data } = await axios.get<Torrent[]>(`api/v1/rss/torrent?rss_id=${rss_id}`);
+    const { data } = await axios.get<Torrent[]>(
+      `api/v1/rss/torrent?rss_id=${rss_id}`
+    );
     return data!;
   },
 
-  async recreate(rss_id: number) {
-    const { data } = await axios.post<BangumiAPI[]>(
-      `api/v1/rss/recreate/${rss_id}`
-    );
+  async recreate(
+    rss_id: number,
+    manualOverride?: { officialTitle?: string; season?: number; groupName?: string }
+  ) {
+    // Build query params for manual override
+    const params = new URLSearchParams();
+    if (manualOverride?.officialTitle) {
+      params.append('official_title', manualOverride.officialTitle);
+    }
+    if (manualOverride?.season !== undefined) {
+      params.append('season', String(manualOverride.season));
+    }
+    if (manualOverride?.groupName) {
+      params.append('group_name', manualOverride.groupName);
+    }
+
+    const queryString = params.toString();
+    const url = queryString
+      ? `api/v1/rss/recreate/${rss_id}?${queryString}`
+      : `api/v1/rss/recreate/${rss_id}`;
+
+    const { data } = await axios.post<BangumiAPI[]>(url);
     return data!;
   },
 
   async getPendingCount(rss_id: number) {
     const { data } = await axios.get<{ pending_count: number }>(
       `api/v1/rss/${rss_id}/pending-count`
+    );
+    return data!;
+  },
+
+  async getPendingBangumi(rss_id: number) {
+    const { data } = await axios.get<BangumiAPI[]>(
+      `api/v1/rss/${rss_id}/pending`
     );
     return data!;
   },

@@ -91,3 +91,24 @@ class SeasonInfo(dict):
     subtitle: str
     added: bool
     eps_collect: bool
+
+
+class BangumiParsingError(Exception):
+    """Exception raised when automatic bangumi parsing fails to extract title information.
+    
+    This exception is raised when the raw parser returns an Episode with all title fields empty,
+    allowing callers to distinguish this specific failure from other errors.
+    """
+    
+    def __init__(
+        self,
+        raw_title: str,
+        partial_data: dict,
+        msg_en: str,
+        msg_zh: str,
+    ) -> None:
+        self.raw_title = raw_title
+        self.partial_data = partial_data
+        self.msg_en = msg_en
+        self.msg_zh = msg_zh
+        super().__init__(msg_en)

@@ -171,6 +171,7 @@
     "will_subscribe_count": "Will subscribe {count} bangumi",
     "pending_review_count": "{count} bangumi pending review",
     "manage_bangumi": "Manage Bangumi",
+    "review_pending": "Review Pending",
     "loading_pending": "Loading pending bangumi...",
     "no_pending_bangumi": "No pending review bangumi",
     "pending_items_placeholder": "pending items",
@@ -189,7 +190,20 @@
     "delete_success": "RSS deleted successfully",
     "delete_failed": "Failed to delete RSS",
     "confirm": "Confirm",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "manual_input": {
+      "parsing_failed_title": "Parsing Failed",
+      "original_torrent": "Original Torrent Name",
+      "rss_url": "RSS URL",
+      "official_title": "Official Title",
+      "official_title_placeholder": "Enter bangumi title (required)",
+      "season": "Season",
+      "group_name": "Group Name",
+      "group_placeholder": "Optional",
+      "detected_info": "Detected Info",
+      "resolution": "Resolution",
+      "subtitle": "Subtitle"
+    }
   },
   "sidebar": {
     "calendar": "Calendar",

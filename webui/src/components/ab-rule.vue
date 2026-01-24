@@ -4,17 +4,27 @@ import type { SettingItem } from '#/components';
 
 const { t } = useMyI18n();
 
+const props = withDefaults(
+  defineProps<{
+    readonlyOfficialTitle?: boolean;
+  }>(),
+  {
+    readonlyOfficialTitle: false,
+  }
+);
+
 const rule = defineModel<BangumiRule>('rule', {
   required: true,
 });
 
-const items: SettingItem<BangumiRule>[] = [
+const items = computed<SettingItem<BangumiRule>[]>(() => [
   {
     configKey: 'official_title',
     label: () => t('homepage.rule.official_title'),
     type: 'input',
     prop: {
       type: 'text',
+      disabled: props.readonlyOfficialTitle,
     },
   },
   {
@@ -51,7 +61,7 @@ const items: SettingItem<BangumiRule>[] = [
     type: 'dynamic-tags',
     bottomLine: true,
   },
-];
+]);
 </script>
 
 <template>
@@ -60,7 +70,7 @@ const items: SettingItem<BangumiRule>[] = [
       v-for="i in items"
       :key="i.configKey"
       v-bind="i"
-      v-model:data="rule[i.configKey]"
+      v-model:data="rule![i.configKey]"
     ></ab-setting>
   </div>
 </template>

@@ -6,7 +6,15 @@ from fastapi.responses import JSONResponse
 
 from module.downloader import DownloadClient
 from module.manager import SeasonCollector, TorrentStatusManager
-from module.models import APIResponse, Bangumi, ResponseModel, RSSItem, RSSUpdate, Torrent
+from module.models import (
+    APIResponse,
+    Bangumi,
+    ResponseModel,
+    RSSItem,
+    RSSUpdate,
+    Torrent,
+)
+from module.models.bangumi import BangumiParsingError
 from module.rss import RSSAnalyser, RSSEngine
 from module.security.api import UNAUTHORIZED, get_current_user
 
@@ -29,11 +37,88 @@ async def get_rss():
 @router.post(
     path="/add", response_model=APIResponse, dependencies=[Depends(get_current_user)]
 )
-async def add_rss(rss: RSSItem):
+async def add_rss(
+    rss: RSSItem,
+    official_title: str | None = None,
+    season: int | None = None,
+    group_name: str | None = None,
+):
+    analyser = RSSAnalyser()
+
     def _sync():
         with RSSEngine() as engine:
-            return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
-    return u_response(await asyncio.to_thread(_sync))
+            # For non-aggregate RSS: parse FIRST before adding to database
+            # This prevents orphan RSS records when parsing fails
+            if not rss.aggregate:
+                # Parse first - this may raise BangumiParsingError
+                data = analyser.link_to_data(rss, official_title, season, group_name)
+                if isinstance(data, ResponseModel) and not data.status:
+                    return data
+
+                # Parsing succeeded, now add RSS to database
+                result = engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+                if not result.status:
+                    return result
+
+                # Add bangumi to database and download torrents
+                if isinstance(data, Bangumi):
+                    # Get RSS ID for linking
+                    all_rss = engine.rss.search_all()
+                    for rss_item in all_rss:
+                        if rss_item.url == rss.url:
+                            data.rss_id = rss_item.id
+                            break
+
+                    engine.bangumi.add(data)
+                    engine.commit()
+
+                    # Download torrents immediately (same as subscribe_season)
+                    download_result = engine.download_bangumi(data)
+
+                    # If all torrents were filtered out, set pending_review
+                    if (
+                        isinstance(download_result, ResponseModel)
+                        and not download_result.status
+                        and download_result.status_code == 406
+                        and "filtered out" in download_result.msg_en.lower()
+                    ):
+                        # Mark bangumi as pending review since all torrents were filtered
+                        data.pending_review = True
+                        data.global_filter_matches = data.filter  # Store the filter that caused this
+                        engine.bangumi.update_pending_review(
+                            data.id, True, data.filter
+                        )
+                        engine.commit()
+                        logger.info(
+                            f"[RSS] Bangumi {data.official_title} set to pending review "
+                            f"(all torrents filtered by: {data.filter})"
+                        )
+
+                return result
+            else:
+                # For aggregate RSS: just add RSS, no immediate parsing
+                return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+
+    try:
+        return u_response(await asyncio.to_thread(_sync))
+    except BangumiParsingError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": False,
+                "status_code": 422,
+                "error_type": "bangumi_parsing_failed",
+                "msg_en": e.msg_en,
+                "msg_zh": e.msg_zh,
+                "partial_data": {
+                    "raw_title": e.raw_title,
+                    "group": e.partial_data.get("group"),
+                    "season": e.partial_data.get("season"),
+                    "resolution": e.partial_data.get("resolution"),
+                    "subtitle": e.partial_data.get("subtitle"),
+                },
+            },
+        )
 
 
 @router.post(
@@ -198,7 +283,12 @@ async def get_torrent(
     response_model=list[Bangumi],
     dependencies=[Depends(get_current_user)],
 )
-async def recreate_rss_rules(rss_id: int):
+async def recreate_rss_rules(
+    rss_id: int,
+    official_title: str | None = None,
+    season: int | None = None,
+    group_name: str | None = None,
+):
     """Parse torrents from RSS feed and return Bangumi rules for review.
 
     For aggregate RSS (aggregate=True): Parse ALL torrents and return multiple Bangumi.
@@ -206,6 +296,9 @@ async def recreate_rss_rules(rss_id: int):
 
     Both modes use full parsing (Level 2) to get official_title, poster, and season RSS.
     This enables the torrent preview feature in the UI.
+
+    If parsing fails due to missing title info, returns a 422 error with partial data.
+    The client can then re-call with manual override parameters (official_title, season, group_name).
     """
     def _sync():
         with RSSEngine() as engine:
@@ -213,41 +306,63 @@ async def recreate_rss_rules(rss_id: int):
             if not rss:
                 return {"error": "not_found"}
 
-            try:
-                analyser = RSSAnalyser()
+            analyser = RSSAnalyser()
 
-                if rss.aggregate:
-                    # For aggregate RSS: Full parse all torrents to get multiple Bangumi
-                    logger.info(f"[RSS] Recreate aggregate RSS: {rss.name}")
+            if rss.aggregate:
+                # For aggregate RSS: Full parse all torrents to get multiple Bangumi
+                logger.info(f"[RSS] Recreate aggregate RSS: {rss.name}")
 
-                    torrents = analyser.get_rss_torrents(rss.url, full_parse=True)
+                torrents = analyser.get_rss_torrents(rss.url, full_parse=True)
 
-                    if not torrents:
-                        return {"error": "no_torrents"}
+                if not torrents:
+                    return {"error": "no_torrents"}
 
-                    bangumi_list = analyser.torrents_to_data(torrents, rss, full_parse=True)
+                bangumi_list = analyser.torrents_to_data(torrents, rss, full_parse=True)
 
-                    if not bangumi_list:
-                        return {"error": "no_parse"}
+                if not bangumi_list:
+                    return {"error": "no_parse"}
 
-                    logger.info(f"[RSS] Recreate found {len(bangumi_list)} bangumi rules")
-                    return {"bangumi_list": bangumi_list}
+                logger.info(f"[RSS] Recreate found {len(bangumi_list)} bangumi rules")
+                return {"bangumi_list": bangumi_list}
 
+            else:
+                # For non-aggregate RSS: Parse only FIRST torrent
+                logger.info(f"[RSS] Recreate non-aggregate RSS: {rss.name}")
+                # Pass manual override parameters if provided
+                bangumi = analyser.link_to_data(rss, official_title, season, group_name)
+
+                if isinstance(bangumi, Bangumi):
+                    return {"bangumi_list": [bangumi]}
                 else:
-                    # For non-aggregate RSS: Parse only FIRST torrent
-                    logger.info(f"[RSS] Recreate non-aggregate RSS: {rss.name}")
-                    bangumi = analyser.link_to_data(rss)
+                    return {"error": "response_model", "data": bangumi}
 
-                    if isinstance(bangumi, Bangumi):
-                        return {"bangumi_list": [bangumi]}
-                    else:
-                        return {"error": "response_model", "data": bangumi}
-
-            except Exception as e:
-                logger.error(f"[RSS] Recreate rules failed: {e}")
-                return {"error": "exception", "message": str(e)}
-
-    result = await asyncio.to_thread(_sync)
+    try:
+        result = await asyncio.to_thread(_sync)
+    except BangumiParsingError as e:
+        # Return structured error for frontend to show manual input form
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": False,
+                "status_code": 422,
+                "error_type": "bangumi_parsing_failed",
+                "msg_en": e.msg_en,
+                "msg_zh": e.msg_zh,
+                "partial_data": {
+                    "raw_title": e.raw_title,
+                    "group": e.partial_data.get("group"),
+                    "season": e.partial_data.get("season"),
+                    "resolution": e.partial_data.get("resolution"),
+                    "subtitle": e.partial_data.get("subtitle"),
+                },
+            },
+        )
+    except Exception as e:
+        logger.error(f"[RSS] Recreate rules failed: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"msg_en": f"Failed to parse RSS feed: {str(e)}", "msg_zh": f"解析 RSS 订阅失败：{str(e)}"},
+        )
 
     if result.get("error") == "not_found":
         return JSONResponse(
@@ -269,11 +384,6 @@ async def recreate_rss_rules(rss_id: int):
         return JSONResponse(
             status_code=data.status_code,
             content={"msg_en": data.msg_en, "msg_zh": data.msg_zh},
-        )
-    elif result.get("error") == "exception":
-        return JSONResponse(
-            status_code=500,
-            content={"msg_en": f"Failed to parse RSS feed: {result['message']}", "msg_zh": f"解析 RSS 订阅失败：{result['message']}"},
         )
     else:
         return result["bangumi_list"]
@@ -354,6 +464,23 @@ async def get_pending_count(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
             return {"pending_count": engine.bangumi.count_pending_by_rss_id(rss_id)}
+    return await asyncio.to_thread(_sync)
+
+
+@router.get(
+    path="/{rss_id}/pending",
+    response_model=list[Bangumi],
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_bangumi(rss_id: int):
+    """Get pending review bangumi for any RSS feed (aggregate or non-aggregate).
+
+    For non-aggregate RSS, typically returns 0 or 1 bangumi.
+    For aggregate RSS, may return multiple pending bangumi.
+    """
+    def _sync():
+        with RSSEngine() as engine:
+            return engine.bangumi.get_pending_by_rss_id(rss_id)
     return await asyncio.to_thread(_sync)
 
 

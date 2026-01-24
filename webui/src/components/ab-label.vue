@@ -15,8 +15,10 @@ const abLabel = computed(() => {
 </script>
 
 <template>
-  <div flex="~ items-start justify-between" style="gap: 3rem;">
-    <div class="label-text" flex-shrink-0 style="min-width: 110px;">{{ abLabel }}</div>
+  <div flex="~ items-start justify-between" style="gap: 3rem">
+    <div class="label-text" flex-shrink-0 style="min-width: 110px">
+      {{ abLabel }}
+    </div>
 
     <slot></slot>
   </div>

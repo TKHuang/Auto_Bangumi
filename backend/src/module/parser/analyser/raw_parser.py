@@ -2,6 +2,7 @@ import logging
 import re
 
 from module.models import Episode
+from module.models.bangumi import BangumiParsingError
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,23 @@ def raw_parser(raw: str) -> Episode | None:
         logger.error(f"Parser cannot analyse {raw}")
         return None
     name_en, name_zh, name_jp, season, sr, episode, sub, dpi, source, group = ret
+    
+    # Check if all title fields are empty - raise BangumiParsingError for manual input
+    if not name_en and not name_zh and not name_jp:
+        partial_data = {
+            "raw_title": raw,
+            "group": group,
+            "season": season,
+            "resolution": dpi,
+            "subtitle": sub,
+        }
+        raise BangumiParsingError(
+            raw_title=raw,
+            partial_data=partial_data,
+            msg_en="Failed to extract title from torrent name. Please provide title manually.",
+            msg_zh="无法从种子名称中提取标题。请手动输入标题。",
+        )
+    
     return Episode(
         name_en, name_zh, name_jp, season, sr, episode, sub, group, dpi, source
     )

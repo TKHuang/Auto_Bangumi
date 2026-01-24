@@ -31,9 +31,10 @@ async function handleDownload(torrentId: number) {
     getTorrents();
   } catch (e: any) {
     // Show specific backend error message or generic fallback
-    const errorMsg = e?.msg_en || e?.msg_zh
-      ? returnUserLangText({ en: e.msg_en || '', 'zh-CN': e.msg_zh || '' })
-      : t('notify.update_failed');
+    const errorMsg =
+      e?.msg_en || e?.msg_zh
+        ? returnUserLangText({ en: e.msg_en || '', 'zh-CN': e.msg_zh || '' })
+        : t('notify.update_failed');
     message.error(errorMsg);
   }
 }
@@ -48,11 +49,21 @@ watch([show, rssId], async ([newShow, newId]) => {
 </script>
 
 <template>
-  <ab-popup v-model:show="show" :title="$t('rss.torrents')" css="w-600 max-w-90vw">
+  <ab-popup
+    v-model:show="show"
+    :title="$t('rss.torrents')"
+    css="w-600 max-w-90vw"
+  >
     <div v-if="loading" f-cer h-200>
       <n-spin size="large" />
     </div>
-    <div v-else-if="!torrents || torrents.length === 0" f-cer h-200 flex-col gap-y-12>
+    <div
+      v-else-if="!torrents || torrents.length === 0"
+      f-cer
+      h-200
+      flex-col
+      gap-y-12
+    >
       <n-empty :description="$t('rss.no_torrents_hint')">
         <template #icon>
           <div class="i-mdi-file-document-outline w-48 h-48 text-gray-400" />
