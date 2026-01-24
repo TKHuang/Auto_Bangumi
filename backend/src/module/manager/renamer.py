@@ -27,10 +27,40 @@ class Renamer(DownloadClient):
     def gen_path(
             file_info: EpisodeFile | SubtitleFile, bangumi_name: str, method: str
     ) -> str:
+        # Handle movies (no episode number expected)
+        if file_info.is_movie:
+            if method == "none" or method == "subtitle_none":
+                return file_info.media_path
+            elif method == "pn":
+                return f"{file_info.title}{file_info.suffix}"
+            elif method == "advance":
+                return f"{bangumi_name}{file_info.suffix}"
+            elif method == "normal":
+                logger.warning("[Renamer] Normal rename method is deprecated.")
+                return file_info.media_path
+            elif method == "subtitle_pn":
+                return f"{file_info.title}.{file_info.language}{file_info.suffix}"
+            elif method == "subtitle_advance":
+                return f"{bangumi_name}.{file_info.language}{file_info.suffix}"
+            else:
+                logger.error(f"[Renamer] Unknown rename method: {method}")
+                return file_info.media_path
+
+        # Handle None episode for non-movie content - log warning and return original path
+        if file_info.episode is None:
+            logger.warning(
+                f"[Renamer] Episode is None for file: {file_info.media_path}, "
+                f"title={file_info.title}, season={file_info.season}"
+            )
+            return file_info.media_path
+
         season = f"0{file_info.season}" if file_info.season < 10 else file_info.season
-        episode = (
-            f"0{file_info.episode}" if file_info.episode < 10 else file_info.episode
-        )
+        # Convert episode to int if it's a whole number to avoid ".0" suffix in filename
+        ep_value = file_info.episode
+        if ep_value == int(ep_value):
+            ep_value = int(ep_value)
+        episode = f"0{ep_value}" if ep_value < 10 else ep_value
+
         if method == "none" or method == "subtitle_none":
             return file_info.media_path
         elif method == "pn":
@@ -64,6 +94,13 @@ class Renamer(DownloadClient):
             season=season,
         )
         if ep:
+            # Log debug info for troubleshooting (only warn for non-movies)
+            if ep.episode is None and not ep.is_movie:
+                logger.warning(
+                    f"[Renamer] Parsed file has no episode number: "
+                    f"torrent_name={torrent_name}, media_path={media_path}, "
+                    f"title={ep.title}, season={ep.season}"
+                )
             new_path = self.gen_path(ep, bangumi_name, method=method)
             if media_path != new_path:
                 if new_path not in self.check_pool.keys():
@@ -76,7 +113,9 @@ class Renamer(DownloadClient):
                             episode=ep.episode,
                         )
         else:
-            logger.warning(f"[Renamer] {media_path} parse failed")
+            logger.warning(
+                f"[Renamer] Parse failed: torrent_name={torrent_name}, media_path={media_path}"
+            )
             if settings.bangumi_manage.remove_bad_torrent:
                 self.delete_torrent(hashes=_hash)
         return None

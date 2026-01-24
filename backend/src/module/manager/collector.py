@@ -1,4 +1,6 @@
 import logging
+import time
+from typing import Dict
 
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
@@ -8,6 +10,13 @@ from module.rss import RSSEngine
 from module.searcher import SearchTorrent
 
 logger = logging.getLogger(__name__)
+
+# Track RSS recreation deletions to prevent deleting newly inserted bangumi
+# Format: {rss_id: deletion_timestamp}
+# During recreation loops, only the first subscribe call should delete all bangumi
+# Subsequent calls within 10 seconds are part of the same recreation and should skip deletion
+_recreation_deletion_tracker: Dict[int, float] = {}
+_RECREATION_WINDOW_SECONDS = 10
 
 
 class SeasonCollector(DownloadClient):
@@ -117,71 +126,145 @@ class SeasonCollector(DownloadClient):
     @staticmethod
     def subscribe_season(data: Bangumi, parser: str = "mikan"):
         with RSSEngine() as engine:
-            data.added = True
-            data.eps_collect = True
+            try:
+                data.added = True
+                data.eps_collect = True
 
-            # Check if bangumi with same composite key exists BEFORE adding RSS
-            # This prevents orphan RSS entries when duplicate is detected
-            group_name = data.group_name if data.group_name else "Unknown"
-            existing = engine.bangumi.search_by_composite_key(
-                official_title=data.official_title,
-                season=data.season,
-                group_name=group_name,
-            )
+                # FAIL-FAST: Handle RSS operations BEFORE any deletion
+                # This prevents data loss if RSS operations fail
+                if not data.rss_id:
+                    # Check if an RSS with this URL already exists (might have bangumi)
+                    all_rss = engine.rss.search_all()
+                    existing_rss_item = None
+                    for rss_item in all_rss:
+                        if rss_item.url == data.rss_link:
+                            existing_rss_item = rss_item
+                            data.rss_id = rss_item.id
+                            logger.debug(f"[Collector] Found existing RSS with ID {data.rss_id}")
+                            break
 
-            if existing:
-                # Check if it's from a different RSS source by comparing URLs
-                existing_rss = engine.rss.search_id(existing.rss_id) if existing.rss_id else None
-                existing_rss_url = existing_rss.url if existing_rss else None
+                    # If no existing RSS, create it
+                    if not existing_rss_item:
+                        # Add the RSS feed (can fail - better to fail before deletion)
+                        engine.add_rss(
+                            rss_link=data.rss_link,
+                            name=data.official_title,
+                            aggregate=False,
+                            parser=parser,
+                        )
 
-                if existing_rss_url and existing_rss_url != data.rss_link:
-                    # Different RSS source - this is a conflict (duplicate subscription)
+                        # Get the RSS ID by searching again
+                        all_rss = engine.rss.search_all()
+                        for rss_item in all_rss:
+                            if rss_item.url == data.rss_link:
+                                data.rss_id = rss_item.id
+                                logger.debug(f"[Collector] Created new RSS with ID {data.rss_id}")
+                                break
+
+                # Check if there's a duplicate from a DIFFERENT RSS source
+                # This validation happens BEFORE deletion to prevent conflicts
+                group_name = data.group_name if data.group_name else "Unknown"
+                existing_active = engine.bangumi.search_by_composite_key(
+                    official_title=data.official_title,
+                    season=data.season,
+                    group_name=group_name,
+                )
+
+                if existing_active and existing_active.rss_id != data.rss_id:
+                    # Different RSS source - this is a conflict
+                    existing_rss = engine.rss.search_id(existing_active.rss_id) if existing_active.rss_id else None
+                    existing_rss_url = existing_rss.url if existing_rss else None
                     logger.warning(
                         f"[Collector] Bangumi already subscribed from different RSS: "
                         f"official_title='{data.official_title}', season={data.season}, group='{group_name}' "
-                        f"(existing RSS URL: {existing_rss_url}, new RSS URL: {data.rss_link})"
+                        f"(existing RSS ID: {existing_active.rss_id}, new RSS ID: {data.rss_id})"
                     )
                     raise ValueError(
                         f"Bangumi '{data.official_title}' (group: {group_name}) is already subscribed "
-                        f"from another RSS source. Delete the existing subscription first."
+                        f"from another RSS source (ID: {existing_active.rss_id}). Delete the existing subscription first."
                     )
-                else:
-                    # Same RSS source - allow recreation with updated settings
-                    logger.debug(
-                        f"[Collector] Deleting existing Bangumi rule for recreation: "
-                        f"{existing.official_title} (ID: {existing.id})"
-                    )
-                    # Reuse existing RSS ID if available
-                    if existing.rss_id:
-                        data.rss_id = existing.rss_id
-                    engine.bangumi.delete_one(existing.id)
-                    engine.commit()
 
-            # Only create RSS if not already set (for aggregate RSS recreation or reuse)
-            if not data.rss_id:
-                # Add the RSS feed
-                engine.add_rss(
-                    rss_link=data.rss_link,
-                    name=data.official_title,
-                    aggregate=False,
-                    parser=parser,
+                # ATOMIC TRANSACTION: Delete ALL bangumi from this RSS + Insert new bangumi
+                # This ensures recreation properly clears ALL old bangumi, not just matching ones
+                # (e.g., if aggregate RSS had 10 bangumi before and now has 8, all 10 are deleted)
+                #
+                # RECREATION LOGIC WITH DELETION TRACKING:
+                # 1. Check if we recently deleted all bangumi for this RSS (within 10 seconds)
+                # 2. If NO recent deletion:
+                #    - Delete ALL bangumi from this RSS (including all titles, all statuses)
+                #    - Record deletion timestamp to prevent subsequent calls from deleting again
+                # 3. If YES recent deletion (within 10 seconds):
+                #    - Skip deletion (this is part of the same recreation loop)
+                # 4. Insert the new bangumi
+                #
+                # This approach works correctly for recreation loops:
+                # - First call: Deletes ALL old bangumi (e.g., 10), records timestamp, inserts first new one
+                # - Second call (< 10s): Sees recent deletion, skips delete, just inserts second new one
+                # - Third call (< 10s): Sees recent deletion, skips delete, just inserts third new one
+                # - Result: Old bangumi (10) replaced with new bangumi (8), no orphans, no accidental deletions
+                global _recreation_deletion_tracker
+
+                if data.rss_id:
+                    current_time = time.time()
+                    last_deletion = _recreation_deletion_tracker.get(data.rss_id)
+
+                    # Clean up old entries (older than 10 seconds)
+                    _recreation_deletion_tracker = {
+                        rss_id: timestamp
+                        for rss_id, timestamp in _recreation_deletion_tracker.items()
+                        if current_time - timestamp < _RECREATION_WINDOW_SECONDS
+                    }
+
+                    # Check if we need to delete all bangumi for this RSS
+                    should_delete_all = (
+                        last_deletion is None or
+                        (current_time - last_deletion) >= _RECREATION_WINDOW_SECONDS
+                    )
+
+                    if should_delete_all:
+                        existing_bangumi = engine.bangumi.get_all_by_rss_id(data.rss_id)
+                        if existing_bangumi:
+                            logger.info(
+                                f"[Collector] Recreation: deleting ALL {len(existing_bangumi)} existing bangumi "
+                                f"from RSS ID {data.rss_id} (all titles, all statuses) before inserting new ones"
+                            )
+                            deleted_count = engine.bangumi.delete_all_by_rss_id(data.rss_id)
+                            logger.info(
+                                f"[Collector] Deleted {deleted_count} bangumi for recreation, "
+                                f"now inserting: {data.official_title}"
+                            )
+                            # Record deletion timestamp to prevent subsequent calls from deleting again
+                            _recreation_deletion_tracker[data.rss_id] = current_time
+                    else:
+                        logger.debug(
+                            f"[Collector] Skipping deletion for RSS ID {data.rss_id} - "
+                            f"recent deletion detected ({current_time - last_deletion:.1f}s ago), "
+                            f"inserting: {data.official_title}"
+                        )
+
+                # IMPORTANT: Add Bangumi to database BEFORE downloading torrents
+                # so that torrents can be linked to bangumi_id
+                engine.bangumi.add(data)
+
+                # Single commit for all delete + insert operations (atomic transaction)
+                engine.commit()
+                logger.info(
+                    f"[Collector] Successfully committed bangumi recreation for {data.official_title} "
+                    f"(RSS ID: {data.rss_id})"
                 )
 
-                # Get the RSS ID by searching for the RSS item with matching URL
-                all_rss = engine.rss.search_all()
-                for rss_item in all_rss:
-                    if rss_item.url == data.rss_link:
-                        data.rss_id = rss_item.id
-                        break
+                # Now download torrents - they will be linked to the Bangumi
+                result = engine.download_bangumi(data)
+                return result
 
-            # IMPORTANT: Add Bangumi to database BEFORE downloading torrents
-            # so that torrents can be linked to bangumi_id
-            engine.bangumi.add(data)
-            engine.commit()  # Ensure Bangumi is committed and has an ID
-
-            # Now download torrents - they will be linked to the Bangumi
-            result = engine.download_bangumi(data)
-            return result
+            except Exception as e:
+                # Rollback all database changes if any operation fails
+                engine.rollback()
+                logger.error(
+                    f"[Collector] Failed to subscribe bangumi {data.official_title}: {e}. "
+                    f"All changes rolled back."
+                )
+                raise
 
 
 def _is_mikan_season_rss(rss_link: str) -> bool:

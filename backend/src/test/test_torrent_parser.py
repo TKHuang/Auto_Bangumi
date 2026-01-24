@@ -196,6 +196,7 @@ class TestTorrentFilePathParsing:
         assert "葬送的芙莉莲" in bf.title
         assert bf.season == 1  # Default season
         assert bf.group == "LoliHouse"
+        assert bf.is_movie is True
 
     def test_ova_path(self):
         """Test parsing OVA file."""
@@ -203,6 +204,7 @@ class TestTorrentFilePathParsing:
         bf = torrent_parser(file_path)
         assert bf.title == "Title OVA"
         assert bf.season == 1
+        assert bf.is_movie is True  # OVA sets is_movie flag
 
     def test_special_path(self):
         """Test parsing special episode file with bracketed episode number."""

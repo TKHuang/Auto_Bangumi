@@ -144,7 +144,9 @@ class BangumiParser:
         # Dash-separated episode (after title): - 01, - 12
         self._episode_dash_sep_re = re.compile(r"\s-\s*(\d+(?:\.\d+)?)\b")
         # SP prefix: SP01, SP02 (Special episodes)
-        self._episode_sp_prefix_re = re.compile(r"\bSP\s*(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+        self._episode_sp_prefix_re = re.compile(
+            r"\bSP\s*(\d+(?:\.\d+)?)\b", re.IGNORECASE
+        )
         # OVA/OAD with episode (with or without dash): OVA 01, OVA - 01, OAD 02
         self._episode_ova_oad_re = re.compile(
             r"\b(?:OVA|OAD)\s*-?\s*(\d+(?:\.\d+)?)\b", re.IGNORECASE
@@ -216,7 +218,7 @@ class BangumiParser:
             r"^(?:\d+(?:P|p)|HEVC|AVC|H\.?26[45]|x26[45]|AV1|VP9|AAC|FLAC|AC3|DTS|"
             r"OPUS|EAC3|WEB[-_]?DL|WEB[-_]?Rip|BD[-_]?Rip|Blu[-_]?Ray|HDTV|DVD[-_]?Rip|"
             r"CR|Baha|ABEMA|Bilibili|MP4|MKV|AVI|CHS|CHT|BIG5|GB|SC|TC|"
-            r"简体|繁体|简繁|简中|繁中|简日|繁日|内嵌|內嵌|字幕|"
+            r"简体|繁体|简繁|简中|繁中|简日|繁日|内嵌|內嵌|内封|內封|字幕|"
             r"4K|UHD|FHD|HD|10bit|8bit|HDR|BDRemux|B-Global|AT-X)$",
             re.IGNORECASE,
         )
@@ -761,16 +763,18 @@ class BangumiParser:
 
         return (None, None)
 
-    def _parse_episode_number(self, ep_str: str) -> Optional[float]:
-        """Parse episode number string to float.
+    def _parse_episode_number(self, ep_str: str) -> Optional[float | int]:
+        """Parse episode number string to int or float.
 
         Handles integers and decimals (e.g., "12", "12.5").
+        Returns int for whole numbers, float for decimals.
 
         Args:
             ep_str: Episode number string.
 
         Returns:
-            The parsed episode number as float, or None if invalid.
+            The parsed episode number as int (for whole numbers) or float (for decimals),
+            or None if invalid.
         """
         if not ep_str:
             return None
@@ -778,7 +782,7 @@ class BangumiParser:
             # Handle decimal episodes (12.5, 48.5)
             if "." in ep_str:
                 return float(ep_str)
-            return float(int(ep_str))
+            return int(ep_str)
         except ValueError:
             return None
 
@@ -1104,6 +1108,7 @@ class BangumiParser:
 
         # Seasonal marker pattern: NN月新番 (e.g., 4月新番, 01月新番, 10月新番)
         import re
+
         seasonal_marker_re = re.compile(r"^\d{1,2}月新番$")
 
         # Collect candidate title brackets (non-metadata, non-episode, non-seasonal)
@@ -1278,7 +1283,39 @@ class BangumiParser:
         ):
             return True
 
+        # Check for compound subtitle markers (e.g., "简繁内封字幕", "繁日内嵌字幕")
+        # These are composed entirely of subtitle-related terms
+        if self._is_compound_subtitle_marker(content_stripped):
+            return True
+
         return False
+
+    def _is_compound_subtitle_marker(self, content: str) -> bool:
+        """Check if content is a compound subtitle marker.
+
+        Compound subtitle markers are strings composed entirely of subtitle-related
+        terms like "简繁内封字幕" (CHS+CHT embedded subtitles).
+
+        Args:
+            content: The content to check.
+
+        Returns:
+            True if content is a compound subtitle marker, False otherwise.
+        """
+        if not content:
+            return False
+
+        # Subtitle-related characters/terms that can form compound markers
+        # Each character or term in this set is subtitle-related
+        subtitle_chars = set("简繁体中日内嵌封字幕双语")
+
+        # Check if ALL characters in content are subtitle-related
+        for char in content:
+            if char not in subtitle_chars:
+                return False
+
+        # Must have at least 2 characters and contain 字幕 (subtitles) indicator
+        return len(content) >= 2 and "字幕" in content
 
     def _contains_cjk(self, text: str) -> bool:
         """Check if text contains CJK characters.

@@ -2,8 +2,8 @@
 
 import pytest
 
-from module.parser.analyser.bangumi_parser import BangumiParser, BracketContent
 from module.models.parsed import SubtitleType
+from module.parser.analyser.bangumi_parser import BangumiParser, BracketContent
 
 
 class TestBracketExtraction:
@@ -408,9 +408,13 @@ class TestResolutionExtraction:
         ("input_str", "expected"),
         [
             pytest.param("[Group] Title - 01 [1920x1080]", "1080P", id="1920x1080"),
-            pytest.param("[Group] Title - 01 [1920X1080]", "1080P", id="1920X1080_uppercase"),
+            pytest.param(
+                "[Group] Title - 01 [1920X1080]", "1080P", id="1920X1080_uppercase"
+            ),
             pytest.param("[Group] Title - 01 [1280x720]", "720P", id="1280x720"),
-            pytest.param("[Group] Title - 01 [1280X720]", "720P", id="1280X720_uppercase"),
+            pytest.param(
+                "[Group] Title - 01 [1280X720]", "720P", id="1280X720_uppercase"
+            ),
             pytest.param("[Group] Title - 01 [3840x2160]", "2160P", id="3840x2160"),
         ],
     )
@@ -504,7 +508,9 @@ class TestResolutionExtraction:
         ("input_str", "expected"),
         [
             pytest.param("[Group] Title - 01 [1080p]", "1080P", id="parse_standard"),
-            pytest.param("【Group】Title - 01【1080p】", "1080P", id="parse_fullwidth_brackets"),
+            pytest.param(
+                "【Group】Title - 01【1080p】", "1080P", id="parse_fullwidth_brackets"
+            ),
             pytest.param("[Group] Title - 01", None, id="parse_no_resolution"),
         ],
     )
@@ -530,7 +536,9 @@ class TestResolutionExtraction:
                 id="lolihouse_format_1080p",
             ),
             pytest.param("Title.720p.HEVC.AAC", "720P", id="embedded_in_filename"),
-            pytest.param("[Group] Title - 01 [1920×1080]", "1080P", id="fullwidth_x_dimension"),
+            pytest.param(
+                "[Group] Title - 01 [1920×1080]", "1080P", id="fullwidth_x_dimension"
+            ),
         ],
     )
     def test_real_world_formats(
@@ -626,10 +634,26 @@ class TestSubtitleDetection:
     @pytest.mark.parametrize(
         "input_string,expected",
         [
-            pytest.param("[Group] Title - 01 [简繁]", SubtitleType.CHS_CHT, id="chs_cht_simplified_and_traditional"),
-            pytest.param("[Group] Title - 01 [繁简]", SubtitleType.CHS_CHT, id="chs_cht_reverse_order"),
-            pytest.param("[Group] Title - 01 [CHS_CHT]", SubtitleType.CHS_CHT, id="chs_cht_explicit"),
-            pytest.param("[Group] Title - 01 [CHS][CHT]", SubtitleType.CHS_CHT, id="chs_cht_combined_markers"),
+            pytest.param(
+                "[Group] Title - 01 [简繁]",
+                SubtitleType.CHS_CHT,
+                id="chs_cht_simplified_and_traditional",
+            ),
+            pytest.param(
+                "[Group] Title - 01 [繁简]",
+                SubtitleType.CHS_CHT,
+                id="chs_cht_reverse_order",
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHS_CHT]",
+                SubtitleType.CHS_CHT,
+                id="chs_cht_explicit",
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHS][CHT]",
+                SubtitleType.CHS_CHT,
+                id="chs_cht_combined_markers",
+            ),
         ],
     )
     def test_chs_cht_markers(
@@ -644,10 +668,20 @@ class TestSubtitleDetection:
     @pytest.mark.parametrize(
         "input_string,expected",
         [
-            pytest.param("[Group] Title - 01 [简日]", SubtitleType.CHS_JP, id="chs_jp_marker"),
-            pytest.param("[Group] Title - 01 [GB_JP]", SubtitleType.CHS_JP, id="gb_jp_marker"),
-            pytest.param("[Group] Title - 01 [CHS_JP]", SubtitleType.CHS_JP, id="chs_jp_explicit"),
-            pytest.param("[Group] Title - 01 [CHS][JP]", SubtitleType.CHS_JP, id="chs_jp_combined_markers"),
+            pytest.param(
+                "[Group] Title - 01 [简日]", SubtitleType.CHS_JP, id="chs_jp_marker"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [GB_JP]", SubtitleType.CHS_JP, id="gb_jp_marker"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHS_JP]", SubtitleType.CHS_JP, id="chs_jp_explicit"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHS][JP]",
+                SubtitleType.CHS_JP,
+                id="chs_jp_combined_markers",
+            ),
         ],
     )
     def test_chs_jp_markers(
@@ -662,10 +696,20 @@ class TestSubtitleDetection:
     @pytest.mark.parametrize(
         "input_string,expected",
         [
-            pytest.param("[Group] Title - 01 [繁日]", SubtitleType.CHT_JP, id="cht_jp_marker"),
-            pytest.param("[Group] Title - 01 [BIG5_JP]", SubtitleType.CHT_JP, id="big5_jp_marker"),
-            pytest.param("[Group] Title - 01 [CHT_JP]", SubtitleType.CHT_JP, id="cht_jp_explicit"),
-            pytest.param("[Group] Title - 01 [CHT][JP]", SubtitleType.CHT_JP, id="cht_jp_combined_markers"),
+            pytest.param(
+                "[Group] Title - 01 [繁日]", SubtitleType.CHT_JP, id="cht_jp_marker"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [BIG5_JP]", SubtitleType.CHT_JP, id="big5_jp_marker"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHT_JP]", SubtitleType.CHT_JP, id="cht_jp_explicit"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHT][JP]",
+                SubtitleType.CHT_JP,
+                id="cht_jp_combined_markers",
+            ),
         ],
     )
     def test_cht_jp_markers(
@@ -680,9 +724,21 @@ class TestSubtitleDetection:
     @pytest.mark.parametrize(
         "input_string,expected",
         [
-            pytest.param("[Group] Title - 01 [简繁][JP]", SubtitleType.CHS_CHT_JP, id="chs_cht_jp_combined"),
-            pytest.param("[Group] Title - 01 [CHS_CHT][JP]", SubtitleType.CHS_CHT_JP, id="chs_cht_jp_with_explicit"),
-            pytest.param("[Group] Title - 01 [CHS][CHT][JP]", SubtitleType.CHS_CHT_JP, id="chs_cht_jp_all_separate"),
+            pytest.param(
+                "[Group] Title - 01 [简繁][JP]",
+                SubtitleType.CHS_CHT_JP,
+                id="chs_cht_jp_combined",
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHS_CHT][JP]",
+                SubtitleType.CHS_CHT_JP,
+                id="chs_cht_jp_with_explicit",
+            ),
+            pytest.param(
+                "[Group] Title - 01 [CHS][CHT][JP]",
+                SubtitleType.CHS_CHT_JP,
+                id="chs_cht_jp_all_separate",
+            ),
         ],
     )
     def test_chs_cht_jp_markers(
@@ -697,10 +753,20 @@ class TestSubtitleDetection:
     @pytest.mark.parametrize(
         "input_string,expected",
         [
-            pytest.param("[Group] Title - 01 [1080p]", SubtitleType.UNKNOWN, id="no_subtitle_markers"),
+            pytest.param(
+                "[Group] Title - 01 [1080p]",
+                SubtitleType.UNKNOWN,
+                id="no_subtitle_markers",
+            ),
             pytest.param("", SubtitleType.UNKNOWN, id="empty_string"),
-            pytest.param("[Group] Title - 01 [内嵌]", SubtitleType.UNKNOWN, id="embedded_marker"),
-            pytest.param("[Group] Title - 01 [hardsub]", SubtitleType.UNKNOWN, id="hardsub_marker"),
+            pytest.param(
+                "[Group] Title - 01 [内嵌]", SubtitleType.UNKNOWN, id="embedded_marker"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [hardsub]",
+                SubtitleType.UNKNOWN,
+                id="hardsub_marker",
+            ),
         ],
     )
     def test_unknown_subtitle_cases(
@@ -717,7 +783,11 @@ class TestSubtitleDetection:
         [
             pytest.param("[Group] Title - 01 [简体]", SubtitleType.CHS, id="parse_chs"),
             pytest.param("[Group] Title - 01 [繁体]", SubtitleType.CHT, id="parse_cht"),
-            pytest.param("[Group] Title - 01 [1080p]", SubtitleType.UNKNOWN, id="parse_no_subtitle"),
+            pytest.param(
+                "[Group] Title - 01 [1080p]",
+                SubtitleType.UNKNOWN,
+                id="parse_no_subtitle",
+            ),
         ],
     )
     def test_parse_method_subtitle_extraction(
@@ -790,7 +860,9 @@ class TestSeasonExtraction:
             pytest.param("[Group] Title Season 1 - 01 [1080p]", 1, id="season_1"),
             pytest.param("[Group] Title Season 2 - 01 [1080p]", 2, id="season_2"),
             pytest.param("[Group] Title Season 3 - 01 [1080p]", 3, id="season_3"),
-            pytest.param("[Group] Title season 2 - 01 [1080p]", 2, id="season_lowercase"),
+            pytest.param(
+                "[Group] Title season 2 - 01 [1080p]", 2, id="season_lowercase"
+            ),
         ],
     )
     def test_season_word_format(
@@ -848,7 +920,9 @@ class TestSeasonExtraction:
         "torrent_name,expected",
         [
             pytest.param("[Group] Title 第2季 - 01 [1080p]", 2, id="chinese_arabic_2"),
-            pytest.param("[Group] Title 第10季 - 01 [1080p]", 10, id="chinese_arabic_10"),
+            pytest.param(
+                "[Group] Title 第10季 - 01 [1080p]", 10, id="chinese_arabic_10"
+            ),
         ],
     )
     def test_season_chinese_arabic_format(
@@ -894,7 +968,7 @@ class TestSeasonExtraction:
         self, parser: BangumiParser, torrent_name: str, expected: int
     ):
         """Test extraction of Roman numeral format (I, II, III, IV, V, X, XII).
-        
+
         Note: Lowercase Roman numerals are not matched (returns default 1).
         """
         result = parser._extract_season(torrent_name)
@@ -1968,7 +2042,9 @@ class TestSeasonBracketEdgeCases:
                 "[Group [[Nested]]] Title - 01 [1080p]",
                 "Group [[Nested]]",
                 id="nested_brackets_in_group",
-                marks=pytest.mark.xfail(reason="Parser may not handle deeply nested brackets correctly"),
+                marks=pytest.mark.xfail(
+                    reason="Parser may not handle deeply nested brackets correctly"
+                ),
             ),
             pytest.param(
                 "[Normal Group] Title - 01 [1080p]",
@@ -1979,7 +2055,9 @@ class TestSeasonBracketEdgeCases:
                 "[[Double]] Title - 01 [1080p]",
                 "[Double]",
                 id="double_bracket_start",
-                marks=pytest.mark.xfail(reason="Parser may not handle double brackets correctly"),
+                marks=pytest.mark.xfail(
+                    reason="Parser may not handle double brackets correctly"
+                ),
             ),
         ],
     )
@@ -3500,6 +3578,36 @@ class TestRealWorldFormats:
         ]  # Accept either based on parser behavior
         assert result.resolution == "1080P"
         assert result.video_codec == "HEVC"
+
+    def test_lolihouse_format_fullwidth_bracket_title(self, parser: BangumiParser):
+        """Test LoliHouse format with full-width brackets around title.
+
+        Regression test for issue where titles enclosed in full-width brackets
+        【我推的孩子】 were incorrectly parsed as the subtitle marker (简繁内封字幕)
+        instead of the actual anime title.
+        """
+        # After normalization: [动漫国字幕组&LoliHouse] [我推的孩子] / Oshi no Ko - 10 ...
+        result = parser.parse(
+            "[动漫国字幕组&LoliHouse] [我推的孩子] / Oshi no Ko - 10 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
+        )
+        assert result.group == "动漫国字幕组&LoliHouse"
+        assert result.title == "我推的孩子"
+        assert result.episode == 10.0
+        assert result.resolution == "1080P"
+        assert result.video_codec == "HEVC"
+        assert result.audio_codec == "AAC"
+        assert result.source == "WebRip"
+        assert result.subtitle == SubtitleType.CHS_CHT
+
+    def test_compound_subtitle_marker_detection(self, parser: BangumiParser):
+        """Test that compound subtitle markers are correctly identified as metadata."""
+        # 简繁内封字幕 should be recognized as metadata, not as a title
+        assert parser._is_metadata_bracket("简繁内封字幕") is True
+        assert parser._is_metadata_bracket("繁日内嵌字幕") is True
+        assert parser._is_metadata_bracket("简体内封字幕") is True
+        # But actual titles should not be detected as metadata
+        assert parser._is_metadata_bracket("我推的孩子") is False
+        assert parser._is_metadata_bracket("葬送的芙莉蓮") is False
 
     # 黒ネズミたち format tests
     def test_kuronezumi_format_abema_source(self, parser: BangumiParser):

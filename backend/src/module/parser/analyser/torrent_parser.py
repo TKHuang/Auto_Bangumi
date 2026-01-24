@@ -111,7 +111,7 @@ def torrent_parser(
 
         match = re.search(r"S\d+E(\d+)", parse_name, re.IGNORECASE)
         if match:
-            episode = float(match.group(1))
+            episode = int(match.group(1))
 
     # Get file extension
     suffix = Path(torrent_path).suffix
@@ -124,6 +124,7 @@ def torrent_parser(
             season=final_season,
             episode=episode,
             suffix=suffix,
+            is_movie=parsed.is_movie,
         )
     elif file_type == "subtitle":
         # Map SubtitleType to language code
@@ -146,6 +147,7 @@ def torrent_parser(
             language=language,
             episode=episode,
             suffix=suffix,
+            is_movie=parsed.is_movie,
         )
 
 
