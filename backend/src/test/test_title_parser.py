@@ -1,4 +1,5 @@
 import pytest
+
 from module.conf import settings
 from module.parser.title_parser import TitleParser
 
@@ -11,7 +12,7 @@ class TestTitleParser:
         assert result.title_raw == "New Doraemon"
         assert result.dpi == "1080P"
         assert result.season == 1
-        assert result.subtitle == "GB_JP"
+        assert result.subtitle == "CHS_JP"  # Normalized from GB_JP (GB = CHS)
 
     @pytest.mark.skipif(
         not settings.experimental_openai.enable,

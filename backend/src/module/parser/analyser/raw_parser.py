@@ -1,205 +1,239 @@
 import logging
-import re
 
 from module.models import Episode
 from module.models.bangumi import BangumiParsingError
+from module.parser.analyser.bangumi_parser import BangumiParser
 
 logger = logging.getLogger(__name__)
 
-EPISODE_RE = re.compile(r"\d+")
-TITLE_RE = [
-    re.compile(
-        r"(.*|\[.*])( -? \d+|\[\d+]|\[\d+.?[vV]\d]|第\d+[话話集]|\[第?\d+[话話集]]|\[\d+.?END]|[Ee][Pp]?\d+)(.*)"
-    ),
-    re.compile(r"(.*)(\[\d{1,3}[~-]\d{1,3}.*?\])(.*)"),
-    re.compile(r"(.*?\])()((?:\[.*)+)"),
-]
-RESOLUTION_RE = re.compile(r"1080|720|2160|4K")
-SOURCE_RE = re.compile(r"B-Global|[Bb]aha|[Bb]ilibili|AT-X|Web")
-SUB_RE = re.compile(r"[简繁日字幕]|CH|BIG5|GB")
-
-PREFIX_RE = re.compile(r"[^\w\s\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff-]")
-
-CHINESE_NUMBER_MAP = {
-    "一": 1,
-    "二": 2,
-    "三": 3,
-    "四": 4,
-    "五": 5,
-    "六": 6,
-    "七": 7,
-    "八": 8,
-    "九": 9,
-    "十": 10,
-}
-
-
-def get_group(name: str) -> str:
-    return re.split(r"[\[\]]", name)[1]
-
-
-def pre_process(raw_name: str) -> str:
-    return raw_name.replace("【", "[").replace("】", "]")
-
-
-def prefix_process(raw: str, group: str) -> str:
-    raw = re.sub(f".{group}.", "", raw)
-    raw_process = PREFIX_RE.sub("/", raw)
-    arg_group = raw_process.split("/")
-    while "" in arg_group:
-        arg_group.remove("")
-    if len(arg_group) == 1:
-        arg_group = arg_group[0].split(" ")
-    for arg in arg_group:
-        if re.search(r"新番|月?番", arg) and len(arg) <= 5:
-            raw = re.sub(f".{arg}.", "", raw)
-        elif re.search(r"港澳台地区", arg):
-            raw = re.sub(f".{arg}.", "", raw)
-    return raw
-
-
-def season_process(season_info: str):
-    name_season = season_info
-    # if re.search(r"新番|月?番", season_info):
-    #     name_season = re.sub(".*新番.", "", season_info)
-    #     # 去除「新番」信息
-    # name_season = re.sub(r"^[^]】]*[]】]", "", name_season).strip()
-    season_rule = r"S\d{1,2}|Season \d{1,2}|[第].[季期]"
-    name_season = re.sub(r"[\[\]]", " ", name_season)
-    seasons = re.findall(season_rule, name_season)
-    if not seasons:
-        return name_season, "", 1
-    name = re.sub(season_rule, "", name_season)
-    for season in seasons:
-        season_raw = season
-        if re.search(r"Season|S", season) is not None:
-            season = int(re.sub(r"Season|S", "", season))
-            break
-        elif re.search(r"[第 ].*[季期(部分)]|部分", season) is not None:
-            season_pro = re.sub(r"[第季期 ]", "", season)
-            try:
-                season = int(season_pro)
-            except ValueError:
-                season = CHINESE_NUMBER_MAP[season_pro]
-                break
-    return name, season_raw, season
-
-
-def name_process(name: str):
-    name_en, name_zh, name_jp = None, None, None
-    name = name.strip()
-    name = re.sub(r"[(（]仅限港澳台地区[）)]", "", name)
-    split = re.split(r"/|\s{2}|-\s{2}", name)
-    while "" in split:
-        split.remove("")
-    if len(split) == 1:
-        if re.search("_{1}", name) is not None:
-            split = re.split("_", name)
-        elif re.search(" - {1}", name) is not None:
-            split = re.split("-", name)
-    if len(split) == 1:
-        split_space = split[0].split(" ")
-        for idx in [0, -1]:
-            if re.search(r"^[\u4e00-\u9fa5]{2,}", split_space[idx]) is not None:
-                chs = split_space[idx]
-                split_space.remove(chs)
-                split = [chs, " ".join(split_space)]
-                break
-    for item in split:
-        if re.search(r"[\u0800-\u4e00]{2,}", item) and not name_jp:
-            name_jp = item.strip()
-        elif re.search(r"[\u4e00-\u9fa5]{2,}", item) and not name_zh:
-            name_zh = item.strip()
-        elif re.search(r"[a-zA-Z]{3,}", item) and not name_en:
-            name_en = item.strip()
-    return name_en, name_zh, name_jp
-
-
-def find_tags(other):
-    elements = re.sub(r"[\[\]()（）]", " ", other).split(" ")
-    # find CHT
-    sub, resolution, source = None, None, None
-    for element in filter(lambda x: x != "", elements):
-        if SUB_RE.search(element):
-            sub = element
-        elif RESOLUTION_RE.search(element):
-            resolution = element
-        elif SOURCE_RE.search(element):
-            source = element
-    return clean_sub(sub), resolution, source
-
-
-def clean_sub(sub: str | None) -> str | None:
-    if sub is None:
-        return sub
-    return re.sub(r"_MP4|_MKV", "", sub)
-
-
-def process(raw_title: str):
-    raw_title = raw_title.strip().replace("\n", " ")
-    content_title = pre_process(raw_title)
-    # 预处理标题
-    group = get_group(content_title)
-    # 翻译组的名字
-    # Try each TITLE_RE pattern in order
-    match_obj = None
-    for idx, pattern in enumerate(TITLE_RE):
-        match_obj = pattern.match(content_title)
-        if match_obj:
-            break
-
-    if match_obj is None:
-        return None
-
-    # 处理标题
-    season_info, episode_info, other = list(
-        map(lambda x: x.strip() if x else "", match_obj.groups())
-    )
-    process_raw = prefix_process(season_info, group)
-    # 处理 前缀
-    raw_name, season_raw, season = season_process(process_raw)
-    # 处理 第n季
-    name_en, name_zh, name_jp = "", "", ""
-    try:
-        name_en, name_zh, name_jp = name_process(raw_name)
-        # 处理 名字
-    except ValueError:
-        pass
-    # 处理 集数
-    raw_episode = EPISODE_RE.search(episode_info)
-    episode = 0
-    if raw_episode is not None:
-        episode = int(raw_episode.group())
-    sub, dpi, source = find_tags(other)  # 剩余信息处理
-    return (
-        name_en,
-        name_zh,
-        name_jp,
-        season,
-        season_raw,
-        episode,
-        sub,
-        dpi,
-        source,
-        group,
-    )
-
 
 def raw_parser(raw: str) -> Episode | None:
-    ret = process(raw)
-    if ret is None:
-        logger.error(f"Parser cannot analyse {raw}")
-        return None
-    name_en, name_zh, name_jp, season, sr, episode, sub, dpi, source, group = ret
-    
+    """Parse raw torrent title using BangumiParser.
+
+    This function uses the new BangumiParser internally to parse torrent titles
+    and maps the result to the Episode model for backward compatibility.
+
+    Args:
+        raw: The raw torrent title string to parse.
+
+    Returns:
+        Episode object with parsed information, or None if parsing fails.
+
+    Raises:
+        BangumiParsingError: When title extraction fails but other fields are parsed.
+    """
+    # Normalize full-width brackets to half-width for better compatibility
+    normalized = raw.replace("【", "[").replace("】", "]")
+
+    parser = BangumiParser()
+    parsed = parser.parse(normalized)
+
+    # Map ParsedBangumi to Episode fields
+    # Determine individual title fields from title and alt_titles
+    # Priority: CJK title as title_zh/title_jp, Latin title as title_en
+    title_en = None
+    title_zh = None
+    title_jp = None
+
+    # Helper to detect if string contains CJK characters
+    def is_cjk(text: str) -> bool:
+        if not text:
+            return False
+        # Check for Chinese, Japanese (Hiragana/Katakana), Korean characters
+        for char in text:
+            code_point = ord(char)
+            if (
+                0x4E00 <= code_point <= 0x9FFF  # CJK Unified Ideographs
+                or 0x3040 <= code_point <= 0x309F  # Hiragana
+                or 0x30A0 <= code_point <= 0x30FF  # Katakana
+                or 0xAC00 <= code_point <= 0xD7AF
+            ):  # Hangul
+                return True
+        return False
+
+    # Helper to detect if string contains Japanese-specific characters (Hiragana/Katakana)
+    def is_japanese(text: str) -> bool:
+        if not text:
+            return False
+        for char in text:
+            code_point = ord(char)
+            if (
+                0x3040 <= code_point <= 0x309F  # Hiragana
+                or 0x30A0 <= code_point <= 0x30FF  # Katakana
+            ):
+                return True
+        return False
+
+    # Helper to detect if string is primarily Latin script
+    def is_latin(text: str) -> bool:
+        if not text:
+            return False
+        # Check if text contains significant Latin characters
+        latin_count = sum(1 for c in text if c.isalpha() and ord(c) < 0x0800)
+        return latin_count >= 3  # At least 3 Latin letters
+
+    # Helper to split mixed CJK/Latin titles
+    def split_mixed_title(title: str) -> tuple[str | None, str | None]:
+        """Split title containing both CJK and Latin characters.
+
+        Returns (latin_part, cjk_part) tuple.
+
+        Note: Only split titles that have clear language boundaries.
+        Mixed titles like "16bit 的感动 ANOTHER LAYER" should NOT be split
+        as they are intentionally mixed and should be kept as CJK title.
+        """
+        if not title:
+            return None, None
+
+        # Check if this is an intentionally mixed title (CJK words interspersed with Latin)
+        # If so, don't split - keep as CJK title
+        words = title.split()
+        word_types = []  # Track type of each word: 'cjk', 'latin', 'other'
+        for word in words:
+            has_cjk = is_cjk(word)
+            has_latin = is_latin(word)
+            if has_cjk:
+                word_types.append("cjk")
+            elif has_latin:
+                word_types.append("latin")
+            else:
+                word_types.append("other")
+
+        # Check for pattern: latin/other followed by cjk followed by latin
+        # This indicates an intentionally mixed title (e.g., "16bit 的感动 ANOTHER LAYER")
+        cjk_indices = [i for i, t in enumerate(word_types) if t == "cjk"]
+        if cjk_indices:
+            first_cjk = min(cjk_indices)
+            last_cjk = max(cjk_indices)
+            # If there's Latin before AND after CJK, it's likely intentionally mixed
+            has_latin_before = any(word_types[i] == "latin" for i in range(first_cjk))
+            has_latin_after = any(
+                word_types[i] == "latin" for i in range(last_cjk + 1, len(word_types))
+            )
+            if has_latin_before and has_latin_after:
+                # Intentionally mixed - keep as CJK title
+                return None, title
+
+        # Standard split: try to separate Latin and CJK parts
+        # Preserve symbols (like ~) that decorate titles
+        latin_parts = []
+        cjk_parts = []
+        symbol_buffer = []  # Buffer for symbols between language transitions
+
+        for i, word in enumerate(words):
+            word_is_cjk = is_cjk(word)
+            word_is_latin = is_latin(word)
+
+            if word_is_cjk:
+                # Flush symbol buffer to CJK if CJK parts exist
+                if symbol_buffer and cjk_parts:
+                    cjk_parts.extend(symbol_buffer)
+                symbol_buffer = []
+                cjk_parts.append(word)
+            elif word_is_latin:
+                # Flush symbol buffer to Latin if Latin parts exist
+                if symbol_buffer and latin_parts:
+                    latin_parts.extend(symbol_buffer)
+                elif symbol_buffer:
+                    # Symbols before first Latin word - include them
+                    latin_parts.extend(symbol_buffer)
+                symbol_buffer = []
+                latin_parts.append(word)
+            else:
+                # Symbol or other character - buffer it
+                # Could be decorator like ~ or punctuation
+                symbol_buffer.append(word)
+
+        # Handle trailing symbols - add to Latin if Latin parts exist
+        if symbol_buffer and latin_parts:
+            latin_parts.extend(symbol_buffer)
+        elif symbol_buffer and cjk_parts:
+            cjk_parts.extend(symbol_buffer)
+
+        latin_title = " ".join(latin_parts) if latin_parts else None
+        cjk_title = "".join(cjk_parts) if cjk_parts else None
+
+        return latin_title, cjk_title
+
+    # Helper to clean brackets from titles (workaround for BangumiParser bug)
+    def clean_brackets(title: str) -> str:
+        """Remove leading/trailing brackets from title."""
+        if not title:
+            return title
+        # Strip leading [ or ] and trailing [ or ]
+        title = title.strip()
+        while title and (title[0] in "[]【】" or title[-1] in "[]【】"):
+            if title[0] in "[]【】":
+                title = title[1:]
+            if title and title[-1] in "[]【】":
+                title = title[:-1]
+            title = title.strip()
+        return title
+
+    # Process title and alt_titles to extract language-specific titles
+    # If there are alt_titles, it means "/" separator was found - use that split
+    if parsed.alt_titles:
+        # Title and alt_titles already separated by BangumiParser
+        # Assign based on language detection
+        for idx, title in enumerate([parsed.title] + parsed.alt_titles):
+            if not title:
+                continue
+
+            # Clean any brackets from title (workaround for BangumiParser parsing issues)
+            title = clean_brackets(title)
+            if not title:
+                continue
+
+            has_latin = is_latin(title)
+            has_cjk = is_cjk(title)
+
+            if has_latin and has_cjk:
+                # Mixed title - prefer as Chinese title (old parser behavior)
+                if not title_zh:
+                    title_zh = title
+            elif has_latin and not title_en:
+                title_en = title
+            elif has_cjk:
+                if not title_zh:
+                    title_zh = title
+                elif not title_jp and is_japanese(title):
+                    # Only assign to title_jp if it contains Japanese characters
+                    # (Hiragana/Katakana), otherwise it's likely another Chinese title
+                    title_jp = title
+    else:
+        # No alt_titles - single title that might be mixed
+        title = parsed.title
+        if title:
+            # Clean brackets from title (workaround for BangumiParser parsing issues)
+            title = clean_brackets(title)
+
+        if not title:
+            pass  # No title at all
+        else:
+            has_latin = is_latin(title)
+            has_cjk = is_cjk(title)
+
+            if has_latin and has_cjk:
+                # Mixed title - try to split it
+                latin, cjk = split_mixed_title(title)
+                if latin and not title_en:
+                    title_en = latin
+                if cjk and not title_zh:
+                    title_zh = cjk
+            elif has_latin and not title_en:
+                title_en = title
+            elif has_cjk:
+                if not title_zh:
+                    title_zh = title
+
     # Check if all title fields are empty - raise BangumiParsingError for manual input
-    if not name_en and not name_zh and not name_jp:
+    if not title_en and not title_zh and not title_jp:
         partial_data = {
             "raw_title": raw,
-            "group": group,
-            "season": season,
-            "resolution": dpi,
-            "subtitle": sub,
+            "group": parsed.group,
+            "season": parsed.season,
+            "resolution": parsed.resolution,
+            "subtitle": parsed.subtitle.value if parsed.subtitle else None,
         }
         raise BangumiParsingError(
             raw_title=raw,
@@ -207,9 +241,27 @@ def raw_parser(raw: str) -> Episode | None:
             msg_en="Failed to extract title from torrent name. Please provide title manually.",
             msg_zh="无法从种子名称中提取标题。请手动输入标题。",
         )
-    
+
+    # Convert episode to int (Episode model expects int, but ParsedBangumi uses float)
+    episode = int(parsed.episode) if parsed.episode is not None else 0
+
+    # Map subtitle enum to string value
+    subtitle = parsed.subtitle.value if parsed.subtitle else None
+
+    # Season raw is not provided by ParsedBangumi, use empty string for compatibility
+    season_raw = ""
+
     return Episode(
-        name_en, name_zh, name_jp, season, sr, episode, sub, group, dpi, source
+        title_en=title_en,
+        title_zh=title_zh,
+        title_jp=title_jp,
+        season=parsed.season,
+        season_raw=season_raw,
+        episode=episode,
+        sub=subtitle,
+        group=parsed.group,
+        resolution=parsed.resolution,
+        source=parsed.source,
     )
 
 

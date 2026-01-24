@@ -1,25 +1,25 @@
 import logging
-import re
 from pathlib import Path
 
 from module.models import EpisodeFile, SubtitleFile
+from module.models.parsed import SubtitleType
+from module.parser.analyser.bangumi_parser import BangumiParser
 
 logger = logging.getLogger(__name__)
 
 PLATFORM = "Unix"
 
-RULES = [
-    r"(.*) - (\d{1,4}(?:\.\d{1,2})?(?!\d|p))(?:v\d{1,2})?(?: )?(?:END)?(.*)",
-    r"(.*)[\[\ E](\d{1,4}(?:\.\d{1,2})?)(?:v\d{1,2})?(?: )?(?:END)?[\]\ ](.*)",
-    r"(.*)\[(?:第)?(\d{1,4}(?:\.\d{1,2})?)[话集話](?:END)?\](.*)",
-    r"(.*)第?(\d{1,4}(?:\.\d{1,2})?)[话話集](?:END)?(.*)",
-    r"(.*)(?:S\d{2})?EP?(\d{1,4}(?:\.\d{1,2})?)(.*)",
-    r"(.*)\[(MOVIE|OVA|剧场版|劇場版)\](.*)",
-]
-
-SUBTITLE_LANG = {
-    "zh-tw": ["tc", "cht", "繁", "zh-tw"],
-    "zh": ["sc", "chs", "简", "zh"],
+# Subtitle language mapping from SubtitleType to EpisodeFile language codes
+SUBTITLE_LANG_MAP = {
+    SubtitleType.CHT: "zh-tw",
+    SubtitleType.CHS_CHT: "zh-tw",
+    SubtitleType.CHT_JP: "zh-tw",
+    SubtitleType.CHS_CHT_JP: "zh-tw",
+    SubtitleType.CHS: "zh",
+    SubtitleType.CHS_JP: "zh",
+    SubtitleType.JP: None,
+    SubtitleType.EN: None,
+    SubtitleType.UNKNOWN: None,
 }
 
 
@@ -35,32 +35,27 @@ def get_path_basename(torrent_path: str) -> str:
     return Path(torrent_path).name
 
 
-def get_group(group_and_title) -> tuple[str | None, str]:
-    n = re.split(r"[\[\]()【】（）]", group_and_title)
-    # Remove empty strings and whitespace-only elements, and strip each element
-    n = [item.strip() for item in n if item and item.strip()]
-    if len(n) > 1:
-        if re.match(r"\d+", n[1]):
-            return None, group_and_title
-        return n[0], n[1]
-    else:
-        return None, n[0]
+def _extract_simple_title(filename: str) -> str | None:
+    """Extract title from simple formats like 'Title S01E01.mp4'.
 
+    Fallback for when BangumiParser doesn't find a title.
+    """
+    import re
 
-def get_season_and_title(season_and_title) -> tuple[str, int]:
-    title = re.sub(r"([Ss]|Season )\d{1,3}", "", season_and_title).strip()
-    try:
-        season = re.search(r"([Ss]|Season )(\d{1,3})", season_and_title, re.I).group(2)
-    except AttributeError:
-        season = 1
-    return title, int(season)
+    # Remove file extension
+    name = Path(filename).stem
 
+    # Try to extract title before S##E## pattern
+    match = re.match(r"^(.+?)\s+S\d+E\d+", name, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
 
-def get_subtitle_lang(subtitle_name: str) -> str:
-    for key, value in SUBTITLE_LANG.items():
-        for v in value:
-            if v in subtitle_name.lower():
-                return key
+    # Try to extract title before - ## pattern
+    match = re.match(r"^(.+?)\s+-\s+\d+", name)
+    if match:
+        return match.group(1).strip()
+
+    return None
 
 
 def torrent_parser(
@@ -69,46 +64,89 @@ def torrent_parser(
     season: int | None = None,
     file_type: str = "media",
 ) -> EpisodeFile | SubtitleFile:
-    media_path = get_path_basename(torrent_path)
-    match_names = [torrent_name, media_path]
-    if torrent_name is None:
-        match_names = match_names[1:]
-    for match_name in match_names:
-        for rule in RULES:
-            match_obj = re.match(rule, match_name, re.I)
-            if match_obj:
-                group, title = get_group(match_obj.group(1))
-                if not season:
-                    title, season = get_season_and_title(title)
-                else:
-                    title, _ = get_season_and_title(title)
-                episode_str = match_obj.group(2)
-                # Handle MOVIE/OVA tags - set episode to 1
-                if episode_str and re.match(r"(MOVIE|OVA|剧场版|劇場版)", episode_str, re.I):
-                    episode = 1
-                else:
-                    episode = episode_str
-                suffix = Path(torrent_path).suffix
-                if file_type == "media":
-                    return EpisodeFile(
-                        media_path=torrent_path,
-                        group=group,
-                        title=title,
-                        season=season,
-                        episode=episode,
-                        suffix=suffix,
-                    )
-                elif file_type == "subtitle":
-                    language = get_subtitle_lang(media_path)
-                    return SubtitleFile(
-                        media_path=torrent_path,
-                        group=group,
-                        title=title,
-                        season=season,
-                        language=language,
-                        episode=episode,
-                        suffix=suffix,
-                    )
+    """Parse torrent file path to extract episode/subtitle information.
+
+    Uses BangumiParser to extract metadata from filenames.
+
+    Args:
+        torrent_path: Full path to the torrent file
+        torrent_name: Optional torrent name to parse (if different from path basename)
+        season: Optional explicit season override
+        file_type: Either "media" or "subtitle"
+
+    Returns:
+        EpisodeFile or SubtitleFile based on file_type
+    """
+    # Get basename from path
+    media_path_basename = get_path_basename(torrent_path)
+
+    # Determine which name to parse (prefer torrent_name if provided)
+    parse_name = torrent_name if torrent_name else media_path_basename
+
+    # Use BangumiParser to parse the filename
+    parser = BangumiParser()
+    parsed = parser.parse(parse_name)
+
+    # Extract title
+    title = parsed.title
+    if not title:
+        # Try simple title extraction as fallback
+        simple_title = _extract_simple_title(parse_name)
+        if simple_title:
+            title = simple_title
+        else:
+            # Last resort: use the raw filename without extension
+            title = Path(parse_name).stem
+
+    # Use explicit season if provided, otherwise use parsed season
+    final_season = season if season is not None else parsed.season
+
+    # Extract episode (handle both single and batch ranges)
+    # For torrent files, we typically use the start episode
+    episode = parsed.episode
+
+    # If episode not found by BangumiParser, try simple S##E## extraction
+    if episode is None:
+        import re
+
+        match = re.search(r"S\d+E(\d+)", parse_name, re.IGNORECASE)
+        if match:
+            episode = float(match.group(1))
+
+    # Get file extension
+    suffix = Path(torrent_path).suffix
+
+    if file_type == "media":
+        return EpisodeFile(
+            media_path=torrent_path,
+            group=parsed.group,
+            title=title,
+            season=final_season,
+            episode=episode,
+            suffix=suffix,
+        )
+    elif file_type == "subtitle":
+        # Map SubtitleType to language code
+        language = SUBTITLE_LANG_MAP.get(parsed.subtitle)
+
+        # If no language detected from subtitle markers, try basename parsing
+        if language is None:
+            # Check for language markers in filename
+            lower_name = media_path_basename.lower()
+            if any(marker in lower_name for marker in ["tc", "cht", "繁", "zh-tw"]):
+                language = "zh-tw"
+            elif any(marker in lower_name for marker in ["sc", "chs", "简", "zh"]):
+                language = "zh"
+
+        return SubtitleFile(
+            media_path=torrent_path,
+            group=parsed.group,
+            title=title,
+            season=final_season,
+            language=language,
+            episode=episode,
+            suffix=suffix,
+        )
 
 
 if __name__ == "__main__":

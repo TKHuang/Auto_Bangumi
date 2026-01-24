@@ -1,0 +1,213 @@
+{
+  "project": "Auto_Bangumi",
+  "branchName": "ralph/test-suite-improvement",
+  "description": "Parser Test Suite Improvement - Reduce redundancy through parametrization while adding critical edge cases",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create shared test fixtures in conftest.py",
+      "description": "As a developer, I want shared fixtures in conftest.py so that parser instances and common test data are reusable across all test files.",
+      "acceptanceCriteria": [
+        "Create backend/src/test/conftest.py with shared parser fixture using @pytest.fixture",
+        "Add common test data fixtures for sample torrent names",
+        "Fixture scope should be 'function' for clean state each test",
+        "All existing tests still pass with new fixture imports",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Add pytest markers configuration",
+      "description": "As a developer, I want pytest markers so that I can run specific test categories.",
+      "acceptanceCriteria": [
+        "Add markers to pyproject.toml: unit, integration, slow, edge_case",
+        "Mark TestPerformance tests with @pytest.mark.slow",
+        "pytest --markers shows all custom markers without warnings",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Parametrize TestCodecDetection",
+      "description": "As a developer, I want codec detection tests parametrized so that variant testing is concise and maintainable.",
+      "acceptanceCriteria": [
+        "Refactor 61 individual tests to ~15 parametrized tests using @pytest.mark.parametrize",
+        "Group by: HEVC variants (HEVC/hevc/H.265/H265/x265/X265), AVC variants, audio codecs (AAC/FLAC/AC3/DTS/EAC3/OPUS)",
+        "Use pytest.param with id= for readable test output",
+        "Remove duplicate fixture - use shared parser from conftest.py",
+        "All tests pass with same coverage",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Parametrize TestSubtitleDetection",
+      "description": "As a developer, I want subtitle detection tests parametrized and imports cleaned up.",
+      "acceptanceCriteria": [
+        "Move SubtitleType import to top of file (currently repeated 47 times inside methods)",
+        "Refactor 47 individual tests to ~15 parametrized tests",
+        "Group by: CHS markers, CHT markers, JP markers, EN markers, combined types",
+        "Remove duplicate fixture - use shared parser from conftest.py",
+        "All tests pass with same coverage",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Parametrize TestSourceDetection",
+      "description": "As a developer, I want source detection tests parametrized for maintainability.",
+      "acceptanceCriteria": [
+        "Refactor 54 individual tests to ~18 parametrized tests",
+        "Group by: rip types (WEB-DL/WebRip/BDRip/BluRay/HDTV/DVDRip), streaming services (CR/Baha/B-Global/ABEMA/Bilibili/AT-X)",
+        "Remove duplicate fixture - use shared parser from conftest.py",
+        "All tests pass with same coverage",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Parametrize TestResolutionExtraction",
+      "description": "As a developer, I want resolution extraction tests parametrized for maintainability.",
+      "acceptanceCriteria": [
+        "Refactor 30 individual tests to ~10 parametrized tests",
+        "Group by: standard formats (1080p/720P/2160p/480p), dimension formats (1920x1080/1280x720), aliases (4K/UHD/FHD/HD)",
+        "Remove duplicate fixture - use shared parser from conftest.py",
+        "All tests pass with same coverage",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Parametrize TestSeasonExtraction",
+      "description": "As a developer, I want season extraction tests parametrized for maintainability.",
+      "acceptanceCriteria": [
+        "Refactor 49 individual tests to ~15 parametrized tests",
+        "Group by: S-format (S01/S02), Season format, ordinal (1st/2nd/3rd), Chinese numerals, Roman numerals, Part format",
+        "Remove duplicate fixture - use shared parser from conftest.py",
+        "All tests pass with same coverage",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Add episode edge case tests",
+      "description": "As a developer, I want edge case tests for episode extraction so that edge cases don't cause parsing failures.",
+      "acceptanceCriteria": [
+        "Add test for Episode 0: [Group] Title - 00 [1080p] expects episode=0.0",
+        "Add test for three-digit episodes: [Group] One Piece - 1042 [1080p] expects episode=1042.0",
+        "Add test for OVA with episode: [Group] Title OVA 01 [1080p]",
+        "Add test for SP prefix: [Group] Title - SP01 [1080p]",
+        "Add test for episode range with different padding: [1-12] vs [01-12]",
+        "Mark new tests with @pytest.mark.edge_case",
+        "Document any failing tests in tasks/parser-bugs-discovered.md (do not fix parser)",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Add title extraction edge case tests",
+      "description": "As a developer, I want edge case tests for title extraction so that complex titles parse correctly.",
+      "acceptanceCriteria": [
+        "Add test for year in title: Steins;Gate 0 should not confuse 0 as episode",
+        "Add test for punctuation preservation: Durarara!!, K-On!",
+        "Add test for colon subtitles: Re:Zero: Memory Snow",
+        "Add test for extremely long titles (100+ chars light novel adaptations)",
+        "Add test for titles with numbers: 86 EIGHTY-SIX",
+        "Mark new tests with @pytest.mark.edge_case",
+        "Document any failing tests in tasks/parser-bugs-discovered.md (do not fix parser)",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Add season and bracket edge case tests",
+      "description": "As a developer, I want edge case tests for season and bracket handling so that special cases are handled gracefully.",
+      "acceptanceCriteria": [
+        "Add test for Season 0: S00E01 expects season=0",
+        "Add test for two-digit seasons: S15 expects season=15",
+        "Add test for Cour distinction: S02 Cour 2 should extract season=2",
+        "Add test for empty first bracket: [] Title - 01 [1080p]",
+        "Add test for deeply nested brackets: [Group [[Nested]]]",
+        "Mark new tests with @pytest.mark.edge_case",
+        "Document any failing tests in tasks/parser-bugs-discovered.md (do not fix parser)",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Improve test_raw_parser.py consistency",
+      "description": "As a developer, I want test_raw_parser.py to follow the same patterns as the refactored test_bangumi_parser.py.",
+      "acceptanceCriteria": [
+        "Use shared parser fixture from conftest.py where applicable",
+        "Apply parametrization to reduce redundant test cases",
+        "Ensure consistent assertion patterns with test_bangumi_parser.py",
+        "All tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Improve test_rss_parsing_integration.py consistency",
+      "description": "As a developer, I want integration tests to follow consistent patterns and use shared fixtures.",
+      "acceptanceCriteria": [
+        "Use shared fixtures from conftest.py where applicable",
+        "Review for redundant tests that duplicate unit test coverage",
+        "Ensure integration tests focus on end-to-end scenarios",
+        "All tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Document discovered parser issues",
+      "description": "As a developer, I want a summary of any parser bugs discovered during test improvement so they can be tracked separately.",
+      "acceptanceCriteria": [
+        "Create tasks/parser-bugs-discovered.md if any edge case tests fail",
+        "Document each bug with: test case input, expected behavior, actual behavior",
+        "Reference relevant test method names",
+        "Do NOT modify parser implementation",
+        "File created or note added that no bugs were discovered",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "File created during US-008, US-010, US-011 with 9 documented bugs"
+    }
+  ]
+}

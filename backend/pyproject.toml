@@ -61,3 +61,11 @@ max-complexity = 10
 [tool.black]
 line-length = 88
 target-version = ['py310', 'py311']
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: Unit tests for individual components",
+    "integration: Integration tests spanning multiple components",
+    "slow: Tests that are slow to execute (performance benchmarks)",
+    "edge_case: Tests for edge cases and boundary conditions",
+]
