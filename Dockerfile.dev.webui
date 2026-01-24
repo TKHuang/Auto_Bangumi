@@ -1,0 +1,23 @@
+# WebUI Development Dockerfile
+# Provides hot-reload Vue/Vite development environment
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@9
+
+# Copy package files
+COPY webui/package.json webui/pnpm-lock.yaml ./
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Environment variable for API proxy target (Docker container name)
+ENV VITE_API_PROXY_TARGET=http://backend:7893
+
+EXPOSE 5173
+
+# Run Vite dev server with host binding for Docker
+CMD ["pnpm", "dev", "--host", "0.0.0.0"]

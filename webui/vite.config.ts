@@ -102,8 +102,9 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: '0.0.0.0',
     proxy: {
-      '^/api/.*': 'http://localhost:7893',
-      '^/posters/.*': 'http://localhost:7893',
+      // Use env variable for Docker, fallback to localhost for local dev
+      '^/api/.*': process.env.VITE_API_PROXY_TARGET || 'http://localhost:7893',
+      '^/posters/.*': process.env.VITE_API_PROXY_TARGET || 'http://localhost:7893',
     },
   },
 }));

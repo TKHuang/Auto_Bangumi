@@ -1,0 +1,29 @@
+# Backend Development Dockerfile
+# Provides hot-reload Python development environment
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python requirements
+COPY backend/requirements.txt /tmp/requirements.txt
+COPY backend/requirements-dev.txt /tmp/requirements-dev.txt
+
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements-dev.txt
+
+# Create version file for dev mode
+RUN mkdir -p /app/module && echo "VERSION='DEV_VERSION'" > /app/module/__version__.py
+
+# Create config and data directories
+RUN mkdir -p /app/config /app/data
+
+EXPOSE 7893
+
+# Run with hot reload
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7893", "--reload"]

@@ -1,0 +1,99 @@
+# Development Docker Compose
+# One command to start all services: docker compose -f docker-compose.dev.yml up
+#
+# Services:
+#   - backend:    http://localhost:7893 (FastAPI with hot reload)
+#   - webui:      http://localhost:5173 (Vite dev server)
+#   - qbittorrent: http://localhost:8081 (qBittorrent Web UI)
+#
+# Default credentials for qBittorrent: admin / adminadmin
+
+services:
+  # ============================================
+  # Backend - FastAPI Python Application
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev.backend
+    container_name: ab-backend-dev
+    restart: unless-stopped
+    networks:
+      - ab-dev-network
+    ports:
+      - "7893:7893"
+    environment:
+      - TZ=Asia/Taipei
+      - AB_DEV_MODE=true
+      # qBittorrent connection settings (container network)
+      - AB_DOWNLOADER_HOST=qbittorrent:8081
+      - AB_DOWNLOADER_USERNAME=admin
+      - AB_DOWNLOADER_PASSWORD=adminadmin
+      - AB_DOWNLOAD_PATH=/downloads/Bangumi
+    volumes:
+      # Source code with live reload
+      - ./backend/src:/app:cached
+      # Persistent config and data
+      - ./dev-config/backend:/app/config
+      - ./dev-config/data:/app/data
+      # Share download directory with qbittorrent
+      - ./dev-config/downloads:/downloads
+    depends_on:
+      - qbittorrent
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7893/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # WebUI - Vue 3 + Vite Development Server
+  # ============================================
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev.webui
+    container_name: ab-webui-dev
+    restart: unless-stopped
+    networks:
+      - ab-dev-network
+    ports:
+      - "5173:5173"
+    environment:
+      - TZ=Asia/Taipei
+    volumes:
+      # Source code with live reload (exclude node_modules)
+      - ./webui:/app:cached
+      - webui_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+  # ============================================
+  # qBittorrent - Download Client
+  # ============================================
+  qbittorrent:
+    image: linuxserver/qbittorrent:latest
+    container_name: ab-qbittorrent-dev
+    restart: unless-stopped
+    networks:
+      - ab-dev-network
+    ports:
+      - "8081:8081"
+    environment:
+      - TZ=Asia/Taipei
+      - WEBUI_PORT=8081
+    volumes:
+      - ./dev-config/qbittorrent:/config
+      - ./dev-config/downloads:/downloads
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+
+networks:
+  ab-dev-network:
+    driver: bridge
+
+volumes:
+  webui_node_modules:
