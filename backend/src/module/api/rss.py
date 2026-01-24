@@ -55,6 +55,46 @@ async def add_rss(
                 if isinstance(data, ResponseModel) and not data.status:
                     return data
 
+                # Check for duplicate official_title (only if not manually overridden)
+                if isinstance(data, Bangumi) and not official_title:
+                    existing_by_title = engine.bangumi.find_by_official_title(
+                        data.official_title
+                    )
+                    if existing_by_title:
+                        return ResponseModel(
+                            status=False,
+                            status_code=409,
+                            msg_en=f"A bangumi with title '{data.official_title}' already exists. Please use manual input to specify a different title.",
+                            msg_zh=f"已存在标题为「{data.official_title}」的番剧。请使用手动输入指定不同的标题。",
+                            error_type="duplicate_official_title",
+                            existing_bangumi={
+                                "id": existing_by_title.id,
+                                "official_title": existing_by_title.official_title,
+                                "season": existing_by_title.season,
+                                "group_name": existing_by_title.group_name,
+                            },
+                        )
+
+                # Check for duplicate rss_link
+                if isinstance(data, Bangumi) and data.rss_link:
+                    rss_links = data.rss_link.split(",") if data.rss_link else []
+                    existing_by_rss = engine.bangumi.find_by_any_rss_link(rss_links)
+                    if existing_by_rss:
+                        return ResponseModel(
+                            status=False,
+                            status_code=409,
+                            msg_en=f"This RSS link is already subscribed in bangumi '{existing_by_rss.official_title}'.",
+                            msg_zh=f"此 RSS 链接已在番剧「{existing_by_rss.official_title}」中订阅。",
+                            error_type="duplicate_rss_link",
+                            existing_bangumi={
+                                "id": existing_by_rss.id,
+                                "official_title": existing_by_rss.official_title,
+                                "season": existing_by_rss.season,
+                                "group_name": existing_by_rss.group_name,
+                                "rss_link": existing_by_rss.rss_link,
+                            },
+                        )
+
                 # Parsing succeeded, now add RSS to database
                 result = engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
                 if not result.status:

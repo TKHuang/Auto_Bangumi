@@ -64,12 +64,11 @@ def mikan_parser_with_rss(homepage: str) -> MikanParserResult:
                 suffix = poster_path.split(".")[-1]
                 poster_link = save_image(img, suffix)
 
-        # Extract official title
+        # Extract official title (keep full title including season/part info)
         official_title = ""
         title_elem = soup.select_one('p.bangumi-title a[href^="/Home/Bangumi/"]')
         if title_elem:
-            official_title = title_elem.text
-            official_title = re.sub(r"第.*季", "", official_title).strip()
+            official_title = title_elem.text.strip()
 
         # Extract season-specific RSS link
         # Look for RSS link with bangumiId and subgroupid parameters

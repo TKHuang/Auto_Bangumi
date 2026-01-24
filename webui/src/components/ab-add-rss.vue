@@ -163,6 +163,21 @@ interface BangumiParsingFailedError {
   };
 }
 
+interface DuplicateError {
+  status: boolean;
+  status_code: number;
+  error_type: 'duplicate_official_title' | 'duplicate_rss_link';
+  msg_en: string;
+  msg_zh: string;
+  existing_bangumi: {
+    id: number;
+    official_title: string;
+    season: number;
+    group_name: string;
+    rss_link?: string;
+  };
+}
+
 function isBangumiParsingFailedError(
   err: unknown
 ): err is BangumiParsingFailedError {
@@ -171,6 +186,51 @@ function isBangumiParsingFailedError(
     err !== null &&
     'error_type' in err &&
     (err as BangumiParsingFailedError).error_type === 'bangumi_parsing_failed'
+  );
+}
+
+function isDuplicateError(err: unknown): err is DuplicateError {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'error_type' in err &&
+    ((err as DuplicateError).error_type === 'duplicate_official_title' ||
+      (err as DuplicateError).error_type === 'duplicate_rss_link')
+  );
+}
+
+function handleDuplicateError(err: DuplicateError) {
+  const isRssLinkDuplicate = err.error_type === 'duplicate_rss_link';
+
+  if (isRssLinkDuplicate) {
+    // For rss_link duplicate, show error message only (can't override rss_link)
+    message.error(
+      returnUserLangText({
+        en: err.msg_en,
+        'zh-CN': err.msg_zh,
+      })
+    );
+    return;
+  }
+
+  // For official_title duplicate, transition to manual input mode
+  manualInputMode.value = true;
+  windowState.next = true;
+
+  // Store error messages
+  manualInputError.msgEn = err.msg_en;
+  manualInputError.msgZh = err.msg_zh;
+
+  // Pre-fill form with existing data suggestion
+  manualInputForm.officialTitle = '';
+  manualInputForm.season = 1;
+  manualInputForm.groupName = '';
+
+  message.warning(
+    returnUserLangText({
+      en: `Title "${err.existing_bangumi.official_title}" already exists. Please enter a different title.`,
+      'zh-CN': `标题「${err.existing_bangumi.official_title}」已存在。请输入不同的标题。`,
+    })
   );
 }
 
@@ -248,6 +308,8 @@ function addRss() {
         // Check if this is a bangumi parsing failed error
         if (isBangumiParsingFailedError(err)) {
           handleParsingFailedError(err);
+        } else if (isDuplicateError(err)) {
+          handleDuplicateError(err);
         }
         // Other errors are handled by axios interceptor
       },

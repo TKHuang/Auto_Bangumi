@@ -241,6 +241,18 @@ class RSSAnalyser(TitleParser):
                     )
                     continue
 
+                # Check if rss_link already exists in any bangumi
+                if bangumi.rss_link:
+                    rss_links = bangumi.rss_link.split(",")
+                    existing_by_rss = engine.bangumi.find_by_any_rss_link(rss_links)
+                    if existing_by_rss:
+                        logger.debug(
+                            f"[RSS] Skipping bangumi with duplicate rss_link: "
+                            f"{bangumi.official_title} (rss_link already in "
+                            f"{existing_by_rss.official_title})"
+                        )
+                        continue
+
                 # Check if ORIGINAL TORRENT NAME matches any global filter pattern
                 # This is the key fix - use torrent.name, not bangumi.title_raw
                 matched_patterns = []

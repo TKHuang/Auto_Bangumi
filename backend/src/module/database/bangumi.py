@@ -237,6 +237,83 @@ class BangumiDatabase:
         result = self.session.exec(statement).first()
         return result is not None
 
+    def get_pending_by_composite_key(
+        self, official_title: str, season: int, group_name: str
+    ) -> list[Bangumi]:
+        """Get pending review bangumi by composite key.
+
+        Used during recreation to find and delete existing pending bangumi
+        before creating new ones, preventing duplicates.
+
+        Args:
+            official_title: The official/standardized title.
+            season: Season number.
+            group_name: Subgroup name (defaults to "Unknown" if empty/None).
+
+        Returns:
+            List of pending review bangumi matching the composite key.
+        """
+        # Normalize: use "Unknown" for empty/None
+        normalized_group = group_name if group_name else "Unknown"
+
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.official_title == official_title,
+                Bangumi.season == season,
+                Bangumi.group_name == normalized_group,
+                Bangumi.deleted == false(),
+                Bangumi.pending_review == true(),
+            )
+        )
+        return self.session.exec(statement).all()
+
+    def get_all_by_rss_id(self, rss_id: int) -> list[Bangumi]:
+        """Get ALL bangumi associated with an RSS feed (active AND pending).
+
+        Used during RSS recreation to find and delete ALL existing bangumi
+        from the RSS before inserting new ones, preventing orphaned entries.
+
+        Args:
+            rss_id: The RSS item ID.
+
+        Returns:
+            List of all bangumi records with this rss_id (active or pending).
+        """
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.rss_id == rss_id,
+                Bangumi.deleted == false(),
+            )
+        )
+        return self.session.exec(statement).all()
+
+    def delete_all_by_rss_id(self, rss_id: int) -> int:
+        """Delete ALL bangumi associated with an RSS feed (active AND pending).
+
+        Used during RSS recreation to clear all existing bangumi from the RSS
+        before inserting new ones, preventing orphaned entries when RSS content changes.
+
+        Args:
+            rss_id: The RSS item ID.
+
+        Returns:
+            Number of bangumi deleted.
+        """
+        bangumi_list = self.get_all_by_rss_id(rss_id)
+
+        if not bangumi_list:
+            return 0
+
+        count = 0
+        for bangumi in bangumi_list:
+            self.delete_one(bangumi.id)
+            count += 1
+
+        logger.info(
+            f"[Database] Deleted {count} bangumi records for RSS ID {rss_id} during recreation"
+        )
+        return count
+
     def match_poster(self, bangumi_name: str) -> str:
         # Use like to match
         statement = select(Bangumi).where(
@@ -364,6 +441,50 @@ class BangumiDatabase:
     def search_rss(self, rss_link: str) -> list[Bangumi]:
         statement = select(Bangumi).where(func.instr(rss_link, Bangumi.rss_link) > 0)
         return self.session.exec(statement).all()
+
+    def find_by_official_title(self, official_title: str) -> Bangumi | None:
+        """Find an active (non-deleted) bangumi by official_title.
+
+        Args:
+            official_title: The official title to search for.
+
+        Returns:
+            Bangumi object if found, None otherwise.
+        """
+        statement = select(Bangumi).where(
+            and_(
+                Bangumi.official_title == official_title,
+                Bangumi.deleted == false(),
+            )
+        )
+        return self.session.exec(statement).first()
+
+    def find_by_any_rss_link(self, rss_links: list[str]) -> Bangumi | None:
+        """Find an active bangumi that contains any of the given RSS links.
+
+        Checks if any of the provided RSS links already exist in any bangumi's
+        rss_link field (which is a comma-separated string).
+
+        Args:
+            rss_links: List of RSS URLs to check.
+
+        Returns:
+            First Bangumi object found with a matching rss_link, None otherwise.
+        """
+        for rss_link in rss_links:
+            if not rss_link:
+                continue
+            # Check if this rss_link exists in any bangumi's rss_link field
+            statement = select(Bangumi).where(
+                and_(
+                    func.instr(Bangumi.rss_link, rss_link) > 0,
+                    Bangumi.deleted == false(),
+                )
+            )
+            result = self.session.exec(statement).first()
+            if result:
+                return result
+        return None
 
     def backfill_rss_id(self, rss_id: int, rss_url: str) -> int:
         """Backfill rss_id for bangumi that have NULL rss_id but matching rss_link.

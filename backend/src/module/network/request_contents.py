@@ -167,5 +167,9 @@ class RequestContent(RequestURL):
         if soup is not None:
             title_elem = soup.find("./channel/title")
             if title_elem is not None:
-                return title_elem.text
+                title = title_elem.text
+                # Strip common RSS provider prefixes
+                if title and title.startswith("Mikan Project - "):
+                    title = title[len("Mikan Project - "):]
+                return title
         return None
