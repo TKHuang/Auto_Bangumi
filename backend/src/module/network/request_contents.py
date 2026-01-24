@@ -91,17 +91,30 @@ class RequestContent(RequestURL):
             
             # Lazy import to avoid circular dependency
             raw_parser = None
+            BangumiParsingError = None
             if title_raw:
                 from module.parser import TitleParser
+                from module.models.bangumi import BangumiParsingError
                 raw_parser = TitleParser()
-            
+
             for _title, torrent_url, homepage in zip(
                 torrent_titles, torrent_urls, torrent_homepage
             ):
                 # If title_raw is specified, filter to only matching torrents
                 if title_raw and raw_parser:
-                    parsed = raw_parser.raw_parser(_title)
-                    if not parsed or parsed.title_raw != title_raw:
+                    try:
+                        parsed = raw_parser.raw_parser(_title)
+                        if not parsed:
+                            continue
+                        # Use substring matching instead of strict equality
+                        # Different subgroups format titles differently, e.g.:
+                        #   "Modaete yo, Adam-kun (BDRip 1080p HEVC FLAC)" vs "Modaete yo, Adam-kun"
+                        # If either title contains the other, consider it a match
+                        if title_raw not in parsed.title_raw and parsed.title_raw not in title_raw:
+                            continue
+                    except BangumiParsingError:
+                        # Unparseable torrents cannot be filtered by title_raw - skip them
+                        # This follows the established pattern in test_rss_parsing_integration.py
                         continue
                 
                 filtered = False

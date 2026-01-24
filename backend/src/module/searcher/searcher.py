@@ -9,11 +9,7 @@ from .provider import search_url
 
 SEARCH_KEY = [
     "group_name",
-    "title_raw",
-    "season_raw",
-    "subtitle",
-    "source",
-    "dpi",
+    "official_title",
 ]
 
 BangumiJSON: TypeAlias = str
