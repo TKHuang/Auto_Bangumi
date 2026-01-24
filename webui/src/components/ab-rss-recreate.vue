@@ -408,29 +408,18 @@ async function subscribe() {
   if (!rssItem.value) return;
 
   if (isAggregate.value) {
-    // Multi-bangumi mode: subscribe ALL bangumi (no selection)
+    // Multi-bangumi mode: use batch subscribe (single API call)
+    // This avoids the create-delete loop issue when subscribing multiple bangumi
     loading.subscribe = true;
     try {
-      let successCount = 0;
-      for (const b of bangumiList.value) {
-        try {
-          await apiDownload.subscribe(b, rssItem.value);
-          successCount++;
-        } catch (e) {
-          console.error(`Failed to subscribe to ${b.official_title}:`, e);
-        }
-      }
-
-      if (successCount > 0) {
-        message.success(
-          t('rss.subscribe_success_count', { count: successCount })
-        );
-        getAll();
-        show.value = false;
-      } else {
-        message.error(t('notify.update_failed'));
-      }
+      await apiDownload.subscribeBatch(bangumiList.value, rssItem.value);
+      message.success(
+        t('rss.subscribe_success_count', { count: bangumiList.value.length })
+      );
+      getAll();
+      show.value = false;
     } catch (e) {
+      console.error('Batch subscribe failed:', e);
       message.error(t('notify.update_failed'));
     } finally {
       loading.subscribe = false;

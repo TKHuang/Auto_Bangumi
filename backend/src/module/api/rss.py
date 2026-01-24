@@ -350,9 +350,11 @@ async def recreate_rss_rules(
 
             if rss.aggregate:
                 # For aggregate RSS: Full parse all torrents to get multiple Bangumi
+                # apply_filter=False to show ALL bangumi including those that would be filtered
+                # This lets users see and manage all bangumi in the recreate dialog
                 logger.info(f"[RSS] Recreate aggregate RSS: {rss.name}")
 
-                torrents = analyser.get_rss_torrents(rss.url, full_parse=True)
+                torrents = analyser.get_rss_torrents(rss.url, full_parse=True, apply_filter=False)
 
                 if not torrents:
                     return {"error": "no_torrents"}
@@ -492,6 +494,35 @@ async def subscribe(data: Bangumi, rss: RSSItem):
                 )
     return u_response(await asyncio.to_thread(_sync))
 
+
+@router.post(
+    "/subscribe/batch", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+)
+async def subscribe_batch(bangumi_list: list[Bangumi], rss: RSSItem):
+    """Subscribe to multiple bangumi in a single atomic transaction.
+    
+    This endpoint is designed for recreation scenarios where multiple bangumi
+    need to be subscribed from a single RSS feed. It:
+    1. Deletes all existing bangumi from the RSS ID ONCE
+    2. Inserts all new bangumi in a single transaction
+    3. Downloads torrents for each bangumi
+    
+    This is more efficient than calling /subscribe multiple times and avoids
+    the create-delete loop issue in recreation.
+    """
+    def _sync():
+        with SeasonCollector() as collector:
+            try:
+                return collector.subscribe_batch(bangumi_list, rss.id, parser=rss.parser)
+            except Exception as e:
+                logger.error(f"Batch subscription failed: {e}")
+                return ResponseModel(
+                    status=False,
+                    status_code=500,
+                    msg_en=f"Batch subscription failed: {str(e)}",
+                    msg_zh=f"批量订阅失败: {str(e)}",
+                )
+    return u_response(await asyncio.to_thread(_sync))
 
 
 @router.get(

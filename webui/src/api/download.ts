@@ -78,4 +78,29 @@ export const apiDownload = {
     );
     return data;
   },
+
+  /**
+   * 批量订阅新番 (用于重建 RSS)
+   * @param bangumiList - Bangumi 数据列表
+   * @param rss - RSS 配置
+   */
+  async subscribeBatch(bangumiList: BangumiRule[], rss: RSS) {
+    const convertedList = bangumiList.map((bangumiData) => {
+      const { id: _, ...rest } = bangumiData;
+      return {
+        ...rest,
+        filter: bangumiData.filter.join(','),
+        rss_link: bangumiData.rss_link.join(','),
+      };
+    });
+    const postData = {
+      bangumi_list: convertedList,
+      rss,
+    };
+    const { data } = await axios.post<ApiSuccess>(
+      'api/v1/rss/subscribe/batch',
+      postData
+    );
+    return data;
+  },
 };
