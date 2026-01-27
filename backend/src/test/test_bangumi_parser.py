@@ -1253,6 +1253,31 @@ class TestEpisodeExtraction:
         result = parser._extract_episode("[Group] Title 01-12 完結 [1080p]")
         assert result == (1.0, 12.0)
 
+    def test_end_marker_in_bracket_with_underscore(self, parser: BangumiParser):
+        """Test extraction with END marker in bracket: [25_END]."""
+        result = parser._extract_episode("[Group][Title][25_END][1080p]")
+        assert result == (25.0, None)
+
+    def test_end_marker_in_bracket_without_underscore(self, parser: BangumiParser):
+        """Test extraction with END marker in bracket: [25END]."""
+        result = parser._extract_episode("[Group][Title][25END][1080p]")
+        assert result == (25.0, None)
+
+    def test_end_marker_in_bracket_with_space(self, parser: BangumiParser):
+        """Test extraction with END marker in bracket: [25 END]."""
+        result = parser._extract_episode("[Group][Title][25 END][1080p]")
+        assert result == (25.0, None)
+
+    def test_complete_marker_in_bracket(self, parser: BangumiParser):
+        """Test extraction with COMPLETE marker in bracket: [12_COMPLETE]."""
+        result = parser._extract_episode("[Group][Title][12_COMPLETE][1080p]")
+        assert result == (12.0, None)
+
+    def test_chinese_complete_marker_in_bracket(self, parser: BangumiParser):
+        """Test extraction with 完结 marker in bracket: [24_完结]."""
+        result = parser._extract_episode("[Group][Title][24_完结][1080p]")
+        assert result == (24.0, None)
+
     # No episode found
     def test_no_episode_returns_none_none(self, parser: BangumiParser):
         """Test that no episode returns (None, None)."""
@@ -3707,6 +3732,22 @@ class TestRealWorldFormats:
         assert result.group == "LoliHouse"
         assert result.episode == 1.0
         assert result.episode_end == 24.0
+
+    def test_all_bracket_format_with_end_marker(self, parser: BangumiParser):
+        """Test all-bracket format with END marker in episode bracket: [25_END].
+
+        Real-world example from PikPak where files like:
+        [DHR&LKSUB&Airota&KNA&Haretahoo&MakariHoshiyume][RE_ZERO][25_END][BIG5][720P][AVC_AAC].mp4
+        were not being parsed correctly.
+        """
+        result = parser.parse(
+            "[DHR&LKSUB&Airota&KNA&Haretahoo&MakariHoshiyume][RE_ZERO][25_END][BIG5][720P][AVC_AAC].mp4"
+        )
+        assert result.group == "DHR&LKSUB&Airota&KNA&Haretahoo&MakariHoshiyume"
+        assert result.title == "RE_ZERO"
+        assert result.episode == 25.0
+        assert result.resolution == "720P"
+        assert result.subtitle == SubtitleType.CHT  # BIG5 is Traditional Chinese
 
     # Special formats
     def test_movie_format(self, parser: BangumiParser):

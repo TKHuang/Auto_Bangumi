@@ -151,13 +151,18 @@ class BangumiParser:
         self._episode_ova_oad_re = re.compile(
             r"\b(?:OVA|OAD)\s*-?\s*(\d+(?:\.\d+)?)\b", re.IGNORECASE
         )
-        # END/Fin/Complete markers
+        # END/Fin/Complete markers (with underscore support for patterns like 25_END)
+        # Also allows digit before END for patterns like [25END]
         self._episode_end_marker_re = re.compile(
-            r"\b(?:END|FIN|COMPLETE|完结|完結|终|終)\b", re.IGNORECASE
+            r"(?:_|\d|\b)(?:END|FIN|COMPLETE|完结|完結|终|終)(?:\b|$)", re.IGNORECASE
         )
         # Batch range before END marker
         self._episode_batch_end_re = re.compile(
             r"(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)"
+        )
+        # Single episode with END marker in brackets: [25_END], [25END], [25 END]
+        self._episode_end_bracket_re = re.compile(
+            r"\[(\d+)[\s_]?(?:END|FIN|COMPLETE|完结|完結)\]", re.IGNORECASE
         )
 
         # Video codec patterns - normalized to standard names
@@ -769,6 +774,13 @@ class BangumiParser:
 
         # Check for END/Fin/Complete markers (indicates batch release)
         if self._episode_end_marker_re.search(text_clean):
+            # Try single episode with END marker in brackets: [25_END], [25END]
+            match = self._episode_end_bracket_re.search(text_clean)
+            if match:
+                ep = self._parse_episode_number(match.group(1))
+                if ep is not None:
+                    return (ep, None)
+
             # Try to find episode range before END marker
             match = self._episode_batch_end_re.search(text_clean)
             if match:
@@ -1338,6 +1350,14 @@ class BangumiParser:
 
         # Check for episode type markers (OAD, OVA, OVA1, SP, SP01, Special)
         if re.match(r"^(?:OAD|OVA\d*|SP\d*|Special)$", content_stripped, re.IGNORECASE):
+            return True
+
+        # Check for episode with END marker (e.g., 25_END, 25END, 25 END)
+        if re.match(
+            r"^\d+[\s_]?(?:END|FIN|COMPLETE|完结|完結)$",
+            content_stripped,
+            re.IGNORECASE,
+        ):
             return True
 
         return False
