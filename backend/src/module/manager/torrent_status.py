@@ -8,6 +8,7 @@ from module.models import Bangumi, ResponseModel, Torrent
 
 logger = logging.getLogger(__name__)
 
+
 class TorrentStatusManager(Database):
     def get_bangumi_torrents_status(self, bangumi_id: int) -> list[dict]:
         bangumi_torrents = self.torrent.search_all()
@@ -26,12 +27,16 @@ class TorrentStatusManager(Database):
         with DownloadClient() as client:
             # Get ALL torrents, not just completed ones
             online_torrents = client.get_torrent_info(status_filter="all")
-            logger.debug(f"[TorrentStatus] Found {len(online_torrents)} torrents in download client")
-            
+            logger.debug(
+                f"[TorrentStatus] Found {len(online_torrents)} torrents in download client"
+            )
+
             # Log qBittorrent hashes for debugging
             qb_hashes = [ot.hash for ot in online_torrents]
-            logger.debug(f"[TorrentStatus] qBittorrent hashes (first 3): {qb_hashes[:3]}")
-            
+            logger.debug(
+                f"[TorrentStatus] qBittorrent hashes (first 3): {qb_hashes[:3]}"
+            )
+
             status_list = []
             for db_t in torrents:
                 # Match by hash ONLY (reliable and accurate)
@@ -39,15 +44,22 @@ class TorrentStatusManager(Database):
                 if db_t.hash:
                     logger.debug(f"[TorrentStatus] Looking for DB hash: {db_t.hash}")
                     matched_online = next(
-                        (ot for ot in online_torrents if ot.hash.lower() == db_t.hash.lower()), None
+                        (
+                            ot
+                            for ot in online_torrents
+                            if ot.hash.lower() == db_t.hash.lower()
+                        ),
+                        None,
                     )
                     if matched_online:
                         logger.debug(f"[TorrentStatus] ✓ Matched: {db_t.name}")
                     else:
-                        logger.debug(f"[TorrentStatus] ✗ Not found in download client: {db_t.name}")
+                        logger.debug(
+                            f"[TorrentStatus] ✗ Not found in download client: {db_t.name}"
+                        )
                 else:
                     logger.debug(f"[TorrentStatus] ✗ No hash in DB for: {db_t.name}")
-                
+
                 if matched_online:
                     status_list.append(
                         {
@@ -88,9 +100,9 @@ class TorrentStatusManager(Database):
         bangumi = None
         if torrent.bangumi_id:
             bangumi = self.bangumi.search_id(torrent.bangumi_id)
-        
+
         if not bangumi:
-            # Try to match it 
+            # Try to match it
             matched = self.bangumi.match_torrent(torrent.name)
             if matched:
                 # Basic filter check similar to RSSEngine
@@ -100,7 +112,7 @@ class TorrentStatusManager(Database):
                     _filter = matched.filter.replace(",", "|")
                     if not re.search(_filter, torrent.name, re.IGNORECASE):
                         bangumi = matched
-                
+
                 if bangumi:
                     torrent.bangumi_id = bangumi.id
                     self.torrent.update(torrent)
@@ -117,6 +129,9 @@ class TorrentStatusManager(Database):
             save_path_before = bangumi.save_path
             if client.add_torrent(torrent, bangumi):
                 torrent.downloaded = True
+                # Clear rename status so the file gets renamed after download
+                torrent.renamed_at = None
+                torrent.renamed_file_count = None
                 self.torrent.update(torrent)
                 # Persist newly generated save_path to database
                 if not save_path_before and bangumi.save_path:

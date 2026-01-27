@@ -210,6 +210,13 @@ class TorrentManager(Database):
             logger.debug(f"[DEBUG] update_rule: bangumi_id={bangumi_id}")
             logger.debug(f"[DEBUG] update_rule: old_data.save_path={old_data.save_path}")
             logger.debug(f"[DEBUG] update_rule: old_data.season={old_data.season}, new_data.season={data.season}")
+
+            # Check if rename-relevant fields changed
+            rename_fields_changed = (
+                old_data.season != data.season
+                or old_data.official_title != data.official_title
+            )
+
             # Move torrent
             match_list = self.__match_torrents_list(old_data, bangumi_id=bangumi_id)
             logger.debug(f"[DEBUG] update_rule: match_list={match_list}")
@@ -223,6 +230,15 @@ class TorrentManager(Database):
                     logger.debug("[DEBUG] update_rule: match_list is empty, skipping move_torrent")
             data.save_path = path
             self.bangumi.update(data, bangumi_id)
+
+            # Clear rename status if rename-relevant fields changed
+            if rename_fields_changed:
+                reset_count = self.torrent.clear_rename_status(bangumi_id)
+                logger.info(
+                    f"[Manager] Cleared rename status for {reset_count} torrents "
+                    f"(season/title changed for bangumi {bangumi_id})"
+                )
+
             return ResponseModel(
                 status_code=200,
                 status=True,

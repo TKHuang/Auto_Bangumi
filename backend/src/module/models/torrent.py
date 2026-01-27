@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -15,6 +16,8 @@ class Torrent(SQLModel, table=True):
     homepage: Optional[str] = Field(None, alias="homepage")
     downloaded: bool = Field(False, alias="downloaded")
     hash: Optional[str] = Field(None, alias="hash")
+    renamed_at: Optional[datetime] = Field(None, alias="renamed_at")
+    renamed_file_count: Optional[int] = Field(None, alias="renamed_file_count")
 
 
 class TorrentUpdate(SQLModel):

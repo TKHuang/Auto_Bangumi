@@ -172,4 +172,16 @@ export const apiBangumi = {
     );
     return data;
   },
+
+  /**
+   * 重新触发指定 bangumiId 的重命名流程
+   * @param bangumiId - 需要重新命名的 bangumi 的 id
+   * @returns axios 请求返回的数据
+   */
+  async retriggerRename(bangumiId: number) {
+    const { data } = await axios.post<ApiSuccess>(
+      `api/v1/bangumi/${bangumiId}/retrigger-rename`
+    );
+    return data;
+  },
 };

@@ -108,3 +108,37 @@ class TorrentDatabase:
                 )
 
         return new_torrents
+
+    def search_by_hash(self, hash: str) -> Torrent | None:
+        """Find torrent by hash.
+
+        Args:
+            hash: The torrent hash to search for.
+
+        Returns:
+            Torrent if found, None otherwise.
+        """
+        return self.session.exec(select(Torrent).where(Torrent.hash == hash)).first()
+
+    def clear_rename_status(self, bangumi_id: int) -> int:
+        """Clear rename status for all torrents of a bangumi.
+
+        Resets renamed_at and renamed_file_count to None for all torrents
+        belonging to the specified bangumi, forcing them to be re-processed
+        in the next rename cycle.
+
+        Args:
+            bangumi_id: The bangumi ID whose torrents should be reset.
+
+        Returns:
+            Count of torrents that were reset.
+        """
+        torrents = self.search_by_bangumi_id(bangumi_id)
+        count = 0
+        for t in torrents:
+            if t.renamed_at is not None:
+                t.renamed_at = None
+                t.renamed_file_count = None
+                count += 1
+        self.session.commit()
+        return count

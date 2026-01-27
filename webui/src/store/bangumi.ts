@@ -38,6 +38,7 @@ export const useBangumiStore = defineStore('bangumi', () => {
   const { execute: disableRule } = useApi(apiBangumi.disableRule, opts);
   const { execute: deleteRule } = useApi(apiBangumi.deleteRule, opts);
   const { execute: refreshPoster } = useApi(apiBangumi.refreshPoster, opts);
+  const { execute: retriggerRename } = useApi(apiBangumi.retriggerRename, opts);
 
   function openEditPopup(data: BangumiRule) {
     editRule.show = true;
@@ -70,6 +71,7 @@ export const useBangumiStore = defineStore('bangumi', () => {
     disableRule,
     deleteRule,
     refreshPoster,
+    retriggerRename,
     openEditPopup,
     ruleManage,
   };

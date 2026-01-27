@@ -57,7 +57,21 @@ def temp_config_dir():
 
 
 @pytest.fixture
-def pikpak_downloader(mock_pikpak_api, temp_config_dir):
+def mock_database():
+    """Create a mock Database context manager."""
+    with patch("module.downloader.client.pikpak_downloader.Database") as MockDatabase:
+        mock_db_instance = MagicMock()
+        mock_torrent_db = MagicMock()
+        # search_by_hash returns None by default (torrent not found/not renamed)
+        mock_torrent_db.search_by_hash = MagicMock(return_value=None)
+        mock_db_instance.torrent = mock_torrent_db
+        MockDatabase.return_value.__enter__ = MagicMock(return_value=mock_db_instance)
+        MockDatabase.return_value.__exit__ = MagicMock(return_value=False)
+        yield MockDatabase, mock_db_instance
+
+
+@pytest.fixture
+def pikpak_downloader(mock_pikpak_api, mock_database, temp_config_dir):
     """Create a PikPakDownloader instance with mocked dependencies."""
     MockApi, mock_instance = mock_pikpak_api
 
@@ -79,7 +93,7 @@ def pikpak_downloader(mock_pikpak_api, temp_config_dir):
 
 
 @pytest.fixture
-def pikpak_downloader_with_token(mock_pikpak_api, temp_config_dir):
+def pikpak_downloader_with_token(mock_pikpak_api, mock_database, temp_config_dir):
     """Create a PikPakDownloader with pre-existing valid token."""
     MockApi, mock_instance = mock_pikpak_api
 

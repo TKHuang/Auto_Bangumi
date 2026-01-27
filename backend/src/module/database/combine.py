@@ -59,6 +59,16 @@ class Database(Session):
         if "hash" not in torrent_columns:
             self.execute("ALTER TABLE torrent ADD COLUMN hash TEXT")
             self.commit()
+
+        # Migration for rename tracking columns in torrent
+        if "renamed_at" not in torrent_columns:
+            logger.info("[Migration] Adding renamed_at column to torrent table")
+            self.execute("ALTER TABLE torrent ADD COLUMN renamed_at TEXT")
+            self.commit()
+        if "renamed_file_count" not in torrent_columns:
+            logger.info("[Migration] Adding renamed_file_count column to torrent table")
+            self.execute("ALTER TABLE torrent ADD COLUMN renamed_file_count INTEGER")
+            self.commit()
         
         # Migration for group_name: update NULL/empty values to "Unknown"
         # This ensures composite key (title_raw, season, group_name) works correctly

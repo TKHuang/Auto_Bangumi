@@ -87,6 +87,8 @@
       "no_btn": "No",
       "official_title": "Official Title",
       "offset": "Offset",
+      "retrigger_rename": "Re-rename",
+      "retrigger_rename_success": "Rename status reset",
       "season": "Season",
       "year": "Year",
       "yes_btn": "Yes"

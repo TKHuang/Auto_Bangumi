@@ -4,6 +4,7 @@ import type { BangumiRule } from '#/bangumi';
 const emit = defineEmits<{
   (e: 'apply', rule: BangumiRule): void;
   (e: 'enable', id: number): void;
+  (e: 'retriggerRename', id: number): void;
   (
     e: 'deleteFile',
     type: 'disable' | 'delete',
@@ -60,6 +61,10 @@ function emitEnable() {
   emit('enable', rule.value.id);
 }
 
+function emitRetriggerRename() {
+  emit('retriggerRename', rule.value.id);
+}
+
 const popupTitle = computed(() => {
   if (rule.value.deleted) {
     return t('homepage.rule.enable_rule');
@@ -110,6 +115,9 @@ const boxSize = computed(() => {
         />
         <ab-button size="small" @click="emitApply">
           {{ $t('homepage.rule.apply') }}
+        </ab-button>
+        <ab-button size="small" @click="emitRetriggerRename">
+          {{ $t('homepage.rule.retrigger_rename') }}
         </ab-button>
         <ab-button size="small" @click="() => (showTorrents = true)">
           {{ $t('rss.torrents') }}

@@ -87,6 +87,8 @@
       "no_btn": "否",
       "official_title": "官方名称",
       "offset": "剧集偏移",
+      "retrigger_rename": "重新命名",
+      "retrigger_rename_success": "已重置重命名状态",
       "season": "季度",
       "year": "年份",
       "yes_btn": "是"

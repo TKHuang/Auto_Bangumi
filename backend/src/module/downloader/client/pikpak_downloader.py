@@ -22,6 +22,7 @@ from pikpakapi import PikPakApi
 
 from module.ab_decorator import pikpak_retry
 from module.conf import settings
+from module.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -446,13 +447,13 @@ class PikPakDownloader:
         match = MAGNET_HASH_PATTERN.search(url)
         if match:
             return match.group(1).lower()
-        
+
         # Try Mikan/torrent URL pattern: .../hash.torrent
         # Hash is 40 hex characters before .torrent
         torrent_match = re.search(r"/([a-fA-F0-9]{40})\.t", url)
         if torrent_match:
             return torrent_match.group(1).lower()
-        
+
         return None
 
     def _get_or_create_folder(self, path: str) -> str | None:
@@ -626,9 +627,13 @@ class PikPakDownloader:
 
             # Delete tasks in batch
             if tasks_to_delete:
-                logger.info(f"Deleting {len(tasks_to_delete)} existing tasks for redownload")
+                logger.info(
+                    f"Deleting {len(tasks_to_delete)} existing tasks for redownload"
+                )
                 self._run_async(
-                    self._client.delete_tasks(task_ids=tasks_to_delete, delete_files=False)
+                    self._client.delete_tasks(
+                        task_ids=tasks_to_delete, delete_files=False
+                    )
                 )
 
         except Exception as e:
@@ -709,16 +714,39 @@ class PikPakDownloader:
                 f"Task {task.get('name')}: phase={phase}, state={state}, "
                 f"save_path={save_path}"
             )
-            if state in ("completed", "error") and save_path:
-                files = self._list_files_in_folder(save_path)
-                logger.debug(f"Task {task.get('name')}: found {len(files)} files")
-                # If no files found, file was deleted from PikPak storage
-                if not files:
-                    state = "missing"
+            if state == "completed" and save_path:
+                # Only skip renamed torrents when fetching for rename cycle
+                # (status_filter="completed"), not when fetching all for status display
+                if status_filter == "completed":
+                    # Check if already renamed - skip file listing entirely (saves API call!)
+                    with Database() as db:
+                        torrent_record = db.torrent.search_by_hash(
+                            torrent_hash.lower() if torrent_hash else ""
+                        )
+                    if torrent_record and torrent_record.renamed_at:
+                        logger.debug(
+                            f"Skipping already-renamed torrent: {task.get('name')}"
+                        )
+                        continue  # Skip this task entirely - don't add to result list
+
+                    # Not renamed yet - list files for processing
+                    files = self._list_files_in_folder(save_path)
+                    logger.debug(f"Task {task.get('name')}: found {len(files)} files")
+                    # If no files found, file was deleted from PikPak storage
+                    if not files:
+                        state = "missing"
+                        logger.debug(
+                            f"Task {task.get('name')} marked as missing - "
+                            "files not found in PikPak storage"
+                        )
+            elif state == "error":
+                # Only skip error tasks when fetching for rename cycle
+                if status_filter == "completed":
                     logger.debug(
-                        f"Task {task.get('name')} marked as missing - "
-                        "files not found in PikPak storage"
+                        f"Skipping file listing for error task: {task.get('name')}"
                     )
+                    # Error tasks have no files to rename, skip them entirely
+                    continue
 
             torrent_info = TorrentInfo(
                 hash=torrent_hash.lower() if torrent_hash else "",
@@ -837,9 +865,7 @@ class PikPakDownloader:
                 if f.get("name") == name:
                     file_id = f.get("id")
                     kind = f.get("kind", "")
-                    logger.debug(
-                        f"Found {kind}: id={file_id} for name='{name}'"
-                    )
+                    logger.debug(f"Found {kind}: id={file_id} for name='{name}'")
                     return file_id, kind
 
             logger.debug(f"File/folder not found: '{name}' in {parent_folder_path}")
@@ -1018,12 +1044,14 @@ class PikPakDownloader:
 
         return file_ids
 
-    def _delete_empty_folder(self, folder_path: str, retries: int = 3, delay: float = 1.0) -> bool:
+    def _delete_empty_folder(
+        self, folder_path: str, retries: int = 3, delay: float = 1.0
+    ) -> bool:
         """Delete a folder if it's empty.
 
         Checks if the folder has any files or subfolders, and deletes it
         only if it's completely empty. Used for cleanup after move operations.
-        
+
         Since PikPak's batch move is async, this method retries with delays
         to allow the move operation to complete before checking.
 
@@ -1036,7 +1064,7 @@ class PikPakDownloader:
             True if folder was deleted or didn't exist, False if not empty.
         """
         import time
-        
+
         # Ensure path starts with /
         if not folder_path.startswith("/"):
             folder_path = f"/{folder_path}"
@@ -1070,7 +1098,9 @@ class PikPakDownloader:
                         time.sleep(delay)
                         continue
                     else:
-                        logger.debug(f"Folder not empty, skipping deletion: {folder_path} ({len(files)} items)")
+                        logger.debug(
+                            f"Folder not empty, skipping deletion: {folder_path} ({len(files)} items)"
+                        )
                         return False
 
                 # Folder is empty, delete it
@@ -1082,7 +1112,7 @@ class PikPakDownloader:
             except Exception as e:
                 logger.debug(f"Error checking/deleting folder {folder_path}: {e}")
                 return False
-        
+
         return False
 
     @pikpak_retry(max_retries=3, initial_delay=5.0)
@@ -1140,8 +1170,7 @@ class PikPakDownloader:
                 # Move the file to the target folder
                 result = self._run_async(
                     self._client.file_batch_move(
-                        ids=[file_id],
-                        to_parent_id=target_folder_id
+                        ids=[file_id], to_parent_id=target_folder_id
                     )
                 )
                 logger.debug(f"Move result: {result}")
@@ -1312,7 +1341,9 @@ class PikPakDownloader:
         Returns:
             True on success.
         """
-        logger.debug(f"[DEBUG] PikPak move_torrent called: hashes={hashes}, new_location={new_location}")
+        logger.debug(
+            f"[DEBUG] PikPak move_torrent called: hashes={hashes}, new_location={new_location}"
+        )
         # Use new_location directly (already includes settings.downloader.path)
         full_path = new_location
 
@@ -1334,7 +1365,9 @@ class PikPakDownloader:
 
             # Get the current path for this torrent
             current_path = self.get_torrent_path(normalized_hash)
-            logger.debug(f"[DEBUG] move_torrent: hash={normalized_hash[:8]}..., current_path={current_path}")
+            logger.debug(
+                f"[DEBUG] move_torrent: hash={normalized_hash[:8]}..., current_path={current_path}"
+            )
             if not current_path:
                 logger.warning(
                     f"Cannot move: path not found for hash {normalized_hash}"
@@ -1358,21 +1391,27 @@ class PikPakDownloader:
 
             # Use list-then-match approach for reliable file lookup
             # (path_to_id can return wrong results for similar Chinese filenames)
-            logger.debug(f"[DEBUG] move_torrent: looking for '{torrent_name}' in '{current_path}'")
-            
-            source_id, kind = self._find_file_or_folder_id_by_name(current_path, torrent_name)
+            logger.debug(
+                f"[DEBUG] move_torrent: looking for '{torrent_name}' in '{current_path}'"
+            )
+
+            source_id, kind = self._find_file_or_folder_id_by_name(
+                current_path, torrent_name
+            )
             logger.debug(f"[DEBUG] move_torrent: source_id={source_id}, kind={kind}")
-            
+
             if source_id:
                 # Found file or folder by exact name match - move it directly
                 file_ids.add(source_id)
                 hashes_to_update.append(normalized_hash)
             else:
-                # File not found by name (likely renamed). Collect ALL files from 
+                # File not found by name (likely renamed). Collect ALL files from
                 # source folder. Skip path_to_id fallback as it's unreliable for
                 # Chinese filenames and can return folder IDs instead of file IDs.
                 if current_path not in folders_collected:
-                    logger.debug(f"[DEBUG] move_torrent: file not found by name, collecting all files from '{current_path}'")
+                    logger.debug(
+                        f"[DEBUG] move_torrent: file not found by name, collecting all files from '{current_path}'"
+                    )
                     sub_ids = self._list_all_file_ids_in_folder(current_path)
                     logger.debug(f"[DEBUG] move_torrent: sub_ids from folder={sub_ids}")
                     if sub_ids:
@@ -1381,13 +1420,17 @@ class PikPakDownloader:
                     else:
                         logger.warning(f"No files found for torrent: {torrent_name}")
                 else:
-                    logger.debug(f"[DEBUG] move_torrent: already collected files from '{current_path}'")
+                    logger.debug(
+                        f"[DEBUG] move_torrent: already collected files from '{current_path}'"
+                    )
                 hashes_to_update.append(normalized_hash)
 
         # Convert to list for API call
         file_ids_list = list(file_ids)
-        logger.debug(f"[DEBUG] move_torrent: collected {len(file_ids_list)} unique file_ids, hashes_to_update={hashes_to_update}")
-        
+        logger.debug(
+            f"[DEBUG] move_torrent: collected {len(file_ids_list)} unique file_ids, hashes_to_update={hashes_to_update}"
+        )
+
         if not file_ids_list:
             logger.warning("No files found to move")
             return True  # No files to move is not an error
@@ -1396,7 +1439,9 @@ class PikPakDownloader:
         logger.info(f"Moving {len(file_ids_list)} files to: {full_path}")
         try:
             result = self._run_async(
-                self._client.file_batch_move(ids=file_ids_list, to_parent_id=dest_folder_id)
+                self._client.file_batch_move(
+                    ids=file_ids_list, to_parent_id=dest_folder_id
+                )
             )
             logger.debug(f"Move result: {result}")
 
