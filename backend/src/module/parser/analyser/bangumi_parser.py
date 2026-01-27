@@ -128,8 +128,9 @@ class BangumiParser:
             r"\[(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)\]"
         )
         # Standalone batch range (with context to avoid resolution matches)
+        # Excludes S (season marker) to prevent "S02 - 15" from matching as batch "02-15"
         self._episode_batch_standalone_re = re.compile(
-            r"(?:^|[^\dx×X])(\d{1,4}(?:\.\d+)?)\s*[-~～]\s*(\d{1,4}(?:\.\d+)?)(?:[^\d]|$)"
+            r"(?:^|[^\dx×XsS])(\d{1,4}(?:\.\d+)?)\s*[-~～]\s*(\d{1,4}(?:\.\d+)?)(?:[^\d]|$)"
         )
         # Single episode in brackets: [01], [12], [12.5]
         self._episode_bracket_re = re.compile(r"\[(\d+(?:\.\d+)?)\]")

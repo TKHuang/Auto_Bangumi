@@ -1607,6 +1607,57 @@ class TestEpisodeEdgeCases:
         result = parser._extract_episode(torrent_name)
         assert result == (expected_episode, expected_end)
 
+    @pytest.mark.parametrize(
+        "torrent_name,expected_season,expected_episode",
+        [
+            pytest.param(
+                "[Lilith-Raws] Re Zero kara Hajimeru Isekai Seikatsu S02 - 15 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+                2,
+                15,
+                id="s02_dash_15",
+            ),
+            pytest.param(
+                "[Lilith-Raws] Re Zero kara Hajimeru Isekai Seikatsu S02 - 16 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+                2,
+                16,
+                id="s02_dash_16",
+            ),
+            pytest.param(
+                "[Lilith-Raws] Re Zero kara Hajimeru Isekai Seikatsu S02 - 21 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+                2,
+                21,
+                id="s02_dash_21",
+            ),
+            pytest.param(
+                "[Group] Title S01 - 05 [1080p]",
+                1,
+                5,
+                id="s01_dash_05",
+            ),
+            pytest.param(
+                "[Group] Title S03 - 99 [720p]",
+                3,
+                99,
+                id="s03_dash_99",
+            ),
+        ],
+    )
+    def test_season_dash_episode_not_batch_range(
+        self,
+        parser: BangumiParser,
+        torrent_name: str,
+        expected_season: int,
+        expected_episode: int,
+    ):
+        """Test that 'S## - ##' format is parsed as season + episode, not batch range.
+
+        Regression test for bug where 'S02 - 15' was incorrectly parsed as batch
+        range 02-15, resulting in episode=2 instead of episode=15.
+        """
+        result = parser.parse(torrent_name)
+        assert result.season == expected_season
+        assert result.episode == expected_episode
+
 
 @pytest.mark.edge_case
 class TestTitleEdgeCases:
