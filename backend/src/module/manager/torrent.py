@@ -9,16 +9,42 @@ logger = logging.getLogger(__name__)
 
 
 class TorrentManager(Database):
-    @staticmethod
-    def __match_torrents_list(data: Bangumi | BangumiUpdate) -> list:
+    def __match_torrents_list(self, data: Bangumi | BangumiUpdate, bangumi_id: int = None) -> list:
+        """Match torrents by save_path, with database fallback for PikPak.
+        
+        Primary method: Match by save_path (works for qBittorrent)
+        Fallback: Query database by bangumi_id (for PikPak when hash_map is empty)
+        """
         with DownloadClient() as client:
             torrents = client.get_torrent_info(status_filter=None)
-        return [
+        logger.debug(f"[DEBUG] __match_torrents_list: looking for save_path={data.save_path}")
+        logger.debug(f"[DEBUG] __match_torrents_list: found {len(torrents)} torrents total")
+        for torrent in torrents:
+            logger.debug(f"[DEBUG]   torrent: hash={torrent.hash[:8]}..., save_path={torrent.save_path}, match={torrent.save_path == data.save_path}")
+        
+        # Primary: match by save_path (works for qBittorrent)
+        matched = [
             torrent.hash for torrent in torrents if torrent.save_path == data.save_path
         ]
+        logger.debug(f"[DEBUG] __match_torrents_list: matched {len(matched)} torrents by path")
+        
+        # Fallback: if no matches and we have bangumi_id, query database
+        # This handles PikPak where hash_map may be empty
+        if not matched and bangumi_id:
+            logger.debug(f"[DEBUG] __match_torrents_list: path matching failed, trying database fallback")
+            db_torrents = self.torrent.search_by_bangumi_id(bangumi_id)
+            # Only return hashes that exist in the downloader (case-insensitive)
+            downloader_hashes = {t.hash.lower() for t in torrents if t.hash}
+            matched = [
+                t.hash for t in db_torrents 
+                if t.hash and t.hash.lower() in downloader_hashes
+            ]
+            logger.debug(f"[DEBUG] __match_torrents_list: matched {len(matched)} torrents from database")
+        
+        return matched
 
     def delete_torrents(self, data: Bangumi, client: DownloadClient):
-        hash_list = self.__match_torrents_list(data)
+        hash_list = self.__match_torrents_list(data, bangumi_id=data.id)
         if hash_list:
             client.delete_torrent(hash_list)
             logger.info(f"Delete rule and torrents for {data.official_title}")
@@ -181,12 +207,20 @@ class TorrentManager(Database):
     def update_rule(self, bangumi_id, data: BangumiUpdate):
         old_data: Bangumi = self.bangumi.search_id(bangumi_id)
         if old_data:
+            logger.debug(f"[DEBUG] update_rule: bangumi_id={bangumi_id}")
+            logger.debug(f"[DEBUG] update_rule: old_data.save_path={old_data.save_path}")
+            logger.debug(f"[DEBUG] update_rule: old_data.season={old_data.season}, new_data.season={data.season}")
             # Move torrent
-            match_list = self.__match_torrents_list(old_data)
+            match_list = self.__match_torrents_list(old_data, bangumi_id=bangumi_id)
+            logger.debug(f"[DEBUG] update_rule: match_list={match_list}")
             with DownloadClient() as client:
                 path = client._gen_save_path(data)
+                logger.debug(f"[DEBUG] update_rule: new path={path}")
                 if match_list:
+                    logger.debug(f"[DEBUG] update_rule: calling move_torrent with {len(match_list)} hashes")
                     client.move_torrent(match_list, path)
+                else:
+                    logger.debug("[DEBUG] update_rule: match_list is empty, skipping move_torrent")
             data.save_path = path
             self.bangumi.update(data, bangumi_id)
             return ResponseModel(

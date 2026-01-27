@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
@@ -26,7 +26,7 @@ async def get_all_data():
     def _sync():
         with TorrentManager() as manager:
             return manager.bangumi.search_all()
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.get(
@@ -38,7 +38,7 @@ async def get_data(bangumi_id: int):
     def _sync():
         with TorrentManager() as manager:
             return manager.search_one(bangumi_id)
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.patch(
@@ -53,7 +53,7 @@ async def update_rule(
     def _sync():
         with TorrentManager() as manager:
             return manager.update_rule(bangumi_id, data)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.delete(
@@ -65,7 +65,7 @@ async def delete_rule(bangumi_id: int, file: bool = False):
     def _sync():
         with TorrentManager() as manager:
             return manager.delete_rule(bangumi_id, file)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.delete(
@@ -77,7 +77,7 @@ async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False
     def _sync():
         with TorrentManager() as manager:
             return manager.delete_many_rules(bangumi_id, file)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.delete(
@@ -89,7 +89,7 @@ async def disable_rule(bangumi_id: int, file: bool = False):
     def _sync():
         with TorrentManager() as manager:
             return manager.disable_rule(bangumi_id, file)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.delete(
@@ -101,7 +101,7 @@ async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = Fals
     def _sync():
         with TorrentManager() as manager:
             return manager.disable_many_rules(bangumi_id, file)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.get(
@@ -113,7 +113,7 @@ async def enable_rule(bangumi_id: int):
     def _sync():
         with TorrentManager() as manager:
             return manager.enable_rule(bangumi_id)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 
@@ -149,7 +149,7 @@ async def activate_pending_bangumi(
 
             return True, "Activated", bangumi
 
-    success, message, bangumi = await asyncio.to_thread(_sync)
+    success, message, bangumi = await anyio.to_thread.run_sync(_sync)
     if not success:
         return JSONResponse(
             status_code=400,
@@ -164,7 +164,7 @@ async def activate_pending_bangumi(
         with RSSEngine() as engine:
             return engine.download_bangumi(bangumi)
 
-    download_result = await asyncio.to_thread(_download)
+    download_result = await anyio.to_thread.run_sync(_download)
 
     if download_result.status:
         return JSONResponse(
@@ -194,7 +194,7 @@ async def refresh_poster():
     def _sync():
         with TorrentManager() as manager:
             return manager.refresh_poster()
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.get(
@@ -206,7 +206,7 @@ async def refresh_poster_by_id(bangumi_id: int):
     def _sync():
         with TorrentManager() as manager:
             return manager.refind_poster(bangumi_id)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.get(
@@ -216,7 +216,7 @@ async def reset_all():
     def _sync():
         with TorrentManager() as manager:
             manager.bangumi.delete_all()
-    await asyncio.to_thread(_sync)
+    await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Reset all rules successfully.", "msg_zh": "重置所有规则成功。"},
@@ -232,7 +232,7 @@ async def get_torrent_status(bangumi_id: int):
     def _sync():
         with TorrentStatusManager() as manager:
             return manager.get_bangumi_torrents_status(bangumi_id)
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.post(
@@ -244,4 +244,4 @@ async def download_torrent(torrent_id: int = Query(...)):
     def _sync():
         with TorrentStatusManager() as manager:
             return manager.download_torrent(torrent_id)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))

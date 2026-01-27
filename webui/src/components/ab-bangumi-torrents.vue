@@ -79,17 +79,19 @@ const columns = computed<any[]>(() => [
     width: 120,
     fixed: 'right',
     render: (row: any) => {
+      // Allow redownload for missing files or error states (e.g., file deleted on PikPak)
+      const canRedownload = row.status === 'missing' || row.status === 'error';
       return h(
         NButton,
         {
           size: 'small',
-          type: row.status === 'missing' ? 'primary' : undefined,
-          disabled: row.status !== 'missing',
+          type: canRedownload ? 'primary' : undefined,
+          disabled: !canRedownload,
           onClick: () => handleDownload(row.id),
         },
         {
           default: () =>
-            row.status === 'missing'
+            canRedownload
               ? t('bangumi.download')
               : t('bangumi.downloaded'),
         }

@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class QbDownloader:
+    # qBittorrent supports both torrent file uploads and magnet URLs
+    supports_torrent_files = True
+
     def __init__(self, host: str, username: str, password: str, ssl: bool):
         self._client: Client = Client(
             host=host,

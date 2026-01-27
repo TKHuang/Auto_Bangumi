@@ -1,8 +1,6 @@
 import logging
 from pathlib import Path
 
-import requests
-
 from module.conf import VERSION, settings
 from module.downloader import DownloadClient
 from module.models import Config
@@ -50,30 +48,37 @@ class Checker:
 
     @staticmethod
     def check_downloader() -> bool:
+        """Check if the configured downloader is reachable and can authenticate.
+
+        Delegates to the appropriate downloader client implementation
+        (qBittorrent, PikPak, etc.) for connectivity and auth checks.
+
+        Returns:
+            True if downloader is reachable and authentication succeeds.
+        """
         try:
-            url = (
-                f"http://{settings.downloader.host}"
-                if "://" not in settings.downloader.host
-                else f"{settings.downloader.host}"
-            )
-            response = requests.get(url, timeout=2)
-            # if settings.downloader.type in response.text.lower():
-            if "qbittorrent" in response.text.lower() or "vuetorrent" in response.text.lower():
-                with DownloadClient() as client:
-                    if client.authed:
-                        return True
-                    else:
-                        return False
-            else:
+            client = DownloadClient()
+            # First check if the downloader service is reachable
+            if not client.check_host():
+                logger.error(
+                    f"[Checker] {settings.downloader.type} downloader not reachable."
+                )
                 return False
-        except requests.exceptions.ReadTimeout:
-            logger.error("[Checker] Downloader connect timeout.")
-            return False
-        except requests.exceptions.ConnectionError:
-            logger.error("[Checker] Downloader connect failed.")
-            return False
+
+            # Then verify authentication works
+            with client:
+                if client.authed:
+                    logger.debug(
+                        f"[Checker] {settings.downloader.type} downloader connected."
+                    )
+                    return True
+                else:
+                    logger.error(
+                        f"[Checker] {settings.downloader.type} authentication failed."
+                    )
+                    return False
         except Exception as e:
-            logger.error(f"[Checker] Downloader connect failed: {e}")
+            logger.error(f"[Checker] Downloader check failed: {e}")
             return False
 
     @staticmethod

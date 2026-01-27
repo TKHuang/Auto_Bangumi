@@ -22,11 +22,11 @@ class TorrentStatusManager(Database):
         if not torrents:
             return []
 
-        # Get torrents from qBittorrent
+        # Get torrents from download client
         with DownloadClient() as client:
             # Get ALL torrents, not just completed ones
             online_torrents = client.get_torrent_info(status_filter="all")
-            logger.debug(f"[TorrentStatus] Found {len(online_torrents)} torrents in qBittorrent")
+            logger.debug(f"[TorrentStatus] Found {len(online_torrents)} torrents in download client")
             
             # Log qBittorrent hashes for debugging
             qb_hashes = [ot.hash for ot in online_torrents]
@@ -44,7 +44,7 @@ class TorrentStatusManager(Database):
                     if matched_online:
                         logger.debug(f"[TorrentStatus] ✓ Matched: {db_t.name}")
                     else:
-                        logger.debug(f"[TorrentStatus] ✗ Not found in qBittorrent: {db_t.name}")
+                        logger.debug(f"[TorrentStatus] ✗ Not found in download client: {db_t.name}")
                 else:
                     logger.debug(f"[TorrentStatus] ✗ No hash in DB for: {db_t.name}")
                 

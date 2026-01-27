@@ -1,0 +1,397 @@
+{
+  "description": "Mock API responses for TMDB and Mikan parsing tests",
+  "source": "Based on real TMDB API v3 and Mikan RSS structures",
+  "tmdb_responses": {
+    "search_tv": {
+      "description": "Response from /3/search/tv endpoint",
+      "samples": [
+        {
+          "query": "葬送的芙莉莲",
+          "response": {
+            "page": 1,
+            "results": [
+              {
+                "adult": false,
+                "backdrop_path": "/example_backdrop.jpg",
+                "genre_ids": [16, 10759, 10765],
+                "id": 209867,
+                "origin_country": ["JP"],
+                "original_language": "ja",
+                "original_name": "葬送のフリーレン",
+                "overview": "勇者一行による魔王討伐から10年後...",
+                "popularity": 245.789,
+                "poster_path": "/frieren_poster.jpg",
+                "first_air_date": "2023-09-29",
+                "name": "葬送的芙莉莲",
+                "vote_average": 8.9,
+                "vote_count": 1250
+              }
+            ],
+            "total_pages": 1,
+            "total_results": 1
+          }
+        },
+        {
+          "query": "推しの子",
+          "response": {
+            "page": 1,
+            "results": [
+              {
+                "adult": false,
+                "backdrop_path": "/oshinoko_backdrop.jpg",
+                "genre_ids": [16, 18, 10765],
+                "id": 203737,
+                "origin_country": ["JP"],
+                "original_language": "ja",
+                "original_name": "【推しの子】",
+                "overview": "アイドルとして活躍する少女の物語...",
+                "popularity": 198.456,
+                "poster_path": "/oshinoko_poster.jpg",
+                "first_air_date": "2023-04-12",
+                "name": "【推しの子】",
+                "vote_average": 8.7,
+                "vote_count": 985
+              }
+            ],
+            "total_pages": 1,
+            "total_results": 1
+          }
+        },
+        {
+          "query": "nonexistent anime title",
+          "response": {
+            "page": 1,
+            "results": [],
+            "total_pages": 0,
+            "total_results": 0
+          }
+        }
+      ]
+    },
+    "tv_details": {
+      "description": "Response from /3/tv/{tv_id} endpoint with season info",
+      "samples": [
+        {
+          "tv_id": 209867,
+          "language": "zh-CN",
+          "response": {
+            "adult": false,
+            "backdrop_path": "/example_backdrop.jpg",
+            "created_by": [],
+            "episode_run_time": [24],
+            "first_air_date": "2023-09-29",
+            "genres": [
+              {"id": 16, "name": "Animation"},
+              {"id": 10759, "name": "Action & Adventure"},
+              {"id": 10765, "name": "Sci-Fi & Fantasy"}
+            ],
+            "homepage": "https://frieren-anime.jp/",
+            "id": 209867,
+            "in_production": true,
+            "languages": ["ja"],
+            "last_air_date": "2024-03-22",
+            "last_episode_to_air": {
+              "id": 5001234,
+              "name": "第28集",
+              "air_date": "2024-03-22",
+              "episode_number": 28,
+              "season_number": 1
+            },
+            "name": "葬送的芙莉莲",
+            "networks": [{"id": 98, "name": "Tokyo MX"}],
+            "number_of_episodes": 28,
+            "number_of_seasons": 1,
+            "origin_country": ["JP"],
+            "original_language": "ja",
+            "original_name": "葬送のフリーレン",
+            "overview": "勇者一行による魔王討伐から10年後の物語。長命種の魔法使いフリーレンは人間の寿命の短さを知り...",
+            "popularity": 245.789,
+            "poster_path": "/frieren_poster.jpg",
+            "seasons": [
+              {
+                "air_date": null,
+                "episode_count": 5,
+                "id": 301234,
+                "name": "特别篇",
+                "overview": "",
+                "poster_path": null,
+                "season_number": 0
+              },
+              {
+                "air_date": "2023-09-29",
+                "episode_count": 28,
+                "id": 301235,
+                "name": "第 1 季",
+                "overview": "勇者一行による魔王討伐から10年後...",
+                "poster_path": "/frieren_s1_poster.jpg",
+                "season_number": 1
+              }
+            ],
+            "status": "Returning Series",
+            "tagline": "",
+            "type": "Scripted",
+            "vote_average": 8.9,
+            "vote_count": 1250
+          }
+        },
+        {
+          "tv_id": 203737,
+          "language": "ja-JP",
+          "response": {
+            "adult": false,
+            "backdrop_path": "/oshinoko_backdrop.jpg",
+            "first_air_date": "2023-04-12",
+            "genres": [
+              {"id": 16, "name": "アニメーション"},
+              {"id": 18, "name": "ドラマ"},
+              {"id": 10765, "name": "SF & ファンタジー"}
+            ],
+            "id": 203737,
+            "in_production": true,
+            "name": "【推しの子】",
+            "number_of_episodes": 24,
+            "number_of_seasons": 2,
+            "original_language": "ja",
+            "original_name": "【推しの子】",
+            "overview": "アイドルとして活躍する少女の物語...",
+            "poster_path": "/oshinoko_poster.jpg",
+            "seasons": [
+              {
+                "air_date": "2023-04-12",
+                "episode_count": 11,
+                "id": 305678,
+                "name": "第 1 季",
+                "overview": "",
+                "poster_path": "/oshinoko_s1_poster.jpg",
+                "season_number": 1
+              },
+              {
+                "air_date": "2024-07-03",
+                "episode_count": 13,
+                "id": 305679,
+                "name": "第 2 季",
+                "overview": "",
+                "poster_path": "/oshinoko_s2_poster.jpg",
+                "season_number": 2
+              }
+            ],
+            "status": "Returning Series",
+            "vote_average": 8.7,
+            "vote_count": 985
+          }
+        }
+      ]
+    },
+    "edge_cases": {
+      "description": "Edge cases for TMDB API responses",
+      "samples": [
+        {
+          "case": "missing_poster_path",
+          "response": {
+            "id": 999999,
+            "name": "Test Anime Without Poster",
+            "original_name": "ポスター無しテストアニメ",
+            "first_air_date": "2024-01-01",
+            "poster_path": null,
+            "seasons": [
+              {
+                "air_date": "2024-01-01",
+                "name": "第 1 季",
+                "poster_path": null,
+                "season_number": 1
+              }
+            ]
+          }
+        },
+        {
+          "case": "missing_air_date",
+          "response": {
+            "id": 888888,
+            "name": "Upcoming Anime",
+            "original_name": "未来のアニメ",
+            "first_air_date": null,
+            "poster_path": "/upcoming_poster.jpg",
+            "seasons": [
+              {
+                "air_date": null,
+                "name": "第 1 季",
+                "poster_path": null,
+                "season_number": 1
+              }
+            ]
+          }
+        },
+        {
+          "case": "unicode_heavy_title",
+          "response": {
+            "id": 777777,
+            "name": "「凭妳也想讨伐魔王？」被勇者小队逐出队伍，只好在王都自在过活",
+            "original_name": "魔王を討伐したいのか？勇者パーティーから追放されたので王都でのんびり暮らす",
+            "first_air_date": "2025-01-01",
+            "poster_path": "/maou_poster.jpg",
+            "seasons": [
+              {
+                "air_date": "2025-01-01",
+                "name": "第 1 季",
+                "poster_path": "/maou_s1_poster.jpg",
+                "season_number": 1
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "mikan_responses": {
+    "episode_page": {
+      "description": "Parsed content from Mikan episode pages (/Home/Episode/xxx)",
+      "samples": [
+        {
+          "url": "https://mikanani.me/Home/Episode/abc123def456",
+          "parsed_result": {
+            "poster_link": "/images/poster_abc123.jpg",
+            "official_title": "葬送的芙莉莲",
+            "season_rss_link": "https://mikanani.me/RSS/Bangumi?bangumiId=3141&subgroupid=583"
+          },
+          "html_elements": {
+            "bangumi_poster_div": "<div class=\"bangumi-poster\" style=\"background-image: url('/images/Bangumi/202309/abc123.jpg?0929')\"></div>",
+            "title_element": "<p class=\"bangumi-title\"><a href=\"/Home/Bangumi/3141\">葬送的芙莉莲</a></p>",
+            "rss_link": "<a href=\"/RSS/Bangumi?bangumiId=3141&subgroupid=583\" class=\"rss-subscribe\">RSS</a>"
+          }
+        },
+        {
+          "url": "https://mikanani.me/Home/Episode/xyz789ghi012",
+          "parsed_result": {
+            "poster_link": "/images/poster_xyz789.jpg",
+            "official_title": "【推しの子】第二季",
+            "season_rss_link": "https://mikanani.me/RSS/Bangumi?bangumiId=3456&subgroupid=123"
+          },
+          "html_elements": {
+            "bangumi_poster_div": "<div class=\"bangumi-poster\" style=\"background-image: url('/images/Bangumi/202407/xyz789.jpg')\"></div>",
+            "title_element": "<p class=\"bangumi-title\"><a href=\"/Home/Bangumi/3456\">【推しの子】第二季</a></p>",
+            "rss_link": "<a href=\"/RSS/Bangumi?bangumiId=3456&subgroupid=123\" class=\"rss-subscribe\">RSS</a>"
+          }
+        }
+      ]
+    },
+    "rss_feed": {
+      "description": "Sample Mikan RSS feed entries for testing",
+      "samples": [
+        {
+          "type": "non_aggregate",
+          "title": "Mikan Project - LoliHouse - 葬送的芙莉莲",
+          "entries": [
+            {
+              "title": "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 28 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
+              "link": "https://mikanani.me/Home/Episode/abc123def456",
+              "torrent_url": "https://mikanani.me/Download/20240322/abc123def456789012345678901234567890.torrent",
+              "pub_date": "2024-03-22T18:00:00+08:00"
+            },
+            {
+              "title": "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 27 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
+              "link": "https://mikanani.me/Home/Episode/abc123def457",
+              "torrent_url": "https://mikanani.me/Download/20240315/abc123def457789012345678901234567890.torrent",
+              "pub_date": "2024-03-15T18:00:00+08:00"
+            }
+          ]
+        },
+        {
+          "type": "aggregate",
+          "title": "Mikan Project - 我的番组",
+          "entries": [
+            {
+              "title": "[ANi] 葬送的芙莉莲 - 28 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
+              "link": "https://mikanani.me/Home/Episode/feed001",
+              "torrent_url": "https://mikanani.me/Download/20240322/feed001789012345678901234567890abcd.torrent",
+              "pub_date": "2024-03-22T19:00:00+08:00"
+            },
+            {
+              "title": "[ANi] 魔都精兵的奴隶 第二季 - 03 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
+              "link": "https://mikanani.me/Home/Episode/feed002",
+              "torrent_url": "https://mikanani.me/Download/20240322/feed002789012345678901234567890abcd.torrent",
+              "pub_date": "2024-03-22T19:30:00+08:00"
+            },
+            {
+              "title": "[SubsPlease] Mushoku Tensei S02 - 24 (1080p) [DEADBEEF]",
+              "link": "https://mikanani.me/Home/Episode/feed003",
+              "torrent_url": "magnet:?xt=urn:btih:deadbeef0123456789abcdef0123456789abcdef&dn=Mushoku+Tensei",
+              "pub_date": "2024-03-22T20:00:00+08:00"
+            }
+          ]
+        }
+      ]
+    },
+    "edge_cases": {
+      "description": "Edge cases for Mikan parsing",
+      "samples": [
+        {
+          "case": "missing_season_rss_link",
+          "parsed_result": {
+            "poster_link": "/images/poster_missing.jpg",
+            "official_title": "Some Old Anime",
+            "season_rss_link": null
+          }
+        },
+        {
+          "case": "no_poster",
+          "parsed_result": {
+            "poster_link": "",
+            "official_title": "Anime Without Poster Image",
+            "season_rss_link": "https://mikanani.me/RSS/Bangumi?bangumiId=9999&subgroupid=111"
+          }
+        },
+        {
+          "case": "unicode_heavy_title",
+          "parsed_result": {
+            "poster_link": "/images/poster_unicode.jpg",
+            "official_title": "「凭妳也想讨伐魔王？」被勇者小队逐出队伍，只好在王都自在过活",
+            "season_rss_link": "https://mikanani.me/RSS/Bangumi?bangumiId=7777&subgroupid=222"
+          }
+        },
+        {
+          "case": "special_brackets_in_title",
+          "parsed_result": {
+            "poster_link": "/images/poster_brackets.jpg",
+            "official_title": "【推しの子】",
+            "season_rss_link": "https://mikanani.me/RSS/Bangumi?bangumiId=3456&subgroupid=333"
+          }
+        }
+      ]
+    }
+  },
+  "torrent_samples": {
+    "description": "Sample torrent entries as returned by RequestContent.get_torrents()",
+    "samples": [
+      {
+        "name": "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 28 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
+        "url": "https://mikanani.me/Download/20240322/abc123def456789012345678901234567890.torrent",
+        "homepage": "https://mikanani.me/Home/Episode/abc123def456",
+        "hash": "abc123def456789012345678901234567890"
+      },
+      {
+        "name": "[ANi] 魔都精兵的奴隶 第二季 / Chained Soldier S02 - 03 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
+        "url": "https://mikanani.me/Download/20240322/b2c3d4e5f6789012345678901234567890ab.torrent",
+        "homepage": "https://mikanani.me/Home/Episode/b2c3d4e5f678",
+        "hash": "b2c3d4e5f6789012345678901234567890ab"
+      },
+      {
+        "name": "[SubsPlease] Mushoku Tensei S02 - 24 (1080p) [DEADBEEF]",
+        "url": "magnet:?xt=urn:btih:deadbeef0123456789abcdef0123456789abcdef&dn=Mushoku+Tensei",
+        "homepage": "https://mikanani.me/Home/Episode/feed003",
+        "hash": "deadbeef0123456789abcdef0123456789abcdef"
+      },
+      {
+        "name": "【极影字幕组】★10月新番 【葬送的芙莉莲】【28】【BIG5】【1920X1080】【MP4】",
+        "url": "https://mikanani.me/Download/20240322/c3d4e5f6789012345678901234567890abcd.torrent",
+        "homepage": "https://mikanani.me/Home/Episode/c3d4e5f67890",
+        "hash": "c3d4e5f6789012345678901234567890abcd"
+      },
+      {
+        "name": "[ANi] 「凭妳也想讨伐魔王？」被勇者小队逐出队伍，只好在王都自在过活 - 03 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
+        "url": "https://mikanani.me/Download/20250125/e5f6789012345678901234567890abcdef01.torrent",
+        "homepage": "https://mikanani.me/Home/Episode/e5f6789012345",
+        "hash": "e5f6789012345678901234567890abcdef01"
+      }
+    ]
+  }
+}

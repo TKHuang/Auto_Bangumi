@@ -66,6 +66,7 @@ target-version = ['py310', 'py311']
 markers = [
     "unit: Unit tests for individual components",
     "integration: Integration tests spanning multiple components",
+    "e2e: End-to-end tests for complete user workflows",
     "slow: Tests that are slow to execute (performance benchmarks)",
     "edge_case: Tests for edge cases and boundary conditions",
 ]

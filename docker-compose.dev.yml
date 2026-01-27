@@ -38,8 +38,8 @@ services:
       - ./dev-config/data:/app/data
       # Share download directory with qbittorrent
       - ./dev-config/downloads:/downloads
-    depends_on:
-      - qbittorrent
+    # depends_on:
+    #   - qbittorrent
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7893/api/v1/status"]
       interval: 30s
@@ -72,24 +72,24 @@ services:
   # ============================================
   # qBittorrent - Download Client
   # ============================================
-  qbittorrent:
-    image: linuxserver/qbittorrent:latest
-    container_name: ab-qbittorrent-dev
-    restart: unless-stopped
-    networks:
-      - ab-dev-network
-    ports:
-      - "8081:8081"
-    environment:
-      - TZ=Asia/Taipei
-      - WEBUI_PORT=8081
-    volumes:
-      - ./dev-config/qbittorrent:/config
-      - ./dev-config/downloads:/downloads
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
+  # qbittorrent:
+  #   image: linuxserver/qbittorrent:latest
+  #   container_name: ab-qbittorrent-dev
+  #   restart: unless-stopped
+  #   networks:
+  #     - ab-dev-network
+  #   ports:
+  #     - "8081:8081"
+  #   environment:
+  #     - TZ=Asia/Taipei
+  #     - WEBUI_PORT=8081
+  #   volumes:
+  #     - ./dev-config/qbittorrent:/config
+  #     - ./dev-config/downloads:/downloads
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "50m"
 
 networks:
   ab-dev-network:

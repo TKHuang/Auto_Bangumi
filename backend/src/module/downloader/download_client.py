@@ -27,6 +27,10 @@ class DownloadClient(TorrentPath):
             from .client.qb_downloader import QbDownloader
 
             return QbDownloader(host, username, password, ssl)
+        elif type == "pikpak":
+            from .client.pikpak_downloader import PikPakDownloader
+
+            return PikPakDownloader(username, password)
         else:
             logger.error(f"[Downloader] Unsupported downloader type: {type}")
             raise Exception(f"Unsupported downloader type: {type}")
@@ -139,12 +143,18 @@ class DownloadClient(TorrentPath):
     def add_torrent(self, torrent: Torrent | list, bangumi: Bangumi) -> bool:
         if not bangumi.save_path:
             bangumi.save_path = self._gen_save_path(bangumi)
+
+        # Check if the downloader supports torrent file uploads
+        supports_files = getattr(self.client, "supports_torrent_files", True)
+
         with RequestContent() as req:
             if isinstance(torrent, list):
                 if len(torrent) == 0:
                     logger.debug(f"[Downloader] No torrent found: {bangumi.official_title}")
                     return False
-                if "magnet" in torrent[0].url:
+
+                # For URL-only downloaders (e.g., PikPak), always pass URLs
+                if not supports_files or "magnet" in torrent[0].url:
                     torrent_url = [t.url for t in torrent]
                     torrent_file = None
                 else:
@@ -166,7 +176,8 @@ class DownloadClient(TorrentPath):
                         return False
                     torrent_url = None
             else:
-                if "magnet" in torrent.url:
+                # For URL-only downloaders (e.g., PikPak), always pass URLs
+                if not supports_files or "magnet" in torrent.url:
                     torrent_url = torrent.url
                     torrent_file = None
                 else:
@@ -178,6 +189,7 @@ class DownloadClient(TorrentPath):
                         )
                         return False
                     torrent_url = None
+
         if self.client.add_torrents(
             torrent_urls=torrent_url,
             torrent_files=torrent_file,

@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 import logging
 
 from module.conf import VERSION, settings
@@ -66,7 +66,7 @@ class Program(RenameThread, RSSThread):
         while not self.downloader_status:
             logger.warning("Downloader is not running.")
             logger.info("Waiting for downloader to start.")
-            await asyncio.sleep(30)
+            await anyio.sleep(30)
         if self.enable_renamer:
             self.rename_start()
         if self.enable_rss:

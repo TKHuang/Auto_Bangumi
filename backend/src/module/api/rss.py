@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 import logging
 
 from fastapi import APIRouter, Depends
@@ -31,7 +31,7 @@ async def get_rss():
     def _sync():
         with RSSEngine() as engine:
             return engine.rss.search_all()
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.post(
@@ -140,7 +140,7 @@ async def add_rss(
                 return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
 
     try:
-        return u_response(await asyncio.to_thread(_sync))
+        return u_response(await anyio.to_thread.run_sync(_sync))
     except BangumiParsingError as e:
         return JSONResponse(
             status_code=422,
@@ -172,7 +172,7 @@ async def enable_many_rss(
     def _sync():
         with RSSEngine() as engine:
             return engine.enable_list(rss_ids)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.delete(
@@ -184,7 +184,7 @@ async def delete_rss(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
             return engine.rss.delete(rss_id)
-    result = await asyncio.to_thread(_sync)
+    result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(
             status_code=200,
@@ -208,7 +208,7 @@ async def delete_many_rss(
     def _sync():
         with RSSEngine() as engine:
             return engine.delete_list(rss_ids)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.patch(
@@ -220,7 +220,7 @@ async def disable_rss(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
             return engine.rss.disable(rss_id)
-    result = await asyncio.to_thread(_sync)
+    result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(
             status_code=200,
@@ -242,7 +242,7 @@ async def disable_many_rss(rss_ids: list[int]):
     def _sync():
         with RSSEngine() as engine:
             return engine.disable_list(rss_ids)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.patch(
@@ -258,7 +258,7 @@ async def update_rss(
     def _sync():
         with RSSEngine() as engine:
             return engine.rss.update(rss_id, data)
-    result = await asyncio.to_thread(_sync)
+    result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(
             status_code=200,
@@ -280,7 +280,7 @@ async def refresh_all():
     def _sync():
         with RSSEngine() as engine, DownloadClient() as client:
             engine.refresh_rss(client)
-    await asyncio.to_thread(_sync)
+    await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Refresh all RSS successfully.", "msg_zh": "刷新 RSS 成功。"},
@@ -296,7 +296,7 @@ async def refresh_rss(rss_id: int):
     def _sync():
         with RSSEngine() as engine, DownloadClient() as client:
             engine.refresh_rss(client, rss_id)
-    await asyncio.to_thread(_sync)
+    await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Refresh RSS successfully.", "msg_zh": "刷新 RSS 成功。"},
@@ -315,7 +315,7 @@ async def get_torrent(
     def _sync():
         with TorrentStatusManager() as manager:
             return manager.get_rss_torrents_status(rss_id)
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.post(
@@ -379,7 +379,7 @@ async def recreate_rss_rules(
                     return {"error": "response_model", "data": bangumi}
 
     try:
-        result = await asyncio.to_thread(_sync)
+        result = await anyio.to_thread.run_sync(_sync)
     except BangumiParsingError as e:
         # Return structured error for frontend to show manual input form
         return JSONResponse(
@@ -441,7 +441,7 @@ analyser = RSSAnalyser()
 async def analysis(rss: RSSItem):
     def _sync():
         return analyser.link_to_data(rss)
-    data = await asyncio.to_thread(_sync)
+    data = await anyio.to_thread.run_sync(_sync)
     if isinstance(data, Bangumi):
         return data
     else:
@@ -462,7 +462,7 @@ async def analysis_torrents(rss: RSSItem, _filter: str = None, title_raw: str = 
     """
     def _sync():
         return analyser.analyse_torrents(rss, _filter, title_raw)
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.post(
@@ -472,7 +472,7 @@ async def download_collection(data: Bangumi):
     def _sync():
         with SeasonCollector() as collector:
             return collector.collect_season(data, data.rss_link)
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.post(
@@ -492,7 +492,7 @@ async def subscribe(data: Bangumi, rss: RSSItem):
                     msg_en=error_msg,
                     msg_zh=f"该番剧已从其他 RSS 源订阅。请先删除现有订阅。({error_msg})",
                 )
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.post(
@@ -522,7 +522,7 @@ async def subscribe_batch(bangumi_list: list[Bangumi], rss: RSSItem):
                     msg_en=f"Batch subscription failed: {str(e)}",
                     msg_zh=f"批量订阅失败: {str(e)}",
                 )
-    return u_response(await asyncio.to_thread(_sync))
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
 @router.get(
@@ -535,7 +535,7 @@ async def get_pending_count(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
             return {"pending_count": engine.bangumi.count_pending_by_rss_id(rss_id)}
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.get(
@@ -552,7 +552,7 @@ async def get_pending_bangumi(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
             return engine.bangumi.get_pending_by_rss_id(rss_id)
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)
 
 
 @router.get(
@@ -623,4 +623,4 @@ async def get_pending_bangumi_list(rss_id: int):
                 "active_count": active_count,
                 "bangumi": bangumi_data,
             }
-    return await asyncio.to_thread(_sync)
+    return await anyio.to_thread.run_sync(_sync)

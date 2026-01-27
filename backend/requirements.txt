@@ -1,4 +1,4 @@
-anyio==3.7.0
+anyio>=4.3.0
 bs4==0.0.1
 certifi==2023.5.7
 charset-normalizer==3.1.0
@@ -28,3 +28,4 @@ sse-starlette==1.6.5
 semver==3.0.1
 openai==0.28.1
 defusedxml==0.7.1
+pikpakapi==0.1.11

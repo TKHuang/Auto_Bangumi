@@ -1,3 +1,4 @@
+import anyio
 import logging
 import os
 import signal
@@ -112,4 +113,4 @@ async def shutdown_program():
     dependencies=[Depends(get_current_user)],
 )
 async def check_downloader_status():
-    return program.check_downloader()
+    return await anyio.to_thread.run_sync(program.check_downloader)

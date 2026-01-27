@@ -121,9 +121,7 @@ class TestRawParser:
             ),
         ],
     )
-    def test_raw_parser_real_world_cases(
-        self, content: str, expected: dict
-    ) -> None:
+    def test_raw_parser_real_world_cases(self, content: str, expected: dict) -> None:
         """Test raw_parser with real-world torrent title formats.
 
         These test cases are derived from actual RSS feeds and GitHub issues,
@@ -135,15 +133,25 @@ class TestRawParser:
         if "group" in expected:
             assert info.group == expected["group"], f"Group mismatch for: {content}"
         if "title_zh" in expected:
-            assert info.title_zh == expected["title_zh"], f"title_zh mismatch for: {content}"
+            assert (
+                info.title_zh == expected["title_zh"]
+            ), f"title_zh mismatch for: {content}"
         if "title_en" in expected:
-            assert info.title_en == expected["title_en"], f"title_en mismatch for: {content}"
+            assert (
+                info.title_en == expected["title_en"]
+            ), f"title_en mismatch for: {content}"
         if "title_jp" in expected:
-            assert info.title_jp == expected["title_jp"], f"title_jp mismatch for: {content}"
+            assert (
+                info.title_jp == expected["title_jp"]
+            ), f"title_jp mismatch for: {content}"
         if "resolution" in expected:
-            assert info.resolution == expected["resolution"], f"Resolution mismatch for: {content}"
+            assert (
+                info.resolution == expected["resolution"]
+            ), f"Resolution mismatch for: {content}"
         if "episode" in expected:
-            assert info.episode == expected["episode"], f"Episode mismatch for: {content}"
+            assert (
+                info.episode == expected["episode"]
+            ), f"Episode mismatch for: {content}"
         if "season" in expected:
             assert info.season == expected["season"], f"Season mismatch for: {content}"
 

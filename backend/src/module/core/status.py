@@ -1,4 +1,3 @@
-import asyncio
 import threading
 
 from module.checker import Checker
@@ -12,7 +11,6 @@ class ProgramStatus(Checker):
         self.lock = threading.Lock()
         self._downloader_status = False
         self._torrents_status = False
-        self.event = asyncio.Event()
 
     @property
     def is_running(self):

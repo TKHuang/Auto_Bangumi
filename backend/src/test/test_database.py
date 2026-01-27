@@ -1,7 +1,8 @@
-from module.database.combine import Database
-from module.models import Bangumi, RSSItem, Torrent
 from sqlmodel import SQLModel, create_engine
 from sqlmodel.pool import StaticPool
+
+from module.database.combine import Database
+from module.models import Bangumi, RSSItem, Torrent
 
 # sqlite mock engine
 engine = create_engine(
@@ -42,7 +43,10 @@ def test_bangumi_database():
         assert db.bangumi.search_id(1) == test_data
 
         # search poster
-        assert db.bangumi.match_poster("无职转生，到了异世界就拿出真本事II (2021)") == "/test/test.jpg"
+        assert (
+            db.bangumi.match_poster("无职转生，到了异世界就拿出真本事II (2021)")
+            == "/test/test.jpg"
+        )
 
         # match torrent
         result = db.bangumi.match_torrent(
@@ -106,15 +110,11 @@ def test_find_by_any_rss_link():
         assert result.official_title == "无职转生"
 
         # Should find even with partial match in comma-separated list
-        result = db.bangumi.find_by_any_rss_link(
-            ["https://mikanani.me/RSS/MyBangumi"]
-        )
+        result = db.bangumi.find_by_any_rss_link(["https://mikanani.me/RSS/MyBangumi"])
         assert result is not None
 
         # Should not find non-existing rss_link
-        result = db.bangumi.find_by_any_rss_link(
-            ["https://other.site.com/RSS/feed"]
-        )
+        result = db.bangumi.find_by_any_rss_link(["https://other.site.com/RSS/feed"])
         assert result is None
 
         # Should not find with empty list

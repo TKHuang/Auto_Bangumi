@@ -225,3 +225,6 @@ dev-config
 # dev config
 /config/
 /backend/config/
+
+# dev data directories
+/data/
