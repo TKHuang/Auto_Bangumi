@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from module.models.parsed import ParsedBangumi, SubtitleType
+from module.models.parsed import EpisodeType, ParsedBangumi, SubtitleType
 
 
 @dataclass
@@ -223,17 +223,21 @@ class BangumiParser:
             re.IGNORECASE,
         )
 
-        # Movie/OVA/Special detection patterns
+        # Movie detection patterns (real theatrical movies only)
         # Chinese movie markers: 剧场版, 劇場版, 电影, 電影
         self._movie_chinese_re = re.compile(r"[剧劇]场版|[电電]影", re.IGNORECASE)
         # Japanese movie markers: 映画, 劇場版
         self._movie_japanese_re = re.compile(r"映画|劇場版", re.IGNORECASE)
         # English movie markers: Movie, The Movie (case-insensitive)
         self._movie_english_re = re.compile(r"\bThe\s+Movie\b|\bMovie\b", re.IGNORECASE)
-        # OVA/OAD markers
-        self._movie_ova_re = re.compile(r"\bOVA\b|\bOAD\b", re.IGNORECASE)
+
+        # Episode type detection patterns (OAD, OVA, SP - these are NOT movies)
+        # OAD markers (Original Animation DVD)
+        self._episode_type_oad_re = re.compile(r"\bOAD\b", re.IGNORECASE)
+        # OVA markers (Original Video Animation) - also matches OVA1, OVA2, etc.
+        self._episode_type_ova_re = re.compile(r"\bOVA\d*\b", re.IGNORECASE)
         # Special/SP markers
-        self._movie_special_re = re.compile(r"\bSpecial\b|\bSP\b", re.IGNORECASE)
+        self._episode_type_sp_re = re.compile(r"\bSpecial\b|\bSP\d*\b", re.IGNORECASE)
         # Decorator pattern before title bracket (e.g., ★剧场版[Title], ★01月新番★[Title])
         # This matches decorators like ★剧场版, ★01月新番★, 剧场版, etc. followed by a bracket
         self._decorator_before_bracket_re = re.compile(
@@ -292,8 +296,18 @@ class BangumiParser:
         # Extract title and alternative titles
         main_title, alt_titles = self._extract_title(title, brackets)
 
-        # Detect if this is a movie/OVA/special release
+        # Detect if this is a movie (theatrical release)
         is_movie = self._is_movie(title)
+
+        # Extract episode type (OAD, OVA, SP)
+        episode_type = self._extract_episode_type(title)
+
+        # Extract version (v2, v3, etc.)
+        version = self._extract_version(title)
+
+        # For OAD/OVA/SP without explicit episode number, default to 1
+        if episode_type is not None and episode is None:
+            episode = 1
 
         # Build result with current implementation
         return ParsedBangumi(
@@ -306,10 +320,12 @@ class BangumiParser:
             season=season,
             episode=episode,
             episode_end=episode_end,
+            version=version,
             video_codec=video_codec,
             audio_codec=audio_codec,
             source=source,
             is_movie=is_movie,
+            episode_type=episode_type,
         )
 
     def _extract_brackets(self, text: str) -> list[BracketContent]:
@@ -763,6 +779,22 @@ class BangumiParser:
 
         return (None, None)
 
+    def _extract_version(self, text: str) -> Optional[int]:
+        """Extract version number from text (e.g., v2, v3).
+
+        Args:
+            text: The text to extract version from.
+
+        Returns:
+            Version number as int (e.g., 2 for v2), or None if not found.
+        """
+        match = self._episode_version_re.search(text)
+        if match:
+            # Extract the digit after 'v' or 'V'
+            version_str = match.group(0)  # e.g., 'v2'
+            return int(version_str[1:])  # Skip 'v', get '2'
+        return None
+
     def _parse_episode_number(self, ep_str: str) -> Optional[float | int]:
         """Parse episode number string to int or float.
 
@@ -883,20 +915,21 @@ class BangumiParser:
         return None
 
     def _is_movie(self, text: str) -> bool:
-        """Detect if the title is a movie, OVA, or special release.
+        """Detect if the title is a theatrical movie release.
 
         Detected markers:
         - Chinese movie markers: 剧场版, 劇場版, 电影, 電影
         - Japanese movie markers: 映画, 劇場版
         - English movie markers: Movie, The Movie
-        - OVA/OAD markers
-        - Special/SP markers
+
+        Note: OVA/OAD/SP are NOT movies - they are special episode types
+        and should be handled via episode_type field instead.
 
         Args:
             text: The text to check for movie markers.
 
         Returns:
-            True if movie/OVA/special markers detected, False otherwise.
+            True if theatrical movie markers detected, False otherwise.
         """
         # Check Chinese movie markers
         if self._movie_chinese_re.search(text):
@@ -910,15 +943,30 @@ class BangumiParser:
         if self._movie_english_re.search(text):
             return True
 
-        # Check OVA/OAD markers
-        if self._movie_ova_re.search(text):
-            return True
-
-        # Check Special/SP markers
-        if self._movie_special_re.search(text):
-            return True
-
         return False
+
+    def _extract_episode_type(self, text: str) -> Optional[EpisodeType]:
+        """Extract special episode type (OAD, OVA, SP) from text.
+
+        Args:
+            text: The text to check for episode type markers.
+
+        Returns:
+            EpisodeType enum value if special type detected, None for regular episodes.
+        """
+        # Check OAD markers first (more specific than OVA)
+        if self._episode_type_oad_re.search(text):
+            return EpisodeType.OAD
+
+        # Check OVA markers
+        if self._episode_type_ova_re.search(text):
+            return EpisodeType.OVA
+
+        # Check SP/Special markers
+        if self._episode_type_sp_re.search(text):
+            return EpisodeType.SP
+
+        return None
 
     def _extract_title(
         self, text: str, brackets: list[BracketContent]
@@ -1273,8 +1321,8 @@ class BangumiParser:
         if re.match(r"^\d{3,4}[pPxX×]\d*$", content_stripped):
             return True
 
-        # Check for episode numbers
-        if content_stripped.isdigit():
+        # Check for episode numbers (with optional version suffix like 03v2, 11v2)
+        if re.match(r"^\d+(?:[vV]\d+)?$", content_stripped):
             return True
 
         # Check for codec with bit depth (HEVC-10bit, etc.)
@@ -1286,6 +1334,10 @@ class BangumiParser:
         # Check for compound subtitle markers (e.g., "简繁内封字幕", "繁日内嵌字幕")
         # These are composed entirely of subtitle-related terms
         if self._is_compound_subtitle_marker(content_stripped):
+            return True
+
+        # Check for episode type markers (OAD, OVA, OVA1, SP, SP01, Special)
+        if re.match(r"^(?:OAD|OVA\d*|SP\d*|Special)$", content_stripped, re.IGNORECASE):
             return True
 
         return False

@@ -199,12 +199,15 @@ class TestTorrentFilePathParsing:
         assert bf.is_movie is True
 
     def test_ova_path(self):
-        """Test parsing OVA file."""
+        """Test parsing OVA file - uses episode_type instead of is_movie."""
+        from module.models.parsed import EpisodeType
+
         file_path = "/anime/OVA/[Group] Title OVA [1080p].mkv"
         bf = torrent_parser(file_path)
         assert bf.title == "Title OVA"
         assert bf.season == 1
-        assert bf.is_movie is True  # OVA sets is_movie flag
+        assert bf.is_movie is False  # OVA uses episode_type, not is_movie
+        assert bf.episode_type == EpisodeType.OVA
 
     def test_special_path(self):
         """Test parsing special episode file with bracketed episode number."""

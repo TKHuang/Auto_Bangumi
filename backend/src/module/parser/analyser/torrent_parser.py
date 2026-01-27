@@ -89,14 +89,31 @@ def torrent_parser(
 
     # Extract title
     title = parsed.title
-    if not title:
+
+    # Validate title - if it looks like just a file extension, it's bad
+    def _is_bad_title(t: str | None) -> bool:
+        if not t:
+            return True
+        t_lower = t.strip().lower()
+        # Title that's just an extension like ".mp4" or empty
+        if t_lower.startswith(".") or not t_lower:
+            return True
+        return False
+
+    if _is_bad_title(title):
         # Try simple title extraction as fallback
         simple_title = _extract_simple_title(parse_name)
-        if simple_title:
+        if simple_title and not _is_bad_title(simple_title):
             title = simple_title
         else:
             # Last resort: use the raw filename without extension
-            title = Path(parse_name).stem
+            stem = Path(parse_name).stem
+            # If stem contains metadata brackets, try to extract clean title
+            # e.g., "Golden Kamuy[OAD]" -> "Golden Kamuy"
+            import re
+
+            clean_stem = re.sub(r"\[(?:OAD|OVA\d*|SP\d*|Special)\]", "", stem).strip()
+            title = clean_stem if clean_stem else stem
 
     # Use explicit season if provided, otherwise use parsed season
     final_season = season if season is not None else parsed.season
@@ -123,8 +140,10 @@ def torrent_parser(
             title=title,
             season=final_season,
             episode=episode,
+            version=parsed.version,
             suffix=suffix,
             is_movie=parsed.is_movie,
+            episode_type=parsed.episode_type,
         )
     elif file_type == "subtitle":
         # Map SubtitleType to language code
@@ -146,8 +165,10 @@ def torrent_parser(
             season=final_season,
             language=language,
             episode=episode,
+            version=parsed.version,
             suffix=suffix,
             is_movie=parsed.is_movie,
+            episode_type=parsed.episode_type,
         )
 
 

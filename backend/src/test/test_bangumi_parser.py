@@ -3076,47 +3076,47 @@ class TestMovieOVADetection:
         result = parser._is_movie("[Group] Title the movie [1080p]")
         assert result is True
 
-    # OVA/OAD markers
+    # OVA/OAD markers - these are NOT movies, they use episode_type instead
     def test_ova_marker_uppercase(self, parser: BangumiParser):
-        """Test detection of OVA marker (uppercase)."""
+        """Test that OVA marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title OVA [1080p]")
-        assert result is True
+        assert result is False  # OVA uses episode_type, not is_movie
 
     def test_ova_marker_lowercase(self, parser: BangumiParser):
-        """Test detection of ova marker (case-insensitive)."""
+        """Test that ova marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title ova [1080p]")
-        assert result is True
+        assert result is False  # OVA uses episode_type, not is_movie
 
     def test_oad_marker_uppercase(self, parser: BangumiParser):
-        """Test detection of OAD marker (uppercase)."""
+        """Test that OAD marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title OAD [1080p]")
-        assert result is True
+        assert result is False  # OAD uses episode_type, not is_movie
 
     def test_oad_marker_lowercase(self, parser: BangumiParser):
-        """Test detection of oad marker (case-insensitive)."""
+        """Test that oad marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title oad [1080p]")
-        assert result is True
+        assert result is False  # OAD uses episode_type, not is_movie
 
-    # Special/SP markers
+    # Special/SP markers - these are NOT movies, they use episode_type instead
     def test_special_marker(self, parser: BangumiParser):
-        """Test detection of Special marker."""
+        """Test that Special marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title Special [1080p]")
-        assert result is True
+        assert result is False  # Special uses episode_type, not is_movie
 
     def test_special_marker_lowercase(self, parser: BangumiParser):
-        """Test detection of special marker (case-insensitive)."""
+        """Test that special marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title special [1080p]")
-        assert result is True
+        assert result is False  # Special uses episode_type, not is_movie
 
     def test_sp_marker_uppercase(self, parser: BangumiParser):
-        """Test detection of SP marker (uppercase)."""
+        """Test that SP marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title SP [1080p]")
-        assert result is True
+        assert result is False  # SP uses episode_type, not is_movie
 
     def test_sp_marker_lowercase(self, parser: BangumiParser):
-        """Test detection of sp marker (case-insensitive)."""
+        """Test that sp marker is NOT detected as movie (uses episode_type)."""
         result = parser._is_movie("[Group] Title sp [1080p]")
-        assert result is True
+        assert result is False  # SP uses episode_type, not is_movie
 
     # Regular episode (not movie/OVA)
     def test_regular_episode_not_movie(self, parser: BangumiParser):
@@ -3146,14 +3146,20 @@ class TestMovieOVADetection:
         assert result.is_movie is True
 
     def test_parse_ova(self, parser: BangumiParser):
-        """Test parse() method integration with OVA marker."""
+        """Test parse() method integration with OVA marker - uses episode_type."""
+        from module.models.parsed import EpisodeType
+
         result = parser.parse("[Group] Title OVA [1080p]")
-        assert result.is_movie is True
+        assert result.is_movie is False  # OVA is not a movie
+        assert result.episode_type == EpisodeType.OVA  # Uses episode_type instead
 
     def test_parse_special(self, parser: BangumiParser):
-        """Test parse() method integration with Special marker."""
+        """Test parse() method integration with Special marker - uses episode_type."""
+        from module.models.parsed import EpisodeType
+
         result = parser.parse("[Group] Title Special [1080p]")
-        assert result.is_movie is True
+        assert result.is_movie is False  # Special is not a movie
+        assert result.episode_type == EpisodeType.SP  # Uses episode_type instead
 
     def test_parse_regular_episode_is_movie_false(self, parser: BangumiParser):
         """Test parse() method integration with regular episode."""
@@ -3173,12 +3179,15 @@ class TestMovieOVADetection:
         assert "Suzume no Tojimari The Movie" in result.alt_titles[0]
 
     def test_parse_real_world_ova_format(self, parser: BangumiParser):
-        """Test parse() method with real-world OVA format."""
+        """Test parse() method with real-world OVA format - uses episode_type."""
+        from module.models.parsed import EpisodeType
+
         result = parser.parse(
             "[ANi] 進撃の巨人 OVA [1080p][Baha][WEB-DL][AAC AVC][CHT]"
         )
-        assert result.is_movie is True
-        assert result.title == "進撃の巨人 OVA" or "OVA" in result.raw
+        assert result.is_movie is False  # OVA is not a movie
+        assert result.episode_type == EpisodeType.OVA  # Uses episode_type
+        assert "進撃の巨人" in result.title or "OVA" in result.raw
 
 
 class TestErrorHandling:
@@ -3709,19 +3718,25 @@ class TestRealWorldFormats:
         assert result.source == "BDRip"
 
     def test_ova_format(self, parser: BangumiParser):
-        """Test OVA format detection."""
+        """Test OVA format detection - uses episode_type."""
+        from module.models.parsed import EpisodeType
+
         result = parser.parse("[LoliHouse] Series Title OVA [1080p][HEVC][简繁内封]")
         assert result.group == "LoliHouse"
-        assert result.is_movie is True  # OVA sets is_movie flag
+        assert result.is_movie is False  # OVA uses episode_type, not is_movie
+        assert result.episode_type == EpisodeType.OVA
         assert result.resolution == "1080P"
 
     def test_special_format(self, parser: BangumiParser):
-        """Test Special episode format."""
+        """Test Special episode format - uses episode_type."""
+        from module.models.parsed import EpisodeType
+
         result = parser.parse(
             "[ANi] Series Special - SP01 [1080P][WEB-DL][AAC AVC][CHT]"
         )
         assert result.group == "ANi"
-        assert result.is_movie is True  # Special sets is_movie flag
+        assert result.is_movie is False  # SP uses episode_type, not is_movie
+        assert result.episode_type == EpisodeType.SP
         assert result.resolution == "1080P"
 
     # Edge cases from real data

@@ -21,6 +21,18 @@ class SubtitleType(str, Enum):
     UNKNOWN = "UNKNOWN"  # Unknown or undetected subtitle type
 
 
+class EpisodeType(str, Enum):
+    """Episode type enumeration.
+
+    Represents special episode types commonly found in anime releases.
+    Regular TV episodes have no special type (None).
+    """
+
+    OAD = "OAD"  # Original Animation DVD
+    OVA = "OVA"  # Original Video Animation
+    SP = "SP"  # Special episode
+
+
 @dataclass
 class ParsedBangumi:
     """Parsed bangumi/torrent information.
@@ -36,13 +48,15 @@ class ParsedBangumi:
         season: The season number (default: 1).
         episode: The episode number.
         episode_end: The ending episode number for batch releases.
+        version: Episode version (e.g., 2 for v2 releases).
         resolution: Video resolution (e.g., "1080P", "720P").
         subtitle: The subtitle type.
         video_codec: Video codec (e.g., "HEVC", "AVC").
         audio_codec: Audio codec (e.g., "AAC", "FLAC").
         source: Source/rip type (e.g., "WEB-DL", "BDRip").
         container: Container format (e.g., "MKV", "MP4").
-        is_movie: Whether this is a movie/OVA/special.
+        is_movie: Whether this is a movie (劇場版/映画).
+        episode_type: Special episode type (OAD, OVA, SP) or None for regular.
         extra_info: Additional extracted information.
     """
 
@@ -53,6 +67,7 @@ class ParsedBangumi:
     season: int = 1
     episode: Optional[float] = None
     episode_end: Optional[float] = None
+    version: Optional[int] = None
     resolution: Optional[str] = None
     subtitle: Optional[SubtitleType] = None
     video_codec: Optional[str] = None
@@ -60,6 +75,7 @@ class ParsedBangumi:
     source: Optional[str] = None
     container: Optional[str] = None
     is_movie: bool = False
+    episode_type: Optional[EpisodeType] = None
     extra_info: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -76,6 +92,7 @@ class ParsedBangumi:
             "season": self.season,
             "episode": self.episode,
             "episode_end": self.episode_end,
+            "version": self.version,
             "resolution": self.resolution,
             "subtitle": self.subtitle.value if self.subtitle else None,
             "video_codec": self.video_codec,
@@ -83,5 +100,6 @@ class ParsedBangumi:
             "source": self.source,
             "container": self.container,
             "is_movie": self.is_movie,
+            "episode_type": self.episode_type.value if self.episode_type else None,
             "extra_info": self.extra_info,
         }

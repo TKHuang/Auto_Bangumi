@@ -61,19 +61,44 @@ class Renamer(DownloadClient):
             ep_value = int(ep_value)
         episode = f"0{ep_value}" if ep_value < 10 else ep_value
 
+        # Add version suffix if present (e.g., "v2" for version 2)
+        version_suffix = f"v{file_info.version}" if file_info.version else ""
+
+        # Handle special episode types (OAD, OVA, SP)
+        # Format: "{title} {type} {episode}.{suffix}" e.g., "Golden Kamuy OAD 01.mp4"
+        if file_info.episode_type is not None:
+            ep_type = file_info.episode_type.value  # OAD, OVA, or SP
+            if method == "none" or method == "subtitle_none":
+                return file_info.media_path
+            elif method == "pn":
+                return f"{file_info.title} {ep_type} {episode}{version_suffix}{file_info.suffix}"
+            elif method == "advance":
+                return f"{bangumi_name} {ep_type} {episode}{version_suffix}{file_info.suffix}"
+            elif method == "normal":
+                logger.warning("[Renamer] Normal rename method is deprecated.")
+                return file_info.media_path
+            elif method == "subtitle_pn":
+                return f"{file_info.title} {ep_type} {episode}{version_suffix}.{file_info.language}{file_info.suffix}"
+            elif method == "subtitle_advance":
+                return f"{bangumi_name} {ep_type} {episode}{version_suffix}.{file_info.language}{file_info.suffix}"
+            else:
+                logger.error(f"[Renamer] Unknown rename method: {method}")
+                return file_info.media_path
+
+        # Handle regular episodes with S##E## format
         if method == "none" or method == "subtitle_none":
             return file_info.media_path
         elif method == "pn":
-            return f"{file_info.title} S{season}E{episode}{file_info.suffix}"
+            return f"{file_info.title} S{season}E{episode}{version_suffix}{file_info.suffix}"
         elif method == "advance":
-            return f"{bangumi_name} S{season}E{episode}{file_info.suffix}"
+            return f"{bangumi_name} S{season}E{episode}{version_suffix}{file_info.suffix}"
         elif method == "normal":
             logger.warning("[Renamer] Normal rename method is deprecated.")
             return file_info.media_path
         elif method == "subtitle_pn":
-            return f"{file_info.title} S{season}E{episode}.{file_info.language}{file_info.suffix}"
+            return f"{file_info.title} S{season}E{episode}{version_suffix}.{file_info.language}{file_info.suffix}"
         elif method == "subtitle_advance":
-            return f"{bangumi_name} S{season}E{episode}.{file_info.language}{file_info.suffix}"
+            return f"{bangumi_name} S{season}E{episode}{version_suffix}.{file_info.language}{file_info.suffix}"
         else:
             logger.error(f"[Renamer] Unknown rename method: {method}")
             return file_info.media_path

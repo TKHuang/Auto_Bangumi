@@ -191,6 +191,7 @@ class TestParsedBangumiToDict:
             "season": 1,
             "episode": None,
             "episode_end": None,
+            "version": None,
             "resolution": None,
             "subtitle": None,
             "video_codec": None,
@@ -198,6 +199,7 @@ class TestParsedBangumiToDict:
             "source": None,
             "container": None,
             "is_movie": False,
+            "episode_type": None,
             "extra_info": [],
         }
 
