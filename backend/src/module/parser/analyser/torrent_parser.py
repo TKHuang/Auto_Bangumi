@@ -108,11 +108,25 @@ def torrent_parser(
         else:
             # Last resort: use the raw filename without extension
             stem = Path(parse_name).stem
-            # If stem contains metadata brackets, try to extract clean title
+            # If stem contains episode type markers, try to extract clean title
             # e.g., "Golden Kamuy[OAD]" -> "Golden Kamuy"
+            # e.g., "Golden Kamuy OAD 01" -> "Golden Kamuy"
             import re
 
+            # First remove bracketed markers like [OAD], [OVA], [SP]
             clean_stem = re.sub(r"\[(?:OAD|OVA\d*|SP\d*|Special)\]", "", stem).strip()
+            # Then remove unbracketed trailing markers like "OAD 01", "OVA", "SP 02"
+            # This prevents accumulation bug when re-parsing already renamed files
+            # Loop to handle accumulated cases like "Title OAD 01 OAD 01"
+            prev_stem = None
+            while clean_stem != prev_stem:
+                prev_stem = clean_stem
+                clean_stem = re.sub(
+                    r"\s+(?:OAD|OVA|SP|Special)\s*-?\s*\d*$",
+                    "",
+                    clean_stem,
+                    flags=re.IGNORECASE,
+                ).strip()
             title = clean_stem if clean_stem else stem
 
     # Use explicit season if provided, otherwise use parsed season
@@ -174,9 +188,7 @@ def torrent_parser(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    ep = torrent_parser(
-        "/不时用俄语小声说真心话的邻桌艾莉同学/Season 1/不时用俄语小声说真心话的邻桌艾莉同学 S01E02.mp4"
-    )
+    ep = torrent_parser("/不时用俄语小声说真心话的邻桌艾莉同学/Season 1/不时用俄语小声说真心话的邻桌艾莉同学 S01E02.mp4")
     logger.info(ep)
 
     ep = torrent_parser(

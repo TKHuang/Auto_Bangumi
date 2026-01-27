@@ -920,9 +920,7 @@ class TestSeasonExtraction:
         "torrent_name,expected",
         [
             pytest.param("[Group] Title 第2季 - 01 [1080p]", 2, id="chinese_arabic_2"),
-            pytest.param(
-                "[Group] Title 第10季 - 01 [1080p]", 10, id="chinese_arabic_10"
-            ),
+            pytest.param("[Group] Title 第10季 - 01 [1080p]", 10, id="chinese_arabic_10"),
         ],
     )
     def test_season_chinese_arabic_format(
@@ -1352,9 +1350,7 @@ class TestEpisodeExtraction:
         This format typically uses position-based parsing in the full parse() method
         which extracts episode from bracket content by context, not regex pattern.
         """
-        result = parser._extract_episode(
-            "【幻櫻字幕組】【1月新番】葬送的芙莉蓮【01】【BIG5_MP4】【1280X720】"
-        )
+        result = parser._extract_episode("【幻櫻字幕組】【1月新番】葬送的芙莉蓮【01】【BIG5_MP4】【1280X720】")
         # Full-width brackets are not matched by the current episode bracket regex
         assert result == (None, None)
 
@@ -2931,9 +2927,7 @@ class TestTitleExtraction:
 
     def test_all_bracket_format_multilingual(self, parser: BangumiParser):
         """Test all-bracket format with multilingual title in brackets."""
-        result = parser.parse(
-            "【Group】★01月新番[日本語タイトル/English Title][01][1080p]"
-        )
+        result = parser.parse("【Group】★01月新番[日本語タイトル/English Title][01][1080p]")
         # Should extract CJK part from bracket
         assert result.title == "日本語タイトル"
 
@@ -3034,9 +3028,7 @@ class TestTitleExtraction:
 
     def test_ani_format_with_metadata_brackets(self, parser: BangumiParser):
         """Test ANi format with all metadata in brackets."""
-        result = parser.parse(
-            "[ANi] 葬送的芙莉蓮 - 01 [1080p][Baha][WEB-DL][AAC AVC][CHT]"
-        )
+        result = parser.parse("[ANi] 葬送的芙莉蓮 - 01 [1080p][Baha][WEB-DL][AAC AVC][CHT]")
         assert result.title == "葬送的芙莉蓮"
         assert result.alt_titles == []
 
@@ -3070,9 +3062,7 @@ class TestTitleExtraction:
 
     def test_title_extraction_parse_method_integration(self, parser: BangumiParser):
         """Test title extraction through full parse() method."""
-        result = parser.parse(
-            "[Group] Anime Title / アニメタイトル - 01 [1080p][HEVC][AAC]"
-        )
+        result = parser.parse("[Group] Anime Title / アニメタイトル - 01 [1080p][HEVC][AAC]")
         assert result.title == "アニメタイトル"
         assert result.alt_titles == ["Anime Title"]
         assert result.episode == 1
@@ -3089,6 +3079,40 @@ class TestTitleExtraction:
         result = parser.parse("[Group]    - 01 [1080p]")
         # Should fallback to bracket extraction or return None
         assert result.title is None or result.title == "Group"
+
+    def test_title_strips_trailing_episode_type_markers(self, parser: BangumiParser):
+        """Test that trailing OAD/OVA/SP markers are cleaned from titles.
+
+        This prevents accumulation bug where re-parsing an already-renamed file
+        like "Golden Kamuy OAD 01.mp4" would produce "Golden Kamuy OAD 01 OAD 01.mp4"
+        on subsequent renames.
+
+        Note: For already-renamed files without brackets (e.g., "Golden Kamuy OAD 01.mp4"),
+        BangumiParser can't extract a title directly - the title extraction happens
+        in torrent_parser's fallback logic. This test verifies the _clean_title
+        method works correctly for bracket-based inputs.
+        """
+        # Test that _clean_title strips OAD/OVA/SP when title extraction includes them
+        # This happens when OAD is detected but title region includes the marker
+        result = parser.parse("[Group] Title Name OAD 01 [1080p]")
+        assert result.title == "Title Name"
+        assert result.episode_type is not None
+        assert result.episode_type.value == "OAD"
+        assert result.episode == 1
+
+        # Test OVA marker removal from bracketed format
+        result = parser.parse("[Group] Some Anime OVA 03 [1080p]")
+        assert result.title == "Some Anime"
+        assert result.episode_type is not None
+        assert result.episode_type.value == "OVA"
+        assert result.episode == 3
+
+        # Test SP marker removal from bracketed format
+        result = parser.parse("[Group] Title Name SP 02 [1080p]")
+        assert result.title == "Title Name"
+        assert result.episode_type is not None
+        assert result.episode_type.value == "SP"
+        assert result.episode == 2
 
 
 class TestMovieOVADetection:
@@ -3258,9 +3282,7 @@ class TestMovieOVADetection:
         """Test parse() method with real-world OVA format - uses episode_type."""
         from module.models.parsed import EpisodeType
 
-        result = parser.parse(
-            "[ANi] 進撃の巨人 OVA [1080p][Baha][WEB-DL][AAC AVC][CHT]"
-        )
+        result = parser.parse("[ANi] 進撃の巨人 OVA [1080p][Baha][WEB-DL][AAC AVC][CHT]")
         assert result.is_movie is False  # OVA is not a movie
         assert result.episode_type == EpisodeType.OVA  # Uses episode_type
         assert "進撃の巨人" in result.title or "OVA" in result.raw
@@ -3421,9 +3443,7 @@ class TestErrorHandling:
 
     def test_mixed_scripts_multiple_languages(self, parser: BangumiParser):
         """Test parsing with mixed scripts (CJK, Latin, Cyrillic, Arabic)."""
-        result = parser.parse(
-            "[Group] Title タイトル 标题 Название العنوان - 01 [1080p]"
-        )
+        result = parser.parse("[Group] Title タイトル 标题 Название العنوان - 01 [1080p]")
         assert result.raw == "[Group] Title タイトル 标题 Название العنوان - 01 [1080p]"
 
     # Invalid metadata combinations
@@ -3538,10 +3558,7 @@ class TestRealWorldFormats:
             "[ANi] 地狱模式 ～喜欢挑战特殊成就的玩家在废设定的异世界成为无双～ - 03 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]"
         )
         assert result.group == "ANi"
-        assert (
-            result.title
-            == "地狱模式 ～喜欢挑战特殊成就的玩家在废设定的异世界成为无双～"
-        )
+        assert result.title == "地狱模式 ～喜欢挑战特殊成就的玩家在废设定的异世界成为无双～"
         assert result.episode == 3.0
         assert result.resolution == "1080P"
         # WEB-DL has priority over streaming source Baha

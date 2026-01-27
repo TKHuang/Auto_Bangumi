@@ -188,9 +188,7 @@ class TestTorrentFilePathParsing:
 
     def test_movie_path_with_marker(self):
         """Test parsing movie file with 剧场版 marker."""
-        file_path = (
-            "/movies/[LoliHouse] 葬送的芙莉莲 剧场版 [WebRip 1080p HEVC-10bit AAC].mkv"
-        )
+        file_path = "/movies/[LoliHouse] 葬送的芙莉莲 剧场版 [WebRip 1080p HEVC-10bit AAC].mkv"
         bf = torrent_parser(file_path)
         # When BangumiParser can't parse title, fallback to stem which includes metadata
         assert "葬送的芙莉莲" in bf.title
@@ -199,12 +197,16 @@ class TestTorrentFilePathParsing:
         assert bf.is_movie is True
 
     def test_ova_path(self):
-        """Test parsing OVA file - uses episode_type instead of is_movie."""
+        """Test parsing OVA file - uses episode_type instead of is_movie.
+
+        The title should NOT include 'OVA' when episode_type is set to OVA,
+        otherwise gen_path would produce "Title OVA OVA 01.mp4" (redundant).
+        """
         from module.models.parsed import EpisodeType
 
         file_path = "/anime/OVA/[Group] Title OVA [1080p].mkv"
         bf = torrent_parser(file_path)
-        assert bf.title == "Title OVA"
+        assert bf.title == "Title"  # OVA stripped since it's in episode_type
         assert bf.season == 1
         assert bf.is_movie is False  # OVA uses episode_type, not is_movie
         assert bf.episode_type == EpisodeType.OVA
@@ -272,6 +274,43 @@ class TestTorrentFilePathParsing:
         assert bf.title == "Title"
         assert bf.episode == 1
         assert bf.group == "Group"
+
+    def test_already_renamed_oad_file_no_accumulation(self):
+        """Test that already-renamed OAD files don't accumulate episode type markers.
+
+        This is a regression test for the bug where "Golden Kamuy OAD 01.mp4" would
+        become "Golden Kamuy OAD 01 OAD 01.mp4" on each rename cycle.
+        """
+        from module.models.parsed import EpisodeType
+
+        # Test simple already-renamed OAD file
+        file_path = "/anime/Golden Kamuy/Golden Kamuy OAD 01.mp4"
+        bf = torrent_parser(file_path)
+        assert bf.title == "Golden Kamuy"
+        assert bf.episode == 1
+        assert bf.episode_type == EpisodeType.OAD
+
+        # Test OVA variant
+        file_path = "/anime/Some Anime/Some Anime OVA 03.mkv"
+        bf = torrent_parser(file_path)
+        assert bf.title == "Some Anime"
+        assert bf.episode == 3
+        assert bf.episode_type == EpisodeType.OVA
+
+        # Test SP variant
+        file_path = "/anime/Title Name/Title Name SP 02.mp4"
+        bf = torrent_parser(file_path)
+        assert bf.title == "Title Name"
+        assert bf.episode == 2
+        assert bf.episode_type == EpisodeType.SP
+
+        # Test already-accumulated (the worst-case bug scenario)
+        file_path = "/anime/Golden Kamuy/Golden Kamuy OAD 01 OAD 01.mp4"
+        bf = torrent_parser(file_path)
+        # Title should be clean without any OAD markers
+        assert bf.title == "Golden Kamuy"
+        assert bf.episode == 1
+        assert bf.episode_type == EpisodeType.OAD
 
 
 class TestGetPathBasename:

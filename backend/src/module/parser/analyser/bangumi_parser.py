@@ -59,9 +59,7 @@ class BangumiParser:
             re.IGNORECASE,
         )
         # Japanese markers
-        self._subtitle_jp_re = re.compile(
-            r"日语|日文|日本語|日字|JPN?(?:_?SUB)?", re.IGNORECASE
-        )
+        self._subtitle_jp_re = re.compile(r"日语|日文|日本語|日字|JPN?(?:_?SUB)?", re.IGNORECASE)
         # English markers
         self._subtitle_en_re = re.compile(r"英语|英文|ENG?(?:_?SUB)?", re.IGNORECASE)
         # Combined CHS+JP markers
@@ -1298,6 +1296,13 @@ class BangumiParser:
 
         # Remove trailing season markers (S01, S02, etc.)
         title = re.sub(r"\s+S\d{1,2}$", "", title)
+
+        # Remove trailing episode type markers with optional episode numbers
+        # Handles: "Title OAD 01", "Title OVA", "Title SP 03", "Title OAD"
+        # This prevents accumulation when re-parsing already renamed files
+        title = re.sub(
+            r"\s+(?:OAD|OVA|SP|Special)\s*-?\s*\d*$", "", title, flags=re.IGNORECASE
+        )
 
         # Remove leading special decorators
         title = re.sub(r"^[★☆◆◇●○▲△▼▽■□♦♠♣♥]+\s*", "", title)
