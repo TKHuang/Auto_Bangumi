@@ -222,3 +222,181 @@ class TestRawParserEdgeCases:
         assert info.title_jp is None or info.title_jp == ""
         assert info.resolution == "1080P"
         assert info.season == 1
+
+
+class TestBatchReleaseWithEndMarkers:
+    """Tests for batch release parsing with END/Fin/Complete markers.
+
+    These tests verify that batch episode ranges with end markers like
+    [01-08Fin], [01-08 Fin], [01~24 END], [01-12 COMPLETE] are correctly
+    recognized as metadata brackets and parsed properly.
+    """
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            # Batch range with Fin marker (no space) - Season 2
+            pytest.param(
+                "[TestSub] 测试动画 第二季 / Test Anime 2 [01-08Fin][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画 第二季",
+                    "title_en": "Test Anime 2",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 2,
+                },
+                id="batch_fin_no_space",
+            ),
+            # Batch range with Fin marker and space
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01-08 Fin][1080p][简体内嵌]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_fin_with_space",
+            ),
+            # Batch range with END marker
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01-12END][720p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "720P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_end_no_space",
+            ),
+            # Batch range with END marker and space
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01-24 END][1080p][简体内嵌]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_end_with_space",
+            ),
+            # Batch range with COMPLETE marker
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01-12 COMPLETE][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_complete",
+            ),
+            # Batch range with tilde separator
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01~24Fin][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_tilde_fin",
+            ),
+            # Batch range with Chinese end marker
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01-12 完结][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_chinese_end",
+            ),
+            # Plain batch range without end marker (control case)
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [01-12][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 1,  # Start of batch
+                    "season": 1,
+                },
+                id="batch_plain",
+            ),
+            # Single episode (control case)
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [08][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 8,
+                    "season": 1,
+                },
+                id="single_episode",
+            ),
+            # Single episode with version tag
+            pytest.param(
+                "[TestSub] 测试动画 / Test Anime [04v2][1080p][简体内嵌]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 4,
+                    "season": 1,
+                },
+                id="single_episode_v2",
+            ),
+            # Season 2 single episode
+            pytest.param(
+                "[TestSub] 测试动画 第二季 / Test Anime 2 [05][1080p][简繁内封]",
+                {
+                    "group": "TestSub",
+                    "title_zh": "测试动画 第二季",
+                    "title_en": "Test Anime 2",
+                    "resolution": "1080P",
+                    "episode": 5,
+                    "season": 2,
+                },
+                id="season2_single_episode",
+            ),
+        ],
+    )
+    def test_batch_release_parsing(self, content: str, expected: dict) -> None:
+        """Test parsing of batch releases with various END markers.
+
+        Batch releases should have the episode bracket recognized as metadata
+        (not included in title) and episode should be the START of the range.
+        """
+        info = raw_parser(content)
+
+        assert info.group == expected["group"], f"Group mismatch for: {content}"
+        assert (
+            info.title_zh == expected["title_zh"]
+        ), f"title_zh mismatch for: {content}"
+        assert (
+            info.title_en == expected["title_en"]
+        ), f"title_en mismatch for: {content}"
+        assert (
+            info.resolution == expected["resolution"]
+        ), f"Resolution mismatch for: {content}"
+        assert info.episode == expected["episode"], f"Episode mismatch for: {content}"
+        assert info.season == expected["season"], f"Season mismatch for: {content}"

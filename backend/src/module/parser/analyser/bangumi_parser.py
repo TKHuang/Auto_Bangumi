@@ -123,9 +123,11 @@ class BangumiParser:
         # Episode extraction patterns
         # Version suffix to remove: v2, v3, etc.
         self._episode_version_re = re.compile(r"[vV]\d+")
-        # Batch range in brackets: [01-12], [01~24]
+        # Batch range in brackets: [01-12], [01~24], [01-08Fin], [01-08 Fin]
         self._episode_batch_bracket_re = re.compile(
-            r"\[(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)\]"
+            r"\[(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)"
+            r"(?:\s*(?:END|FIN|COMPLETE|完结|完結))?\]",
+            re.IGNORECASE,
         )
         # Standalone batch range (with context to avoid resolution matches)
         # Excludes S (season marker) to prevent "S02 - 15" from matching as batch "02-15"
@@ -1356,6 +1358,15 @@ class BangumiParser:
         # Check for episode with END marker (e.g., 25_END, 25END, 25 END)
         if re.match(
             r"^\d+[\s_]?(?:END|FIN|COMPLETE|完结|完結)$",
+            content_stripped,
+            re.IGNORECASE,
+        ):
+            return True
+
+        # Check for batch range with optional END marker (e.g., 01-08, 01-08Fin, 01~24 END)
+        if re.match(
+            r"^\d+(?:\.\d+)?\s*[-~～]\s*\d+(?:\.\d+)?"
+            r"(?:\s*(?:END|FIN|COMPLETE|完结|完結))?$",
             content_stripped,
             re.IGNORECASE,
         ):
