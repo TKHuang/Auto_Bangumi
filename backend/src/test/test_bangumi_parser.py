@@ -1654,6 +1654,47 @@ class TestEpisodeEdgeCases:
         assert result.season == expected_season
         assert result.episode == expected_episode
 
+    @pytest.mark.parametrize(
+        "torrent_name,expected_episode",
+        [
+            pytest.param(
+                "[LoliHouse] Jigoku Sensei Nube 2025 - 16 [WebRip 1080p HEVC-10bit AAC SRTx2].mkv",
+                16,
+                id="year_2025_dash_episode_16",
+            ),
+            pytest.param(
+                "[Group] Anime 2024 - 12 [1080p].mkv",
+                12,
+                id="year_2024_dash_episode_12",
+            ),
+            pytest.param(
+                "[Group] Title 2023 - 01 [720p].mp4",
+                1,
+                id="year_2023_dash_episode_01",
+            ),
+            pytest.param(
+                "[ANi] Some Show 2025 - 08 [1080P][WEB-DL][AAC AVC][CHT].mp4",
+                8,
+                id="year_2025_ani_format_episode_08",
+            ),
+        ],
+    )
+    def test_year_dash_episode_not_batch_range(
+        self,
+        parser: BangumiParser,
+        torrent_name: str,
+        expected_episode: int,
+    ):
+        """Test that 'YEAR - ##' format is parsed as single episode, not batch range.
+
+        Regression test for bug where '2025 - 16' was incorrectly parsed as batch
+        range 2025-16, resulting in episode=2025 instead of episode=16.
+        The fix validates that batch ranges have start <= end.
+        """
+        result = parser.parse(torrent_name)
+        assert result.episode == expected_episode
+        assert result.episode_end is None
+
 
 @pytest.mark.edge_case
 class TestTitleEdgeCases:

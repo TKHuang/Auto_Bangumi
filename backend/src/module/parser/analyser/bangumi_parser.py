@@ -710,11 +710,12 @@ class BangumiParser:
                 return (start, end)
 
         # Try standalone batch range: 01-12 (not in brackets, with context)
+        # Validate that start <= end to avoid matching year-episode patterns like "2025 - 16"
         match = self._episode_batch_standalone_re.search(text_clean)
         if match:
             start = self._parse_episode_number(match.group(1))
             end = self._parse_episode_number(match.group(2))
-            if start is not None and end is not None:
+            if start is not None and end is not None and start <= end:
                 return (start, end)
 
         # Try single episode in brackets: [01], [12]
