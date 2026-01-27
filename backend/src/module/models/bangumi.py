@@ -59,7 +59,8 @@ class BangumiUpdate(SQLModel):
 class Notification(BaseModel):
     official_title: str = Field(..., alias="official_title", title="番剧名")
     season: int = Field(..., alias="season", title="番剧季度")
-    episode: int = Field(..., alias="episode", title="番剧集数")
+    episode: Optional[int] = Field(None, alias="episode", title="番剧集数")
+    is_movie: bool = Field(False, alias="is_movie", title="是否为剧场版")
     poster_path: Optional[str] = Field(None, alias="poster_path", title="番剧海报路径")
 
 

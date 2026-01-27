@@ -16,9 +16,14 @@ class TelegramNotification(RequestContent):
 
     @staticmethod
     def gen_message(notify: Notification) -> str:
-        text = f"""
+        if notify.is_movie:
+            text = f"""
+        番剧名称：{notify.official_title}\n季度： 第{notify.season}季\n类型： 剧场版
+            """
+        else:
+            text = f"""
         番剧名称：{notify.official_title}\n季度： 第{notify.season}季\n更新集数： 第{notify.episode}集
-        """
+            """
         return text.strip()
 
     def post_msg(self, notify: Notification) -> bool:

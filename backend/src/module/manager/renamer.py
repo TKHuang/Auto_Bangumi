@@ -111,6 +111,7 @@ class Renamer(DownloadClient):
                             official_title=bangumi_name,
                             season=ep.season,
                             episode=ep.episode,
+                            is_movie=ep.is_movie,
                         )
         else:
             logger.warning(
