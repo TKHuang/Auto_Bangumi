@@ -400,3 +400,59 @@ class TestBatchReleaseWithEndMarkers:
         ), f"Resolution mismatch for: {content}"
         assert info.episode == expected["episode"], f"Episode mismatch for: {content}"
         assert info.season == expected["season"], f"Season mismatch for: {content}"
+
+
+class TestEpisodeWithParenthesizedTitle:
+    """Tests for episode numbers followed by parenthesized episode titles.
+
+    Pattern: "Title - 00(Episode Title)" where the parentheses contain episode-specific text.
+    """
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            # Episode 0 with parenthesized subtitle
+            pytest.param(
+                "[TestSub] Test Anime - 00(Prologue) [WebRip 1080p HEVC-10bit AAC].mkv",
+                {
+                    "group": "TestSub",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 0,
+                    "season": 1,
+                },
+                id="episode_00_with_parenthesized_title",
+            ),
+            # Episode with longer parenthesized subtitle
+            pytest.param(
+                "[TestSub] Test Anime - 05(The Beginning of the End) [1080p].mkv",
+                {
+                    "group": "TestSub",
+                    "title_en": "Test Anime",
+                    "resolution": "1080P",
+                    "episode": 5,
+                    "season": 1,
+                },
+                id="episode_with_long_parenthesized_title",
+            ),
+        ],
+    )
+    def test_episode_with_parenthesized_title(
+        self, content: str, expected: dict
+    ) -> None:
+        """Test parsing of episodes with parenthesized episode titles.
+
+        The parenthesized content should be recognized as episode metadata,
+        not included in the anime title.
+        """
+        info = raw_parser(content)
+
+        assert info.group == expected["group"], f"Group mismatch for: {content}"
+        assert (
+            info.title_en == expected["title_en"]
+        ), f"title_en mismatch for: {content}"
+        assert (
+            info.resolution == expected["resolution"]
+        ), f"Resolution mismatch for: {content}"
+        assert info.episode == expected["episode"], f"Episode mismatch for: {content}"
+        assert info.season == expected["season"], f"Season mismatch for: {content}"

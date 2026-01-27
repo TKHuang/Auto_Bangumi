@@ -258,7 +258,7 @@ class BangumiParser:
         # Episode indicator patterns for title boundary detection
         self._title_episode_boundary_re = re.compile(
             r"\s*(?:\[(\d+(?:\.\d+)?(?:\s*[-~～]\s*\d+(?:\.\d+)?)?)\]|"
-            r"\s-\s*\d+(?:\.\d+)?(?:\s|$|\[)|"
+            r"\s-\s*\d+(?:\.\d+)?(?:\s|$|\[|\()|"  # Allow ( for episode title
             r"第\d+[集话話]|"
             r"#\d+|"
             r"\bE[Pp]?\d+|"
