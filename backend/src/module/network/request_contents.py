@@ -93,8 +93,8 @@ class RequestContent(RequestURL):
             raw_parser = None
             BangumiParsingError = None
             if title_raw:
-                from module.parser import TitleParser
                 from module.models.bangumi import BangumiParsingError
+                from module.parser import TitleParser
                 raw_parser = TitleParser()
 
             for _title, torrent_url, homepage in zip(
