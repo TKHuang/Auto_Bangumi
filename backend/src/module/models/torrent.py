@@ -18,6 +18,7 @@ class Torrent(SQLModel, table=True):
     hash: Optional[str] = Field(None, alias="hash")
     renamed_at: Optional[datetime] = Field(None, alias="renamed_at")
     renamed_file_count: Optional[int] = Field(None, alias="renamed_file_count")
+    pikpak_cloud_path: Optional[str] = Field(None, alias="pikpak_cloud_path")
 
 
 class TorrentUpdate(SQLModel):
