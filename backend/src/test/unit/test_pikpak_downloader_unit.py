@@ -518,27 +518,21 @@ class TestPikPakDownloaderThreadSafety:
 class TestPikPakDownloaderDatabasePersistence:
     """Tests for database cloud path persistence."""
 
-    def test_database_updated_after_add(
+    def test_add_torrents_succeeds_without_db_update(
         self, pikpak_downloader, mock_pikpak_api, mock_database
     ):
-        """Test database is updated after adding torrent."""
+        """Test add_torrents succeeds. Note: pikpak_cloud_path is now set by caller."""
         _, mock_instance = mock_pikpak_api
-        MockDatabase, mock_db_instance = mock_database
 
-        # Create a mock torrent record that will be updated
-        mock_torrent = MagicMock()
-        mock_torrent.name = "Test Torrent"
-        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
-
-        pikpak_downloader.add_torrents(
+        result = pikpak_downloader.add_torrents(
             torrent_urls="magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
             save_path="Test",
         )
 
-        # Verify database update was called
-        mock_db_instance.torrent.update.assert_called()
-        # Verify cloud path was set on the torrent
-        assert mock_torrent.pikpak_cloud_path == "Test"
+        # Download should succeed
+        assert result is True
+        # Note: pikpak_cloud_path is now set by the caller (engine.py, collector.py)
+        # to avoid database lock conflicts, so we don't check for DB update here
 
 
 @pytest.mark.unit
@@ -713,20 +707,15 @@ class TestPikPakMoveMultiFileTorrent:
 class TestPikPakDatabaseOperations:
     """Tests for database cloud path operations."""
 
-    def test_add_torrents_updates_database_for_multiple(
+    def test_add_torrents_succeeds_for_multiple(
         self, pikpak_downloader, mock_pikpak_api, mock_database
     ):
-        """Test that add_torrents updates database for multiple torrents."""
-        _, mock_instance = mock_pikpak_api
-        MockDatabase, mock_db_instance = mock_database
+        """Test that add_torrents succeeds for multiple torrents.
 
-        # Create mock torrent records that will be updated
-        mock_torrent1 = MagicMock()
-        mock_torrent2 = MagicMock()
-        mock_db_instance.torrent.search_by_hash.side_effect = [
-            mock_torrent1,
-            mock_torrent2,
-        ]
+        Note: pikpak_cloud_path is now set by the caller (engine.py, collector.py)
+        to avoid database lock conflicts.
+        """
+        _, mock_instance = mock_pikpak_api
 
         # Add multiple torrents
         urls = [
@@ -737,11 +726,7 @@ class TestPikPakDatabaseOperations:
         result = pikpak_downloader.add_torrents(torrent_urls=urls, save_path="Test")
 
         assert result is True
-        # Both torrents should have their cloud path set
-        assert mock_torrent1.pikpak_cloud_path == "Test"
-        assert mock_torrent2.pikpak_cloud_path == "Test"
-        # Database update should be called for both
-        assert mock_db_instance.torrent.update.call_count == 2
+        # Note: pikpak_cloud_path is now set by the caller, not add_torrents
 
     def test_move_torrent_updates_database_after_success(
         self, pikpak_downloader, mock_pikpak_api, mock_database
@@ -933,17 +918,16 @@ class TestPikPakListAllFileIds:
 class TestPikPakDatabaseStorage:
     """Tests for database-based path storage."""
 
-    def test_add_torrents_stores_path_in_database(
+    def test_add_torrents_succeeds_with_save_path(
         self, pikpak_downloader, mock_pikpak_api, mock_database
     ):
-        """Test that add_torrents stores pikpak_cloud_path in database."""
-        _, mock_instance = mock_pikpak_api
-        MockDatabase, mock_db_instance = mock_database
+        """Test that add_torrents succeeds with save path.
 
-        # Create a mock torrent record
-        mock_torrent = MagicMock()
-        mock_torrent.name = "Test Torrent"
-        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
+        Note: pikpak_cloud_path is now set by the caller (engine.py, collector.py)
+        to avoid database lock conflicts. The caller sets torrent.pikpak_cloud_path
+        directly after add_torrents returns.
+        """
+        _, mock_instance = mock_pikpak_api
 
         result = pikpak_downloader.add_torrents(
             torrent_urls="magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1&dn=test",
@@ -951,14 +935,7 @@ class TestPikPakDatabaseStorage:
         )
 
         assert result is True
-        # Verify database was queried with the hash
-        mock_db_instance.torrent.search_by_hash.assert_called_with(
-            "abc123def456abc123def456abc123def456abc1"
-        )
-        # Verify cloud path was set on the torrent record
-        assert mock_torrent.pikpak_cloud_path == "/AutoBangumi/Test Series/Season 1"
-        # Verify update was called
-        mock_db_instance.torrent.update.assert_called_with(mock_torrent)
+        # Note: pikpak_cloud_path is now set by the caller, not add_torrents
 
     def test_torrents_info_reads_path_from_database(
         self, pikpak_downloader, mock_pikpak_api, mock_database

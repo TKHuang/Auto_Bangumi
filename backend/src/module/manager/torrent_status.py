@@ -132,6 +132,8 @@ class TorrentStatusManager(Database):
                 # Clear rename status so the file gets renamed after download
                 torrent.renamed_at = None
                 torrent.renamed_file_count = None
+                # Set pikpak_cloud_path here to avoid DB lock conflicts
+                torrent.pikpak_cloud_path = bangumi.save_path
                 self.torrent.update(torrent)
                 # Persist newly generated save_path to database
                 if not save_path_before and bangumi.save_path:

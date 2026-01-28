@@ -86,18 +86,24 @@ class SeasonCollector(DownloadClient):
                     msg_zh=f"{bangumi.official_title} 的所有剧集已在下载客户端中。",
                 )
 
+            # Add torrents to database BEFORE calling add_torrent
+            # This is required for PikPak to store pikpak_cloud_path
+            all_torrents_to_add = new_torrents + already_in_qb_torrents
+            engine.torrent.add_all(all_torrents_to_add)
+
             if self.add_torrent(new_torrents, bangumi):
                 logger.info(
                     f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
                 )
+                # Mark torrents as downloaded and set pikpak_cloud_path
+                # (pikpak_cloud_path is set here to avoid DB lock conflicts)
                 for torrent in new_torrents:
                     torrent.downloaded = True
+                    torrent.pikpak_cloud_path = bangumi.save_path
+                    engine.torrent.update(torrent)
                 bangumi.eps_collect = True
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
-                # Add both newly downloaded and already-in-qB torrents to database
-                all_torrents_to_add = new_torrents + already_in_qb_torrents
-                engine.torrent.add_all(all_torrents_to_add)
                 return ResponseModel(
                     status=True,
                     status_code=200,

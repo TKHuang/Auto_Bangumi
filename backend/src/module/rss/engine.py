@@ -106,6 +106,8 @@ class RSSEngine(Database):
             save_path_before = bangumi.save_path
             if client.add_torrent(torrent, bangumi):
                 torrent.downloaded = True
+                # Set pikpak_cloud_path here to avoid DB lock conflicts
+                torrent.pikpak_cloud_path = bangumi.save_path
                 self.torrent.update(torrent)
                 # Persist newly generated save_path to database
                 if not save_path_before and bangumi.save_path:
@@ -238,6 +240,24 @@ class RSSEngine(Database):
                     matched_data = self.match_torrent(torrent)
                     if matched_data:
                         # This torrent has a matching Bangumi rule
+                        matched_torrents.append(torrent)
+                    else:
+                        logger.debug(
+                            f"[Engine] Skip torrent {torrent.name} - no matching Bangumi rule"
+                        )
+
+                # Add torrents to database BEFORE calling add_torrent
+                # This is required for PikPak to store pikpak_cloud_path
+                if matched_torrents:
+                    self.torrent.add_all(matched_torrents)
+                    logger.debug(
+                        f"[Engine] Stored {len(matched_torrents)} matched torrents out of {len(new_torrents)} total"
+                    )
+
+                # Now download each torrent (DB records exist for pikpak_cloud_path storage)
+                for torrent in matched_torrents:
+                    matched_data = self.match_torrent(torrent)
+                    if matched_data:
                         save_path_before = matched_data.save_path
                         if client.add_torrent(torrent, matched_data):
                             logger.debug(
@@ -247,18 +267,9 @@ class RSSEngine(Database):
                             if not save_path_before and matched_data.save_path:
                                 self.bangumi.update_save_path(matched_data.id, matched_data.save_path)
                         torrent.downloaded = True
-                        matched_torrents.append(torrent)
-                    else:
-                        logger.debug(
-                            f"[Engine] Skip torrent {torrent.name} - no matching Bangumi rule"
-                        )
-
-                # Only add torrents that have matched Bangumi rules to database
-                if matched_torrents:
-                    self.torrent.add_all(matched_torrents)
-                    logger.debug(
-                        f"[Engine] Stored {len(matched_torrents)} matched torrents out of {len(new_torrents)} total"
-                    )
+                        # Set pikpak_cloud_path here to avoid DB lock conflicts
+                        torrent.pikpak_cloud_path = matched_data.save_path
+                        self.torrent.update(torrent)
             except Exception as e:
                 logger.error(f"[Engine] Refresh RSS {rss_item.name} failed: {e}")
                 rss_item.last_status = "Error"
@@ -338,14 +349,23 @@ class RSSEngine(Database):
                     msg_zh=f"[Engine] {bangumi.official_title} 没有新种子（已全部下载）。",
                 )
 
-            # Add torrents to downloader and database
+            # Add torrents to database BEFORE calling add_torrent
+            # This is required for PikPak to store pikpak_cloud_path
+            self.torrent.add_all(new_torrents)
+
+            # Now add torrents to downloader (DB records exist for pikpak_cloud_path storage)
             with DownloadClient() as client:
                 save_path_before = bangumi.save_path
                 client.add_torrent(new_torrents, bangumi)
                 # Persist newly generated save_path to database
                 if not save_path_before and bangumi.save_path:
                     self.bangumi.update_save_path(bangumi.id, bangumi.save_path)
-                self.torrent.add_all(new_torrents)
+                # Mark torrents as downloaded and set pikpak_cloud_path
+                # (pikpak_cloud_path is set here to avoid DB lock conflicts)
+                for torrent in new_torrents:
+                    torrent.downloaded = True
+                    torrent.pikpak_cloud_path = bangumi.save_path
+                    self.torrent.update(torrent)
                 return ResponseModel(
                     status=True,
                     status_code=200,

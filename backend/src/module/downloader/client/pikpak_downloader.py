@@ -467,20 +467,10 @@ class PikPakDownloader:
             )
             logger.debug(f"Download added, result: {result}")
 
-        # Update database with cloud path for each torrent
-        with Database() as db:
-            for torrent_hash in hashes_to_track:
-                torrent_record = db.torrent.search_by_hash(torrent_hash)
-                if torrent_record:
-                    torrent_record.pikpak_cloud_path = full_path
-                    db.torrent.update(torrent_record)
-                    logger.debug(
-                        f"Stored PikPak path for {torrent_record.name}: {full_path}"
-                    )
-                else:
-                    logger.debug(
-                        f"Torrent not found in DB for hash {torrent_hash[:16]}..."
-                    )
+        # NOTE: pikpak_cloud_path is now set by the caller (engine.py, collector.py)
+        # to avoid database lock conflicts. The caller has the torrent objects and
+        # an active session, so it can update them directly after this method returns.
+        # The save_path used here is available via bangumi.save_path in the caller.
 
         return True
 
