@@ -919,6 +919,18 @@ class PikPakDownloader:
                 logger.debug(f"Folder not found: {folder_path}")
                 return files
 
+            # Validate we got the full path, not a partial match (stale path detection)
+            returned_path = "/".join([p.get("name", "") for p in path_info])
+            requested_path = folder_path.lstrip("/")
+
+            if returned_path != requested_path:
+                logger.warning(
+                    f"Stale path detected: requested '{folder_path}' "
+                    f"but PikPak only resolved to '/{returned_path}'. "
+                    f"Folder may have been moved or deleted."
+                )
+                return files  # Fail fast - don't list wrong folder
+
             folder_id = path_info[-1].get("id")
             if not folder_id:
                 return files

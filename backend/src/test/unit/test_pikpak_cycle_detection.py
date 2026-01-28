@@ -257,11 +257,11 @@ class TestMaxFolderDepth:
         pikpak_downloader._list_files_in_folder = tracking_wrapper
 
         # Setup for 3 levels of nesting
-        level = [0]
-
+        # Must return full path components to pass path validation
         def path_to_id_side_effect(path, create=False):
-            level[0] += 1
-            return [{"id": f"folder_{level[0]}", "name": f"Level{level[0]}"}]
+            # Parse the path and return matching components
+            parts = path.strip("/").split("/")
+            return [{"id": f"folder_{i}", "name": part} for i, part in enumerate(parts)]
 
         mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
         mock_instance.file_list = AsyncMock(
@@ -437,9 +437,15 @@ class TestVisitedIdsParameter:
         folder_b_id = "folder_b"
 
         def path_to_id_side_effect(path, create=False):
-            if "B" in path:
-                return [{"id": folder_b_id, "name": "B"}]
-            return [{"id": folder_a_id, "name": "A"}]
+            # Return full path components to pass path validation
+            parts = path.strip("/").split("/")
+            result = []
+            for part in parts:
+                if part == "A":
+                    result.append({"id": folder_a_id, "name": "A"})
+                elif part == "B":
+                    result.append({"id": folder_b_id, "name": "B"})
+            return result
 
         mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
 
@@ -559,12 +565,14 @@ def test_list_files_handles_pikpak_fuzzy_path_matching(pikpak_downloader, mock_p
     Test handling of PikPak's fuzzy path matching bug.
 
     When a path doesn't exist, PikPak returns the closest parent folder.
-    This causes all child paths to resolve to the same folder_id.
+    With path validation, this is now detected as a stale path and returns
+    empty list immediately (fail-fast) instead of listing the wrong folder.
     """
     _, mock_instance = mock_pikpak_api
     bangumi_folder_id = "VOjvA_T3c2Pq2I6F-WfdyOhzo2"
 
-    # Simulate: any path under /Bangumi returns the Bangumi folder
+    # Simulate: any path under /Bangumi returns only the Bangumi folder
+    # (fuzzy matching - DeletedFolder/Season1 doesn't exist)
     mock_instance.path_to_id = AsyncMock(return_value=[
         {"id": bangumi_folder_id, "name": "Bangumi"}
     ])
@@ -578,12 +586,14 @@ def test_list_files_handles_pikpak_fuzzy_path_matching(pikpak_downloader, mock_p
         ]
     })
 
-    # Request non-existent path - should detect cycles for subfolders
+    # Request non-existent path - should detect stale path and return empty
     files = pikpak_downloader._list_files_in_folder("/Bangumi/DeletedFolder/Season1")
 
-    # Should only return the one file (subfolders are cycle-detected)
-    assert len(files) == 1
-    assert files[0].name == "video.mp4"
+    # With path validation, stale paths return empty immediately (fail-fast)
+    # This prevents listing hundreds of files from the wrong folder
+    assert files == []
+    # file_list should NOT have been called (we fail before listing)
+    mock_instance.file_list.assert_not_called()
 
 
 @pytest.mark.unit
