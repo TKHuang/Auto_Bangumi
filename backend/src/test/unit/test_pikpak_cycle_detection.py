@@ -59,15 +59,9 @@ def pikpak_downloader(mock_pikpak_api, temp_config_dir):
     MockApi, mock_instance = mock_pikpak_api
 
     # Patch file paths to use temp directory
-    with (
-        patch(
-            "module.downloader.client.pikpak_downloader.TOKEN_FILE",
-            os.path.join(temp_config_dir, "pikpak_token.json"),
-        ),
-        patch(
-            "module.downloader.client.pikpak_downloader.HASH_MAP_FILE",
-            os.path.join(temp_config_dir, "pikpak_hash_map.json"),
-        ),
+    with patch(
+        "module.downloader.client.pikpak_downloader.TOKEN_FILE",
+        os.path.join(temp_config_dir, "pikpak_token.json"),
     ):
         downloader = PikPakDownloader("test@example.com", "password123")
         yield downloader
@@ -596,33 +590,4 @@ def test_list_files_handles_pikpak_fuzzy_path_matching(pikpak_downloader, mock_p
     mock_instance.file_list.assert_not_called()
 
 
-@pytest.mark.unit
-def test_validate_hash_map_removes_stale_entries(pikpak_downloader, mock_pikpak_api):
-    """Test that validate_hash_map removes entries pointing to non-existent folders."""
-    _, mock_instance = mock_pikpak_api
 
-    # Setup hash map with mix of valid and stale entries
-    pikpak_downloader._hash_map = {
-        "hash1": "/Bangumi/ValidAnime/Season1",  # exists
-        "hash2": "/Bangumi/DeletedAnime/Season1",  # deleted
-        "hash3": "/Bangumi/AnotherValid/Season2",  # exists
-    }
-
-    # Mock path_to_id: return None for deleted paths
-    async def mock_path_to_id(path, create=False):
-        if "Deleted" in path:
-            return None  # folder doesn't exist
-        return [{"id": "valid_id", "name": "folder"}]
-
-    mock_instance.path_to_id = AsyncMock(side_effect=mock_path_to_id)
-    pikpak_downloader._save_hash_map = MagicMock()
-
-    # Run validation
-    removed = pikpak_downloader.validate_hash_map()
-
-    # Should remove stale entry
-    assert "hash2" in removed
-    assert "hash2" not in pikpak_downloader._hash_map
-    assert "hash1" in pikpak_downloader._hash_map
-    assert "hash3" in pikpak_downloader._hash_map
-    pikpak_downloader._save_hash_map.assert_called_once()

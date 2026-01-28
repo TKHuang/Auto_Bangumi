@@ -56,15 +56,9 @@ def pikpak_downloader(mock_pikpak_api, temp_config_dir):
     MockApi, mock_instance = mock_pikpak_api
 
     # Patch file paths to use temp directory
-    with (
-        patch(
-            "module.downloader.client.pikpak_downloader.TOKEN_FILE",
-            os.path.join(temp_config_dir, "pikpak_token.json"),
-        ),
-        patch(
-            "module.downloader.client.pikpak_downloader.HASH_MAP_FILE",
-            os.path.join(temp_config_dir, "pikpak_hash_map.json"),
-        ),
+    with patch(
+        "module.downloader.client.pikpak_downloader.TOKEN_FILE",
+        os.path.join(temp_config_dir, "pikpak_token.json"),
     ):
         downloader = PikPakDownloader("test@example.com", "password123")
         yield downloader

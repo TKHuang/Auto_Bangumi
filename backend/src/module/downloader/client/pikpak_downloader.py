@@ -33,7 +33,7 @@ MAGNET_HASH_PATTERN = re.compile(r"urn:btih:([a-fA-F0-9]{40})", re.IGNORECASE)
 TOKEN_FILE = "/app/config/pikpak_token.json"
 
 # Hash map persistence file path (torrent hash -> cloud path)
-HASH_MAP_FILE = "/app/config/pikpak_hash_map.json"
+
 
 # Timeout for PikPak API calls in seconds (prevents hung requests blocking threads)
 API_TIMEOUT_SECONDS = 60
@@ -114,10 +114,6 @@ class PikPakDownloader:
         # Token expiration tracking (0 = not authenticated)
         self._token_expires_at: int = 0
 
-        # Map of torrent hash -> cloud path for tracking downloads
-        # Initialize empty first, then load from file (needs _lock to be set)
-        self._hash_map: dict[str, str] = {}
-
         # Create persistent blocking portal for async operations.
         # This keeps a single event loop alive, allowing httpx connection pooling
         # to work correctly (connections are bound to the event loop).
@@ -145,9 +141,6 @@ class PikPakDownloader:
                 self._token_expires_at = 0  # Force refresh on first API call
         else:
             logger.debug("No PikPak token found, will authenticate on first use")
-
-        # Load persisted hash map
-        self._hash_map = self._load_hash_map()
 
     def __del__(self):
         """Clean up the blocking portal on destruction."""
@@ -237,77 +230,6 @@ class PikPakDownloader:
         except OSError as e:
             logger.error(f"Failed to save PikPak token: {e}")
 
-    def _load_hash_map(self) -> dict[str, str]:
-        """Load torrent hash to cloud path mapping from persistent storage.
-
-        Returns:
-            Dictionary mapping torrent hashes to their cloud storage paths,
-            or empty dict if file doesn't exist or is invalid.
-        """
-        try:
-            if os.path.exists(HASH_MAP_FILE):
-                with open(HASH_MAP_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        logger.debug(f"Loaded {len(data)} hash mappings from file")
-                        return data
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Failed to load hash map: {e}")
-        return {}
-
-    def validate_hash_map(self) -> list[str]:
-        """Validate hash map entries and remove those pointing to non-existent folders.
-
-        Checks each path in the hash map and removes entries where the folder
-        no longer exists in PikPak cloud storage.
-
-        Returns:
-            List of removed torrent hashes.
-        """
-        removed: list[str] = []
-
-        with self._lock:
-            hashes_to_check = list(self._hash_map.items())
-
-        for torrent_hash, folder_path in hashes_to_check:
-            try:
-                # Ensure path starts with /
-                if not folder_path.startswith("/"):
-                    folder_path = f"/{folder_path}"
-
-                path_info = self._run_async(
-                    self._client.path_to_id(folder_path, create=False)
-                )
-
-                if not path_info:
-                    logger.info(
-                        f"Removing stale hash map entry: "
-                        f"{torrent_hash[:8]}... -> {folder_path}"
-                    )
-                    with self._lock:
-                        del self._hash_map[torrent_hash]
-                    removed.append(torrent_hash)
-
-            except Exception as e:
-                logger.debug(f"Error validating path {folder_path}: {e}")
-
-        if removed:
-            with self._lock:
-                self._save_hash_map()
-            logger.info(f"Removed {len(removed)} stale hash map entries")
-
-        return removed
-
-    def _save_hash_map(self) -> None:
-        """Save torrent hash to cloud path mapping to persistent storage."""
-        try:
-            os.makedirs(os.path.dirname(HASH_MAP_FILE), exist_ok=True)
-            with open(HASH_MAP_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._hash_map, f, indent=2)
-            logger.debug(f"Saved {len(self._hash_map)} hash mappings to file")
-        except OSError as e:
-            logger.error(f"Failed to save hash map: {e}")
-
     def _is_token_valid(self, token_data: dict) -> bool:
         """Check if the token is still valid (not expired).
 
@@ -356,7 +278,7 @@ class PikPakDownloader:
             self._save_token()
 
     @pikpak_retry(max_retries=3, initial_delay=10.0)
-    def auth(self, validate_paths: bool = False) -> bool:
+    def auth(self) -> bool:
         """Authenticate with PikPak API.
 
         First checks if a valid token already exists (loaded from pikpak_token.json).
@@ -364,10 +286,6 @@ class PikPakDownloader:
         Otherwise, calls the PikPak login API and saves the token on success.
 
         Includes retry logic for rate limiting and temporary failures.
-
-        Args:
-            validate_paths: If True, validate hash map entries after auth and
-                remove entries pointing to non-existent folders.
 
         Returns:
             True if authentication succeeded (either existing token or new login).
@@ -388,13 +306,6 @@ class PikPakDownloader:
                 self._portal.call(self._client.login)
             self._save_token()
             logger.info("PikPak authentication successful")
-
-        # Optionally validate hash map entries after successful auth
-        if validate_paths:
-            try:
-                self.validate_hash_map()
-            except Exception as e:
-                logger.warning(f"Hash map validation failed: {e}")
 
         return True
 
@@ -563,9 +474,13 @@ class PikPakDownloader:
                 if torrent_record:
                     torrent_record.pikpak_cloud_path = full_path
                     db.torrent.update(torrent_record)
-                    logger.debug(f"Stored PikPak path for {torrent_record.name}: {full_path}")
+                    logger.debug(
+                        f"Stored PikPak path for {torrent_record.name}: {full_path}"
+                    )
                 else:
-                    logger.debug(f"Torrent not found in DB for hash {torrent_hash[:16]}...")
+                    logger.debug(
+                        f"Torrent not found in DB for hash {torrent_hash[:16]}..."
+                    )
 
         return True
 
@@ -618,7 +533,15 @@ class PikPakDownloader:
                             )
                     elif phase == "PHASE_TYPE_COMPLETE":
                         # Check if files still exist for this task
-                        save_path = self._hash_map.get(task_hash.lower())
+                        with Database() as db:
+                            torrent_record = db.torrent.search_by_hash(
+                                task_hash.lower()
+                            )
+                            save_path = (
+                                torrent_record.pikpak_cloud_path
+                                if torrent_record
+                                else None
+                            )
                         if save_path:
                             files = self._list_files_in_folder(save_path)
                             if not files:
@@ -783,14 +706,18 @@ class PikPakDownloader:
             Cloud path where the torrent was downloaded, or None if not found.
         """
         normalized_hash = torrent_hash.lower()
-        path = self._hash_map.get(normalized_hash)
 
-        if path:
-            logger.debug(f"Found path for hash {normalized_hash}: {path}")
-            return path
+        # Check database for cloud path
+        with Database() as db:
+            torrent_record = db.torrent.search_by_hash(normalized_hash)
+            if torrent_record and torrent_record.pikpak_cloud_path:
+                logger.debug(
+                    f"Found path for hash {normalized_hash}: {torrent_record.pikpak_cloud_path}"
+                )
+                return torrent_record.pikpak_cloud_path
 
-        # If not in memory, try to find from offline tasks
-        logger.debug(f"Hash {normalized_hash} not in memory, searching offline tasks")
+        # If not in database, try to find from offline tasks
+        logger.debug(f"Hash {normalized_hash} not in database, searching offline tasks")
         torrents = self.torrents_info()
         for t in torrents:
             if t.hash == normalized_hash:
@@ -1311,10 +1238,6 @@ class PikPakDownloader:
 
         # If task was deleted with delete_files=True, we're done
         if deletion_successful:
-            # Clean up hash map and persist (under lock for thread safety)
-            with self._lock:
-                if self._hash_map.pop(normalized_hash, None):
-                    self._save_hash_map()
             return
 
         # If no task found, try to delete the completed file directly
@@ -1338,17 +1261,10 @@ class PikPakDownloader:
                             logger.debug(f"Error deleting file to trash: {e}")
                     break
 
-        # Only clean up hash map if deletion was verified successful
         if deletion_successful:
-            with self._lock:
-                if self._hash_map.pop(normalized_hash, None):
-                    self._save_hash_map()
             logger.debug(f"Torrent deletion complete for: {normalized_hash}")
         else:
-            # Keep hash in map to allow retry
-            logger.warning(
-                f"Could not verify deletion for {normalized_hash}, keeping in hash map for retry"
-            )
+            logger.warning(f"Could not verify deletion for {normalized_hash}")
 
     @pikpak_retry(max_retries=3, initial_delay=5.0)
     def move_torrent(self, hashes: list[str], new_location: str) -> bool:
@@ -1469,11 +1385,16 @@ class PikPakDownloader:
             )
             logger.debug(f"Move result: {result}")
 
-            # Update hash map only after successful move
-            with self._lock:
+            # Update database with new path after successful move
+            with Database() as db:
                 for h in hashes_to_update:
-                    self._hash_map[h] = full_path
-                self._save_hash_map()
+                    torrent_record = db.torrent.search_by_hash(h)
+                    if torrent_record:
+                        torrent_record.pikpak_cloud_path = full_path
+                        db.torrent.update(torrent_record)
+                        logger.debug(
+                            f"Updated path for {torrent_record.name}: {full_path}"
+                        )
 
             logger.info(f"Successfully moved files to: {full_path}")
 

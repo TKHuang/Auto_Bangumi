@@ -79,15 +79,9 @@ def pikpak_downloader(mock_pikpak_api, mock_database, temp_config_dir):
     MockApi, mock_instance = mock_pikpak_api
 
     # Patch file paths to use temp directory
-    with (
-        patch(
-            "module.downloader.client.pikpak_downloader.TOKEN_FILE",
-            os.path.join(temp_config_dir, "pikpak_token.json"),
-        ),
-        patch(
-            "module.downloader.client.pikpak_downloader.HASH_MAP_FILE",
-            os.path.join(temp_config_dir, "pikpak_hash_map.json"),
-        ),
+    with patch(
+        "module.downloader.client.pikpak_downloader.TOKEN_FILE",
+        os.path.join(temp_config_dir, "pikpak_token.json"),
     ):
         from module.downloader.client.pikpak_downloader import PikPakDownloader
 
@@ -101,7 +95,6 @@ def pikpak_downloader_with_token(mock_pikpak_api, mock_database, temp_config_dir
     MockApi, mock_instance = mock_pikpak_api
 
     token_file = os.path.join(temp_config_dir, "pikpak_token.json")
-    hash_map_file = os.path.join(temp_config_dir, "pikpak_hash_map.json")
 
     # Write valid token file (expires in future)
     import time
@@ -116,17 +109,7 @@ def pikpak_downloader_with_token(mock_pikpak_api, mock_database, temp_config_dir
     with open(token_file, "w") as f:
         json.dump(token_data, f)
 
-    # Write hash map file
-    hash_map_data = {"abc123def456": "/AutoBangumi/Test Series/Season 1"}
-    with open(hash_map_file, "w") as f:
-        json.dump(hash_map_data, f)
-
-    with (
-        patch("module.downloader.client.pikpak_downloader.TOKEN_FILE", token_file),
-        patch(
-            "module.downloader.client.pikpak_downloader.HASH_MAP_FILE", hash_map_file
-        ),
-    ):
+    with patch("module.downloader.client.pikpak_downloader.TOKEN_FILE", token_file):
         from module.downloader.client.pikpak_downloader import PikPakDownloader
 
         downloader = PikPakDownloader("test@example.com", "password123")
@@ -146,7 +129,6 @@ class TestPikPakDownloaderInit:
 
         assert pikpak_downloader._username == "test@example.com"
         assert pikpak_downloader._client == mock_instance
-        assert pikpak_downloader._hash_map == {}
         assert pikpak_downloader._token_expires_at == 0
 
     def test_init_with_valid_token(self, pikpak_downloader_with_token, mock_pikpak_api):
@@ -158,9 +140,6 @@ class TestPikPakDownloaderInit:
         assert mock_instance.refresh_token == "existing_refresh_token"
         assert mock_instance.user_id == "existing_user_123"
         assert mock_instance.encode_token.called
-
-        # Hash map should have been loaded
-        assert "abc123def456" in pikpak_downloader_with_token._hash_map
 
     def test_init_with_expired_token(self, mock_pikpak_api, temp_config_dir):
         """Test initialization loads expired token (refresh_token may still be valid)."""
@@ -181,13 +160,7 @@ class TestPikPakDownloaderInit:
         with open(token_file, "w") as f:
             json.dump(token_data, f)
 
-        with (
-            patch("module.downloader.client.pikpak_downloader.TOKEN_FILE", token_file),
-            patch(
-                "module.downloader.client.pikpak_downloader.HASH_MAP_FILE",
-                os.path.join(temp_config_dir, "hash_map.json"),
-            ),
-        ):
+        with patch("module.downloader.client.pikpak_downloader.TOKEN_FILE", token_file):
             from module.downloader.client.pikpak_downloader import PikPakDownloader
 
             downloader = PikPakDownloader("test@example.com", "password123")
@@ -320,6 +293,13 @@ class TestPikPakDownloaderTorrents:
                 ]
             }
         )
+        # Mock path_to_id to return full path components (required for path validation)
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "folder_1", "name": "downloads"},
+                {"id": "folder_2", "name": "Bangumi"},
+            ]
+        )
         # Mock file_list to return files so state stays "completed" (not "missing")
         mock_instance.file_list = AsyncMock(
             return_value={
@@ -373,9 +353,6 @@ class TestPikPakDownloaderTorrents:
             }
         )
 
-        pikpak_downloader._hash_map["abc123def456abc123def456abc123def456abc1"] = (
-            "/path"
-        )
         pikpak_downloader.torrents_delete("abc123def456abc123def456abc123def456abc1")
 
         mock_instance.delete_tasks.assert_called_once()
@@ -538,16 +515,8 @@ class TestPikPakDownloaderThreadSafety:
 
 
 @pytest.mark.unit
-class TestPikPakDownloaderHashMapPersistence:
-    """Tests for hash map persistence."""
-
-    def test_hash_map_loaded_on_init(self, pikpak_downloader_with_token):
-        """Test hash map is loaded from file on initialization."""
-        assert "abc123def456" in pikpak_downloader_with_token._hash_map
-        assert (
-            pikpak_downloader_with_token._hash_map["abc123def456"]
-            == "/AutoBangumi/Test Series/Season 1"
-        )
+class TestPikPakDownloaderDatabasePersistence:
+    """Tests for database cloud path persistence."""
 
     def test_database_updated_after_add(
         self, pikpak_downloader, mock_pikpak_api, mock_database
@@ -635,9 +604,7 @@ class TestPikPakMoveMultiFileTorrent:
         """Test that move_torrent moves a folder directly (efficient behavior)."""
         _, mock_instance = mock_pikpak_api
 
-        # Setup hash map with existing torrent
         test_hash = "abc123def456abc123def456abc123def456abc1"
-        pikpak_downloader._hash_map[test_hash] = "/AutoBangumi/Old/Path"
 
         # Mock offline_list to return matching torrent
         mock_instance.offline_list = AsyncMock(
@@ -688,8 +655,6 @@ class TestPikPakMoveMultiFileTorrent:
 
         hash1 = "1111111111111111111111111111111111111111"
         hash2 = "2222222222222222222222222222222222222222"
-        pikpak_downloader._hash_map[hash1] = "/AutoBangumi/Old1"
-        pikpak_downloader._hash_map[hash2] = "/AutoBangumi/Old2"
 
         # Mock offline_list to return both torrents
         mock_instance.offline_list = AsyncMock(
@@ -745,8 +710,8 @@ class TestPikPakMoveMultiFileTorrent:
 
 
 @pytest.mark.unit
-class TestPikPakThreadSafetyHashMap:
-    """Tests for thread-safe hash map operations."""
+class TestPikPakDatabaseOperations:
+    """Tests for database cloud path operations."""
 
     def test_add_torrents_updates_database_for_multiple(
         self, pikpak_downloader, mock_pikpak_api, mock_database
@@ -778,15 +743,16 @@ class TestPikPakThreadSafetyHashMap:
         # Database update should be called for both
         assert mock_db_instance.torrent.update.call_count == 2
 
-    def test_move_torrent_updates_hash_map_after_success(
-        self, pikpak_downloader, mock_pikpak_api
+    def test_move_torrent_updates_database_after_success(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
     ):
-        """Test that move_torrent only updates hash map after successful move."""
+        """Test that move_torrent updates database after successful move."""
         _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
 
         test_hash = "abc123def456abc123def456abc123def456abc1"
-        original_path = "/AutoBangumi/Old/Path"
-        pikpak_downloader._hash_map[test_hash] = original_path
+        mock_torrent = MagicMock()
+        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
 
         # Mock for successful move
         mock_instance.offline_list = AsyncMock(
@@ -819,140 +785,9 @@ class TestPikPakThreadSafetyHashMap:
         result = pikpak_downloader.move_torrent([test_hash], new_location)
 
         assert result is True
-        # Hash map should be updated to the new location path directly
-        assert pikpak_downloader._hash_map[test_hash] == new_location
-
-    def test_move_torrent_preserves_hash_map_on_failure(
-        self, pikpak_downloader, mock_pikpak_api
-    ):
-        """Test that move_torrent preserves hash map on failure."""
-        _, mock_instance = mock_pikpak_api
-
-        test_hash = "abc123def456abc123def456abc123def456abc1"
-        original_path = "/AutoBangumi/Old/Path"
-        pikpak_downloader._hash_map[test_hash] = original_path
-
-        # Mock for failed move
-        mock_instance.offline_list = AsyncMock(
-            return_value={
-                "tasks": [
-                    {
-                        "id": "task_1",
-                        "name": "Test",
-                        "phase": "PHASE_TYPE_COMPLETE",
-                        "file_url": f"magnet:?xt=urn:btih:{test_hash}",
-                    }
-                ]
-            }
-        )
-        mock_instance.path_to_id = AsyncMock(
-            return_value=[{"id": "folder_123", "name": "folder"}]
-        )
-        # Mock file_list to return the file so _find_file_or_folder_id_by_name works
-        mock_instance.file_list = AsyncMock(
-            return_value={
-                "files": [{"id": "file_123", "name": "Test", "kind": "drive#file"}]
-            }
-        )
-        mock_instance.file_batch_move = AsyncMock(
-            side_effect=Exception("API Error: Move failed")
-        )
-
-        result = pikpak_downloader.move_torrent([test_hash], "New/Path")
-
-        assert result is False
-        # Hash map should retain original path
-        assert pikpak_downloader._hash_map[test_hash] == original_path
-
-
-@pytest.mark.unit
-class TestPikPakDeleteRetry:
-    """Tests for delete operation retry behavior."""
-
-    def test_delete_preserves_hash_on_task_deletion_failure(
-        self, pikpak_downloader, mock_pikpak_api
-    ):
-        """Test that hash is preserved if task deletion fails."""
-        _, mock_instance = mock_pikpak_api
-
-        test_hash = "abc123def456abc123def456abc123def456abc1"
-        pikpak_downloader._hash_map[test_hash] = "/AutoBangumi/Test"
-
-        # Mock offline_list to return matching task
-        mock_instance.offline_list = AsyncMock(
-            return_value={
-                "tasks": [
-                    {
-                        "id": "task_1",
-                        "file_url": f"magnet:?xt=urn:btih:{test_hash}",
-                    }
-                ]
-            }
-        )
-        # Mock delete_tasks to fail
-        mock_instance.delete_tasks = AsyncMock(
-            side_effect=Exception("API Error: Deletion failed")
-        )
-
-        # Mock file_list/path_to_id for fallback path (also fails)
-        mock_instance.path_to_id = AsyncMock(return_value=[])
-
-        pikpak_downloader.torrents_delete(test_hash)
-
-        # Hash should still be in map (preserved for retry)
-        assert test_hash in pikpak_downloader._hash_map
-
-    def test_delete_removes_hash_on_success(self, pikpak_downloader, mock_pikpak_api):
-        """Test that hash is removed after successful deletion."""
-        _, mock_instance = mock_pikpak_api
-
-        test_hash = "abc123def456abc123def456abc123def456abc1"
-        pikpak_downloader._hash_map[test_hash] = "/AutoBangumi/Test"
-
-        # Mock successful deletion
-        mock_instance.offline_list = AsyncMock(
-            return_value={
-                "tasks": [
-                    {
-                        "id": "task_1",
-                        "file_url": f"magnet:?xt=urn:btih:{test_hash}",
-                    }
-                ]
-            }
-        )
-        mock_instance.delete_tasks = AsyncMock(return_value={})
-
-        pikpak_downloader.torrents_delete(test_hash)
-
-        # Hash should be removed from map
-        assert test_hash not in pikpak_downloader._hash_map
-
-    def test_delete_file_fallback_preserves_hash_on_failure(
-        self, pikpak_downloader, mock_pikpak_api
-    ):
-        """Test fallback file deletion preserves hash on failure."""
-        _, mock_instance = mock_pikpak_api
-
-        test_hash = "abc123def456abc123def456abc123def456abc1"
-        pikpak_downloader._hash_map[test_hash] = "/AutoBangumi/Test"
-
-        # No matching task found
-        mock_instance.offline_list = AsyncMock(return_value={"tasks": []})
-
-        # Mock path lookup to find file
-        mock_instance.path_to_id = AsyncMock(
-            return_value=[{"id": "file_123", "name": "test.mkv"}]
-        )
-
-        # Mock delete_to_trash to fail
-        mock_instance.delete_to_trash = AsyncMock(
-            side_effect=Exception("API Error: Trash failed")
-        )
-
-        pikpak_downloader.torrents_delete(test_hash)
-
-        # Hash should still be in map (preserved for retry)
-        assert test_hash in pikpak_downloader._hash_map
+        # Database should be updated with new path
+        mock_db_instance.torrent.update.assert_called()
+        assert mock_torrent.pikpak_cloud_path == new_location
 
 
 @pytest.mark.unit
