@@ -3853,7 +3853,7 @@ class TestRealWorldFormats:
             "[DHR&LKSUB&Airota&KNA&Haretahoo&MakariHoshiyume][RE_ZERO][25_END][BIG5][720P][AVC_AAC].mp4"
         )
         assert result.group == "DHR&LKSUB&Airota&KNA&Haretahoo&MakariHoshiyume"
-        assert result.title == "RE_ZERO"
+        assert result.title == "RE ZERO"  # Underscores replaced with spaces
         assert result.episode == 25.0
         assert result.resolution == "720P"
         assert result.subtitle == SubtitleType.CHT  # BIG5 is Traditional Chinese

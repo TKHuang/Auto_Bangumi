@@ -226,7 +226,8 @@ class BangumiParser:
             r"CR|Baha|ABEMA|Bilibili|NF|Netflix|Amazon|Prime|Funimation|MP4|MKV|AVI|"
             r"CHS|CHT|BIG5|GB|SC|TC|"
             r"简体|繁体|简繁|简中|繁中|简日|繁日|内嵌|內嵌|内封|內封|字幕|"
-            r"4K|UHD|FHD|HD|10bit|8bit|HDR|BDRemux|B-Global|AT-X)$",
+            r"4K|UHD|FHD|HD|10bit|8bit|HDR|BDRemux|B-Global|AT-X|"
+            r"Multi[-_]?Audio|Multi[-_]?Subs?|Dual[-_]?Audio|MOVIE)$",
             re.IGNORECASE,
         )
 
@@ -1308,6 +1309,9 @@ class BangumiParser:
 
         # Remove leading special decorators
         title = re.sub(r"^[★☆◆◇●○▲△▼▽■□♦♠♣♥]+\s*", "", title)
+
+        # Replace underscores with spaces (common in some release groups)
+        title = title.replace("_", " ")
 
         # Clean up whitespace
         title = " ".join(title.split())

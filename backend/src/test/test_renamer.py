@@ -155,8 +155,8 @@ class TestGenPathEpisodeHandling:
         result = Renamer.gen_path(file_info, "Official Title", "pn")
         assert result == "Title S01E15.mp4"
 
-    def test_episode_none_returns_original_path(self):
-        """Test that episode=None for non-movie returns original path."""
+    def test_episode_none_renames_as_single_file(self):
+        """Test that episode=None for non-movie renames as single-file content."""
         file_info = EpisodeFile(
             media_path="/downloads/[Group] Title [1080P].mp4",
             group="Group",
@@ -166,7 +166,14 @@ class TestGenPathEpisodeHandling:
             suffix=".mp4",
             is_movie=False,
         )
+        # With pn method, uses parsed title
         result = Renamer.gen_path(file_info, "Official Title", "pn")
+        assert result == "Title.mp4"
+        # With advance method, uses bangumi_name
+        result = Renamer.gen_path(file_info, "Official Title", "advance")
+        assert result == "Official Title.mp4"
+        # With none method, returns original path
+        result = Renamer.gen_path(file_info, "Official Title", "none")
         assert result == "/downloads/[Group] Title [1080P].mp4"
 
     def test_episode_decimal_converts_to_int(self):

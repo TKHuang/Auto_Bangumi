@@ -29,8 +29,14 @@ class Renamer(DownloadClient):
     def gen_path(
         file_info: EpisodeFile | SubtitleFile, bangumi_name: str, method: str
     ) -> str:
-        # Handle movies (no episode number expected)
-        if file_info.is_movie:
+        # Handle movies or files without episode number (single-file content)
+        # This covers explicit movies and cases where episode detection fails
+        if file_info.is_movie or file_info.episode is None:
+            if file_info.episode is None and not file_info.is_movie:
+                logger.info(
+                    f"[Renamer] No episode number found, renaming as single-file: "
+                    f"{file_info.media_path}"
+                )
             if method == "none" or method == "subtitle_none":
                 return file_info.media_path
             elif method == "pn":
@@ -47,14 +53,6 @@ class Renamer(DownloadClient):
             else:
                 logger.error(f"[Renamer] Unknown rename method: {method}")
                 return file_info.media_path
-
-        # Handle None episode for non-movie content - log warning and return original path
-        if file_info.episode is None:
-            logger.warning(
-                f"[Renamer] Episode is None for file: {file_info.media_path}, "
-                f"title={file_info.title}, season={file_info.season}"
-            )
-            return file_info.media_path
 
         season = f"0{file_info.season}" if file_info.season < 10 else file_info.season
         # Convert episode to int if it's a whole number to avoid ".0" suffix in filename
@@ -123,10 +121,10 @@ class Renamer(DownloadClient):
             season=season,
         )
         if ep:
-            # Log debug info for troubleshooting (only warn for non-movies)
+            # Log debug info for troubleshooting
             if ep.episode is None and not ep.is_movie:
-                logger.warning(
-                    f"[Renamer] Parsed file has no episode number: "
+                logger.debug(
+                    f"[Renamer] No episode number found (will rename as single-file): "
                     f"torrent_name={torrent_name}, media_path={media_path}, "
                     f"title={ep.title}, season={ep.season}"
                 )
