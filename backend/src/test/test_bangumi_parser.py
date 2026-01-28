@@ -3937,6 +3937,22 @@ class TestRealWorldFormats:
         # WEB-DL takes priority over Bilibili in source detection
         assert result.source == "WEB-DL"
 
+    def test_streaming_source_netflix_compound_metadata(self, parser: BangumiParser):
+        """Test Netflix (NF) source with compound metadata bracket.
+
+        Compound metadata brackets contain multiple space-separated metadata terms
+        like [NF WebRip 1080p HEVC OPUS]. These should be recognized as metadata
+        and not included in the title.
+        """
+        result = parser.parse(
+            "[沸班亚马制作组] 超时空辉夜姬 [NF WebRip 1080p HEVC OPUS][简繁内封字幕]"
+        )
+        assert result.title == "超时空辉夜姬"
+        assert result.group == "沸班亚马制作组"
+        assert result.resolution == "1080P"
+        assert result.source == "WebRip"
+        assert result.subtitle == SubtitleType.CHS_CHT
+
     def test_10bit_codec_variant(self, parser: BangumiParser):
         """Test 10bit codec variant normalization."""
         result = parser.parse("[LoliHouse] Title - 01 [WebRip 1080p HEVC-10bit AAC]")

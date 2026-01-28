@@ -223,7 +223,8 @@ class BangumiParser:
         self._metadata_terms_re = re.compile(
             r"^(?:\d+(?:P|p)|HEVC|AVC|H\.?26[45]|x26[45]|AV1|VP9|AAC|FLAC|AC3|DTS|"
             r"OPUS|EAC3|WEB[-_]?DL|WEB[-_]?Rip|BD[-_]?Rip|Blu[-_]?Ray|HDTV|DVD[-_]?Rip|"
-            r"CR|Baha|ABEMA|Bilibili|MP4|MKV|AVI|CHS|CHT|BIG5|GB|SC|TC|"
+            r"CR|Baha|ABEMA|Bilibili|NF|Netflix|Amazon|Prime|Funimation|MP4|MKV|AVI|"
+            r"CHS|CHT|BIG5|GB|SC|TC|"
             r"简体|繁体|简繁|简中|繁中|简日|繁日|内嵌|內嵌|内封|內封|字幕|"
             r"4K|UHD|FHD|HD|10bit|8bit|HDR|BDRemux|B-Global|AT-X)$",
             re.IGNORECASE,
@@ -1378,7 +1379,59 @@ class BangumiParser:
         ):
             return True
 
+        # Check for compound metadata (space-separated metadata terms)
+        # e.g., "NF WebRip 1080p HEVC OPUS", "WEB-DL 1080p AAC"
+        if self._is_compound_metadata(content_stripped):
+            return True
+
         return False
+
+
+    def _is_compound_metadata(self, content: str) -> bool:
+        """Check if content is a compound metadata string.
+
+        Compound metadata contains multiple space-separated metadata terms,
+        e.g., "NF WebRip 1080p HEVC OPUS", "WEB-DL 1080p AAC".
+
+        Args:
+            content: The content to check.
+
+        Returns:
+            True if content is compound metadata, False otherwise.
+        """
+        if not content:
+            return False
+
+        # Split by whitespace and check if all parts are metadata terms
+        parts = content.split()
+
+        # Need at least 2 parts to be compound
+        if len(parts) < 2:
+            return False
+
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+
+            # Check if this part matches metadata terms regex
+            if self._metadata_terms_re.match(part):
+                continue
+
+            # Check for resolution patterns
+            if re.match(r"^\d{3,4}[pPxX×]\d*$", part):
+                continue
+
+            # Check for codec with bit depth (HEVC-10bit, etc.)
+            if re.match(
+                r"^(?:HEVC|AVC|x26[45])[-_]?\d+bit$", part, re.IGNORECASE
+            ):
+                continue
+
+            # This part is not a recognized metadata term
+            return False
+
+        return True
 
     def _is_compound_subtitle_marker(self, content: str) -> bool:
         """Check if content is a compound subtitle marker.
