@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 
@@ -8,6 +9,8 @@ from module.notification import PostNotification
 from module.rss import RSSAnalyser, RSSEngine
 
 from .status import ProgramStatus
+
+logger = logging.getLogger(__name__)
 
 
 class RSSThread(ProgramStatus):
@@ -20,15 +23,18 @@ class RSSThread(ProgramStatus):
 
     def rss_loop(self):
         while not self.stop_event.is_set():
-            with DownloadClient() as client, RSSEngine() as engine:
-                # Analyse RSS
-                rss_list = engine.rss.search_aggregate()
-                for rss in rss_list:
-                    self.analyser.rss_to_data(rss, engine)
-                # Run RSS Engine
-                engine.refresh_rss(client)
-            if settings.bangumi_manage.eps_complete:
-                eps_complete()
+            try:
+                with DownloadClient() as client, RSSEngine() as engine:
+                    # Analyse RSS
+                    rss_list = engine.rss.search_aggregate()
+                    for rss in rss_list:
+                        self.analyser.rss_to_data(rss, engine)
+                    # Run RSS Engine
+                    engine.refresh_rss(client)
+                if settings.bangumi_manage.eps_complete:
+                    eps_complete()
+            except Exception:
+                logger.exception("[RSS] Error in RSS loop, will retry next cycle")
             self.stop_event.wait(settings.program.rss_time)
 
     def rss_start(self):
@@ -56,13 +62,16 @@ class RenameThread(ProgramStatus):
 
     def rename_loop(self):
         while not self.stop_event.is_set():
-            with Renamer() as renamer:
-                renamed_info = renamer.rename()
-            if settings.notification.enable:
-                with PostNotification() as notifier:
-                    for info in renamed_info:
-                        notifier.send_msg(info)
-                        time.sleep(2)
+            try:
+                with Renamer() as renamer:
+                    renamed_info = renamer.rename()
+                if settings.notification.enable:
+                    with PostNotification() as notifier:
+                        for info in renamed_info:
+                            notifier.send_msg(info)
+                            time.sleep(2)
+            except Exception:
+                logger.exception("[Rename] Error in rename loop, will retry next cycle")
             self.stop_event.wait(settings.program.rename_time)
 
     def rename_start(self):
