@@ -62,8 +62,11 @@ def mock_database():
     with patch("module.downloader.client.pikpak_downloader.Database") as MockDatabase:
         mock_db_instance = MagicMock()
         mock_torrent_db = MagicMock()
-        # search_by_hash returns None by default (torrent not found/not renamed)
-        mock_torrent_db.search_by_hash = MagicMock(return_value=None)
+        # Default mock torrent with cloud path set (for tests that use torrents_info)
+        default_torrent = MagicMock()
+        default_torrent.pikpak_cloud_path = "/downloads/Bangumi"
+        default_torrent.renamed_at = None
+        mock_torrent_db.search_by_hash = MagicMock(return_value=default_torrent)
         mock_db_instance.torrent = mock_torrent_db
         MockDatabase.return_value.__enter__ = MagicMock(return_value=mock_db_instance)
         MockDatabase.return_value.__exit__ = MagicMock(return_value=False)
@@ -257,7 +260,9 @@ class TestPikPakDownloaderAuth:
 class TestPikPakDownloaderTorrents:
     """Tests for torrent operations."""
 
-    def test_add_torrents_single_url(self, pikpak_downloader, mock_pikpak_api):
+    def test_add_torrents_single_url(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
+    ):
         """Test adding a single magnet URL."""
         _, mock_instance = mock_pikpak_api
 
@@ -268,8 +273,6 @@ class TestPikPakDownloaderTorrents:
 
         assert result is True
         mock_instance.offline_download.assert_called_once()
-        # Hash should be tracked
-        assert "abc123def456abc123def456abc123def456abc1" in pikpak_downloader._hash_map
 
     def test_add_torrents_multiple_urls(self, pikpak_downloader, mock_pikpak_api):
         """Test adding multiple magnet URLs."""
@@ -546,26 +549,27 @@ class TestPikPakDownloaderHashMapPersistence:
             == "/AutoBangumi/Test Series/Season 1"
         )
 
-    def test_hash_map_saved_after_add(
-        self, pikpak_downloader, mock_pikpak_api, temp_config_dir
+    def test_database_updated_after_add(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
     ):
-        """Test hash map is saved after adding torrent."""
+        """Test database is updated after adding torrent."""
         _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
 
-        hash_map_file = os.path.join(temp_config_dir, "pikpak_hash_map.json")
-        with patch(
-            "module.downloader.client.pikpak_downloader.HASH_MAP_FILE", hash_map_file
-        ):
-            pikpak_downloader.add_torrents(
-                torrent_urls="magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
-                save_path="Test",
-            )
+        # Create a mock torrent record that will be updated
+        mock_torrent = MagicMock()
+        mock_torrent.name = "Test Torrent"
+        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
 
-            # Verify file was written
-            assert os.path.exists(hash_map_file)
-            with open(hash_map_file) as f:
-                saved_data = json.load(f)
-            assert "abc123def456abc123def456abc123def456abc1" in saved_data
+        pikpak_downloader.add_torrents(
+            torrent_urls="magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
+            save_path="Test",
+        )
+
+        # Verify database update was called
+        mock_db_instance.torrent.update.assert_called()
+        # Verify cloud path was set on the torrent
+        assert mock_torrent.pikpak_cloud_path == "Test"
 
 
 @pytest.mark.unit
@@ -744,11 +748,20 @@ class TestPikPakMoveMultiFileTorrent:
 class TestPikPakThreadSafetyHashMap:
     """Tests for thread-safe hash map operations."""
 
-    def test_add_torrents_updates_hash_map_atomically(
-        self, pikpak_downloader, mock_pikpak_api
+    def test_add_torrents_updates_database_for_multiple(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
     ):
-        """Test that add_torrents updates hash map under lock."""
+        """Test that add_torrents updates database for multiple torrents."""
         _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
+
+        # Create mock torrent records that will be updated
+        mock_torrent1 = MagicMock()
+        mock_torrent2 = MagicMock()
+        mock_db_instance.torrent.search_by_hash.side_effect = [
+            mock_torrent1,
+            mock_torrent2,
+        ]
 
         # Add multiple torrents
         urls = [
@@ -759,9 +772,11 @@ class TestPikPakThreadSafetyHashMap:
         result = pikpak_downloader.add_torrents(torrent_urls=urls, save_path="Test")
 
         assert result is True
-        # Both hashes should be tracked
-        assert "1111111111111111111111111111111111111111" in pikpak_downloader._hash_map
-        assert "2222222222222222222222222222222222222222" in pikpak_downloader._hash_map
+        # Both torrents should have their cloud path set
+        assert mock_torrent1.pikpak_cloud_path == "Test"
+        assert mock_torrent2.pikpak_cloud_path == "Test"
+        # Database update should be called for both
+        assert mock_db_instance.torrent.update.call_count == 2
 
     def test_move_torrent_updates_hash_map_after_success(
         self, pikpak_downloader, mock_pikpak_api
@@ -1077,3 +1092,135 @@ class TestPikPakListAllFileIds:
         # Should only contain file_1, not folder_1
         assert "file_1" in result
         assert "folder_1" not in result
+
+
+@pytest.mark.unit
+class TestPikPakDatabaseStorage:
+    """Tests for database-based path storage."""
+
+    def test_add_torrents_stores_path_in_database(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
+    ):
+        """Test that add_torrents stores pikpak_cloud_path in database."""
+        _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
+
+        # Create a mock torrent record
+        mock_torrent = MagicMock()
+        mock_torrent.name = "Test Torrent"
+        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
+
+        result = pikpak_downloader.add_torrents(
+            torrent_urls="magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1&dn=test",
+            save_path="/AutoBangumi/Test Series/Season 1",
+        )
+
+        assert result is True
+        # Verify database was queried with the hash
+        mock_db_instance.torrent.search_by_hash.assert_called_with(
+            "abc123def456abc123def456abc123def456abc1"
+        )
+        # Verify cloud path was set on the torrent record
+        assert mock_torrent.pikpak_cloud_path == "/AutoBangumi/Test Series/Season 1"
+        # Verify update was called
+        mock_db_instance.torrent.update.assert_called_with(mock_torrent)
+
+    def test_torrents_info_reads_path_from_database(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
+    ):
+        """Test that torrents_info reads pikpak_cloud_path from database."""
+        _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
+
+        # Create a mock torrent record with cloud path
+        mock_torrent = MagicMock()
+        mock_torrent.pikpak_cloud_path = "/AutoBangumi/Test Series/Season 1"
+        mock_torrent.renamed_at = None
+        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Test Episode 01.mkv",
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": "magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
+                    }
+                ]
+            }
+        )
+        # Mock file_list to return files
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [{"name": "Test Episode 01.mkv", "kind": "drive#file"}]
+            }
+        )
+
+        result = pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        assert result[0].save_path == "/AutoBangumi/Test Series/Season 1"
+        # Verify database was queried
+        mock_db_instance.torrent.search_by_hash.assert_called()
+
+    def test_torrents_info_skips_torrent_without_path(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
+    ):
+        """Test that torrents_info skips torrents without cloud path in database."""
+        _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
+
+        # Return None for torrent lookup (not in database)
+        mock_db_instance.torrent.search_by_hash.return_value = None
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Unknown Torrent.mkv",
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": "magnet:?xt=urn:btih:unknownhash123456789012345678901234567890",
+                    }
+                ]
+            }
+        )
+
+        result = pikpak_downloader.torrents_info(status_filter="completed")
+
+        # Torrent should be skipped (no cloud path)
+        assert len(result) == 0
+
+    def test_torrents_info_skips_torrent_with_null_cloud_path(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
+    ):
+        """Test that torrents_info skips torrents with null pikpak_cloud_path."""
+        _, mock_instance = mock_pikpak_api
+        MockDatabase, mock_db_instance = mock_database
+
+        # Return torrent with null cloud path
+        mock_torrent = MagicMock()
+        mock_torrent.pikpak_cloud_path = None
+        mock_db_instance.torrent.search_by_hash.return_value = mock_torrent
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Test Torrent.mkv",
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": "magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
+                    }
+                ]
+            }
+        )
+
+        result = pikpak_downloader.torrents_info(status_filter="completed")
+
+        # Torrent should be skipped (null cloud path)
+        assert len(result) == 0

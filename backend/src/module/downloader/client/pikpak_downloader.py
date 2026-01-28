@@ -556,11 +556,16 @@ class PikPakDownloader:
             )
             logger.debug(f"Download added, result: {result}")
 
-        # Update hash map under lock after all downloads submitted
-        with self._lock:
+        # Update database with cloud path for each torrent
+        with Database() as db:
             for torrent_hash in hashes_to_track:
-                self._hash_map[torrent_hash] = full_path
-            self._save_hash_map()
+                torrent_record = db.torrent.search_by_hash(torrent_hash)
+                if torrent_record:
+                    torrent_record.pikpak_cloud_path = full_path
+                    db.torrent.update(torrent_record)
+                    logger.debug(f"Stored PikPak path for {torrent_record.name}: {full_path}")
+                else:
+                    logger.debug(f"Torrent not found in DB for hash {torrent_hash[:16]}...")
 
         return True
 
@@ -701,11 +706,22 @@ class PikPakDownloader:
             if isinstance(progress, int):
                 progress = progress / 100.0
 
-            # Get save path from hash map or task info
-            save_path = self._hash_map.get(
-                torrent_hash.lower() if torrent_hash else "",
-                settings.downloader.path,  # Default fallback
-            )
+            # Get save path from database
+            torrent_hash_lower = torrent_hash.lower() if torrent_hash else ""
+            with Database() as db:
+                torrent_record = db.torrent.search_by_hash(torrent_hash_lower)
+
+            if torrent_record:
+                save_path = torrent_record.pikpak_cloud_path
+            else:
+                save_path = None
+
+            # Skip torrents without cloud path (not tracked in database)
+            if not save_path:
+                logger.warning(
+                    f"Skipping torrent {task.get('name')} - no cloud path in database"
+                )
+                continue
 
             # Get file list for completed downloads (needed for Renamer)
             files: list[TorrentFile] = []
@@ -719,10 +735,6 @@ class PikPakDownloader:
                 # (status_filter="completed"), not when fetching all for status display
                 if status_filter == "completed":
                     # Check if already renamed - skip file listing entirely (saves API call!)
-                    with Database() as db:
-                        torrent_record = db.torrent.search_by_hash(
-                            torrent_hash.lower() if torrent_hash else ""
-                        )
                     if torrent_record and torrent_record.renamed_at:
                         logger.debug(
                             f"Skipping already-renamed torrent: {task.get('name')}"
