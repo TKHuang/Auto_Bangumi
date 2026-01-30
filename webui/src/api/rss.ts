@@ -11,18 +11,26 @@ export const apiRSS = {
 
   async add(
     rss: RSS,
-    manualOverride?: { officialTitle?: string; season?: number; groupName?: string }
+    options?: {
+      officialTitle?: string;
+      season?: number;
+      groupName?: string;
+      skipBangumi?: boolean;
+    }
   ) {
-    // Build query params for manual override
+    // Build query params
     const params = new URLSearchParams();
-    if (manualOverride?.officialTitle) {
-      params.append('official_title', manualOverride.officialTitle);
+    if (options?.officialTitle) {
+      params.append('official_title', options.officialTitle);
     }
-    if (manualOverride?.season !== undefined) {
-      params.append('season', String(manualOverride.season));
+    if (options?.season !== undefined) {
+      params.append('season', String(options.season));
     }
-    if (manualOverride?.groupName) {
-      params.append('group_name', manualOverride.groupName);
+    if (options?.groupName) {
+      params.append('group_name', options.groupName);
+    }
+    if (options?.skipBangumi) {
+      params.append('skip_bangumi', 'true');
     }
 
     const queryString = params.toString();
@@ -30,7 +38,7 @@ export const apiRSS = {
       ? `api/v1/rss/add?${queryString}`
       : 'api/v1/rss/add';
 
-    const { data } = await axios.post<ApiSuccess>(url, rss);
+    const { data } = await axios.post<ApiSuccess & { rss_id?: number }>(url, rss);
     return data;
   },
 

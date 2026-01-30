@@ -8,6 +8,10 @@ import { ruleTemplate } from '#/bangumi';
 /** v-model show */
 const show = defineModel('show', { default: false });
 
+const emit = defineEmits<{
+  'rss-created': [{ rssId: number; aggregate: boolean }];
+}>();
+
 const message = useMessage();
 const { getAll } = useBangumiStore();
 const { getAll: getRSS } = useRSSStore();
@@ -17,25 +21,6 @@ const rssModel = defineModel<RSS>('rss');
 const rss = ref<RSS>({ ...rssTemplate });
 const rule = defineModel<BangumiRule>('rule', { default: ruleTemplate });
 const parserType = ['mikan', 'tmdb', 'parser'];
-
-// Manual input mode state (when parsing fails)
-const manualInputMode = ref(false);
-const manualInputError = reactive({
-  msgEn: '',
-  msgZh: '',
-});
-const manualInputPartialData = reactive({
-  rawTitle: '',
-  group: '',
-  season: 1,
-  resolution: '',
-  subtitle: '',
-});
-const manualInputForm = reactive({
-  officialTitle: '',
-  season: 1,
-  groupName: '',
-});
 
 // Sync from model to local when model changes (for edit mode)
 watch(
@@ -125,18 +110,6 @@ watch(show, (val) => {
   if (!val) {
     rss.value = { ...rssTemplate };
     rule.value = { ...ruleTemplate };
-    // Reset manual input mode
-    manualInputMode.value = false;
-    manualInputError.msgEn = '';
-    manualInputError.msgZh = '';
-    manualInputPartialData.rawTitle = '';
-    manualInputPartialData.group = '';
-    manualInputPartialData.season = 1;
-    manualInputPartialData.resolution = '';
-    manualInputPartialData.subtitle = '';
-    manualInputForm.officialTitle = '';
-    manualInputForm.season = 1;
-    manualInputForm.groupName = '';
     setTimeout(() => {
       windowState.next = false;
       windowState.rule = false;
@@ -146,21 +119,6 @@ watch(show, (val) => {
     windowState.rule = true;
   }
 });
-
-interface BangumiParsingFailedError {
-  status: boolean;
-  status_code: number;
-  error_type: string;
-  msg_en: string;
-  msg_zh: string;
-  partial_data: {
-    raw_title: string;
-    group: string | null;
-    season: number | null;
-    resolution: string | null;
-    subtitle: string | null;
-  };
-}
 
 interface DuplicateError {
   status: boolean;
@@ -177,17 +135,6 @@ interface DuplicateError {
   };
 }
 
-function isBangumiParsingFailedError(
-  err: unknown
-): err is BangumiParsingFailedError {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'error_type' in err &&
-    (err as BangumiParsingFailedError).error_type === 'bangumi_parsing_failed'
-  );
-}
-
 function isDuplicateError(err: unknown): err is DuplicateError {
   return (
     typeof err === 'object' &&
@@ -196,63 +143,6 @@ function isDuplicateError(err: unknown): err is DuplicateError {
     ((err as DuplicateError).error_type === 'duplicate_official_title' ||
       (err as DuplicateError).error_type === 'duplicate_rss_link')
   );
-}
-
-function handleDuplicateError(err: DuplicateError) {
-  const isRssLinkDuplicate = err.error_type === 'duplicate_rss_link';
-
-  if (isRssLinkDuplicate) {
-    // For rss_link duplicate, show error message only (can't override rss_link)
-    message.error(
-      returnUserLangText({
-        en: err.msg_en,
-        'zh-CN': err.msg_zh,
-      })
-    );
-    return;
-  }
-
-  // For official_title duplicate, transition to manual input mode
-  manualInputMode.value = true;
-  windowState.next = true;
-
-  // Store error messages
-  manualInputError.msgEn = err.msg_en;
-  manualInputError.msgZh = err.msg_zh;
-
-  // Pre-fill form with existing data suggestion
-  manualInputForm.officialTitle = '';
-  manualInputForm.season = 1;
-  manualInputForm.groupName = '';
-
-  message.warning(
-    returnUserLangText({
-      en: `Title "${err.existing_bangumi.official_title}" already exists. Please enter a different title.`,
-      'zh-CN': `标题「${err.existing_bangumi.official_title}」已存在。请输入不同的标题。`,
-    })
-  );
-}
-
-function handleParsingFailedError(err: BangumiParsingFailedError) {
-  // Transition to manual input mode
-  manualInputMode.value = true;
-  windowState.next = true;
-
-  // Store error messages
-  manualInputError.msgEn = err.msg_en;
-  manualInputError.msgZh = err.msg_zh;
-
-  // Store partial data
-  manualInputPartialData.rawTitle = err.partial_data.raw_title || '';
-  manualInputPartialData.group = err.partial_data.group || '';
-  manualInputPartialData.season = err.partial_data.season ?? 1;
-  manualInputPartialData.resolution = err.partial_data.resolution || '';
-  manualInputPartialData.subtitle = err.partial_data.subtitle || '';
-
-  // Pre-fill form with partial data
-  manualInputForm.officialTitle = '';
-  manualInputForm.season = manualInputPartialData.season;
-  manualInputForm.groupName = manualInputPartialData.group;
 }
 
 function addRss() {
@@ -272,50 +162,49 @@ function addRss() {
         windowState.loading = false;
       },
     }).execute(rss.value.id, rss.value);
-  } else if (rss.value.aggregate) {
-    useApi(apiRSS.add, {
-      showMessage: true,
-      onBeforeExecute() {
-        windowState.loading = true;
-      },
-      onSuccess() {
-        show.value = false;
-        getRSS();
-      },
-      onFinally() {
-        windowState.loading = false;
-      },
-    }).execute(rss.value);
   } else {
+    // For NEW RSS (both aggregate and regular)
     useApi(apiRSS.add, {
-      showMessage: false,
+      showMessage: false, // Handle success manually to emit event
       onBeforeExecute() {
         windowState.loading = true;
       },
-      onSuccess() {
-        // RSS added and parsed successfully
-        show.value = false;
-        getRSS();
-        message.success(
-          returnUserLangText({
-            en: 'RSS added successfully',
-            'zh-CN': 'RSS 添加成功',
-          })
-        );
+      onSuccess(res) {
+        // res is the response data from apiRSS.add
+        if (res && res.rss_id) {
+          emit('rss-created', {
+            rssId: res.rss_id,
+            aggregate: rss.value.aggregate,
+          });
+          show.value = false;
+          // Do NOT call getRSS() - parent handles refresh after subscription/setup
+        } else {
+           // Fallback if no rss_id returned (shouldn't happen with updated API)
+           message.success(t('notify.success'));
+           show.value = false;
+           getRSS();
+        }
       },
       onError(err) {
-        // Check if this is a bangumi parsing failed error
-        if (isBangumiParsingFailedError(err)) {
-          handleParsingFailedError(err);
-        } else if (isDuplicateError(err)) {
-          handleDuplicateError(err);
+        if (isDuplicateError(err)) {
+          message.error(
+            returnUserLangText({
+              en: err.msg_en,
+              'zh-CN': err.msg_zh,
+            })
+          );
+        } else {
+          // If not a duplicate error, try to show the error message from the object if available
+          // or fallback to generic error.
+          // Since we removed isBangumiParsingFailedError, we treat it as generic error if it somehow happens (shouldn't with skipBangumi=true)
+          const msg = (err as any).msg_en || (err as any).message || String(err);
+           message.error(msg);
         }
-        // Other errors are handled by axios interceptor
       },
       onFinally() {
         windowState.loading = false;
       },
-    }).execute(rss.value);
+    }).execute(rss.value, { skipBangumi: true });
   }
 }
 
@@ -354,47 +243,6 @@ function subscribe() {
     }).execute(rule.value, rss.value);
   }
 }
-
-function submitManualInput() {
-  // Validation
-  if (!manualInputForm.officialTitle.trim()) {
-    message.error(
-      t('notify.please_enter', [t('rss.manual_input.official_title') || 'Official Title'])
-    );
-    return;
-  }
-  if (!manualInputForm.season || manualInputForm.season < 1) {
-    message.error(
-      t('notify.please_enter', [t('rss.manual_input.season') || 'Season'])
-    );
-    return;
-  }
-
-  // Submit with manual override parameters
-  useApi(apiRSS.add, {
-    showMessage: true,
-    onBeforeExecute() {
-      windowState.loading = true;
-    },
-    onSuccess() {
-      show.value = false;
-      getRSS();
-      message.success(
-        returnUserLangText({
-          en: 'RSS added successfully with manual input',
-          'zh-CN': 'RSS 已通过手动输入成功添加',
-        })
-      );
-    },
-    onFinally() {
-      windowState.loading = false;
-    },
-  }).execute(rss.value, {
-    officialTitle: manualInputForm.officialTitle.trim(),
-    season: manualInputForm.season,
-    groupName: manualInputForm.groupName.trim() || undefined,
-  });
-}
 </script>
 
 <template>
@@ -403,7 +251,7 @@ function submitManualInput() {
     :title="
       rss.id !== 0 ? $t('rss.edit_title') || 'Edit RSS' : $t('topbar.add.title')
     "
-    :css="windowState.rule ? 'max-w-900' : manualInputMode ? 'w-480' : 'w-360'"
+    :css="windowState.rule ? 'max-w-900' : 'w-360'"
   >
     <div v-if="!windowState.next" space-y-12>
       <ab-setting
@@ -445,141 +293,8 @@ function submitManualInput() {
           {{
             rss.id !== 0
               ? $t('rss.edit_button') || 'Update'
-              : $t('topbar.add.button')
+              : $t('topbar.add.next') || 'Next'
           }}
-        </ab-button>
-      </div>
-    </div>
-
-    <!-- Manual Input Mode (when parsing failed) -->
-    <div v-else-if="manualInputMode" space-y-16>
-      <!-- Error Message -->
-      <div
-        rounded-8
-        bg="amber-50 dark:amber-900/20"
-        p-12
-        border="~ amber-200 dark:amber-700"
-      >
-        <div flex="~ items-start gap-x-8">
-          <div i-carbon-warning-alt text="amber-500" text-18 mt-2></div>
-          <div>
-            <div text="14 amber-700 dark:amber-300" font-medium mb-4>
-              {{
-                $t('rss.manual_input.parsing_failed_title') || 'Parsing Failed'
-              }}
-            </div>
-            <div text="13 amber-600 dark:amber-400">
-              {{
-                returnUserLangText({
-                  en: manualInputError.msgEn,
-                  'zh-CN': manualInputError.msgZh,
-                })
-              }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Original Torrent Name (read-only with text selection) -->
-      <div>
-        <ab-label
-          :label="$t('rss.manual_input.original_torrent') || 'Original Torrent'"
-        >
-          <textarea
-            :value="manualInputPartialData.rawTitle"
-            readonly
-            ab-input
-            class="w-full min-h-60 resize-none"
-            style="user-select: text; cursor: text"
-          ></textarea>
-        </ab-label>
-      </div>
-
-      <!-- RSS URL Reference -->
-      <div>
-        <ab-label :label="$t('rss.manual_input.rss_url') || 'RSS URL'">
-          <input :value="rss.url" readonly ab-input class="w-full opacity-70" />
-        </ab-label>
-      </div>
-
-      <!-- Manual Input Form -->
-      <div line my-12></div>
-
-      <ab-setting
-        v-model:data="manualInputForm.officialTitle"
-        :label="$t('rss.manual_input.official_title') || 'Official Title'"
-        type="input"
-        :prop="{
-          placeholder:
-            $t('rss.manual_input.official_title_placeholder') ||
-            'Enter bangumi official title (required)',
-        }"
-      ></ab-setting>
-
-      <ab-setting
-        v-model:data="manualInputForm.season"
-        :label="$t('rss.manual_input.season') || 'Season'"
-        type="input"
-        :prop="{
-          type: 'number',
-          min: 1,
-          placeholder: '1',
-        }"
-      ></ab-setting>
-
-      <ab-setting
-        v-model:data="manualInputForm.groupName"
-        :label="$t('rss.manual_input.group_name') || 'Group Name'"
-        type="input"
-        :prop="{
-          placeholder: $t('rss.manual_input.group_placeholder') || 'Optional',
-        }"
-      ></ab-setting>
-
-      <!-- Detected Info (read-only) -->
-      <div
-        v-if="
-          manualInputPartialData.resolution || manualInputPartialData.subtitle
-        "
-      >
-        <div line my-12></div>
-        <div text="13 gray-500" mb-8>
-          {{ $t('rss.manual_input.detected_info') || 'Detected Info' }}
-        </div>
-        <div flex="~ gap-x-16" text="13 gray-600 dark:gray-400">
-          <div v-if="manualInputPartialData.resolution">
-            <span text="gray-400"
-              >{{ $t('rss.manual_input.resolution') || 'Resolution' }}:</span
-            >
-            <span ml-4>{{ manualInputPartialData.resolution }}</span>
-          </div>
-          <div v-if="manualInputPartialData.subtitle">
-            <span text="gray-400"
-              >{{ $t('rss.manual_input.subtitle') || 'Subtitle' }}:</span
-            >
-            <span ml-4>{{ manualInputPartialData.subtitle }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div line my-12></div>
-
-      <div flex="~ justify-between">
-        <ab-button
-          size="small"
-          @click="
-            manualInputMode = false;
-            windowState.next = false;
-          "
-        >
-          {{ $t('rss.cancel') || 'Cancel' }}
-        </ab-button>
-        <ab-button
-          size="small"
-          :loading="windowState.loading"
-          @click="submitManualInput"
-        >
-          {{ $t('topbar.add.subscribe') || 'Subscribe' }}
         </ab-button>
       </div>
     </div>

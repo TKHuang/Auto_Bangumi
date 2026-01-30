@@ -9,16 +9,25 @@ import {
 } from '@icon-park/vue-next';
 import { ruleTemplate } from '#/bangumi';
 import type { BangumiRule } from '#/bangumi';
+import AbRssRecreate from '@/components/ab-rss-recreate.vue';
 
 const { t, changeLocale } = useMyI18n();
 const { running, onUpdate, offUpdate } = useAppInfo();
 
 const showAccount = ref(false);
 const showAddRSS = ref(false);
+const showRecreate = ref(false);
 const searchRule = ref<BangumiRule>();
+
+// Track RSS ID for auto-delete on cancel
+const pendingRssId = ref<number | null>(null);
+
+// Ref for ab-rss-recreate component
+const recreateDialogRef = ref<InstanceType<typeof AbRssRecreate>>();
 
 const { start, pause, shutdown, restart, resetRule } = useProgramStore();
 const { refreshPoster } = useBangumiStore();
+const { getAll: getRSS } = useRSSStore();
 
 const items = [
   {
@@ -75,6 +84,37 @@ function addSearchResult(bangumi: BangumiRule) {
   console.log('searchRule', searchRule.value);
 }
 
+// Handle rss-created event from ab-add-rss
+function handleRssCreated(payload: { rssId: number; aggregate: boolean }) {
+  console.log('[Topbar] RSS created:', payload);
+  pendingRssId.value = payload.rssId;
+  // Open the recreate dialog to show rule review
+  recreateDialogRef.value?.open(payload.rssId);
+}
+
+// Handle cancelled event from ab-rss-recreate (auto-delete orphan RSS)
+async function handleRecreateCancel(rssId: number) {
+  console.log('[Topbar] Recreate cancelled, deleting RSS:', rssId);
+  if (pendingRssId.value === rssId) {
+    try {
+      await apiRSS.delete(rssId);
+      console.log('[Topbar] Orphan RSS deleted:', rssId);
+    } catch (e) {
+      console.error('[Topbar] Failed to delete orphan RSS:', e);
+      // Fire-and-forget - don't block UI
+    }
+    pendingRssId.value = null;
+  }
+}
+
+// Handle subscribed event from ab-rss-recreate
+function handleRecreateSubscribed() {
+  console.log('[Topbar] Subscription completed');
+  pendingRssId.value = null;
+  // Refresh RSS list to show the new entry
+  getRSS();
+}
+
 watch(showAddRSS, (val) => {
   if (!val) {
     searchRule.value = { ...ruleTemplate };
@@ -129,5 +169,16 @@ onUnmounted(() => {
   </div>
 
   <ab-change-account v-model:show="showAccount"></ab-change-account>
-  <ab-add-rss v-model:show="showAddRSS" v-model:rule="searchRule"></ab-add-rss>
+  <ab-add-rss
+    v-model:show="showAddRSS"
+    v-model:rule="searchRule"
+    @rss-created="handleRssCreated"
+  ></ab-add-rss>
+  <ab-rss-recreate
+    ref="recreateDialogRef"
+    v-model:show="showRecreate"
+    :auto-delete-on-cancel="true"
+    @cancelled="handleRecreateCancel"
+    @subscribed="handleRecreateSubscribed"
+  />
 </template>

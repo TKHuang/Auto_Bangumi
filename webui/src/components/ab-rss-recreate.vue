@@ -5,6 +5,21 @@ import { ruleTemplate } from '#/bangumi';
 import type { RSS } from '#/rss';
 
 const show = defineModel<boolean>('show', { default: false });
+
+const props = withDefaults(
+  defineProps<{
+    autoDeleteOnCancel?: boolean;
+  }>(),
+  {
+    autoDeleteOnCancel: false,
+  }
+);
+
+const emit = defineEmits<{
+  cancelled: [rssId: number];
+  subscribed: [];
+}>();
+
 const rssId = ref(0);
 const rssItem = ref<RSS | null>(null);
 
@@ -27,6 +42,9 @@ const parsingError = reactive({
   msgEn: '',
   msgZh: '',
 });
+
+// Track if subscription was completed
+const subscriptionCompleted = ref(false);
 
 const loading = reactive({
   bangumi: false,
@@ -276,6 +294,10 @@ function cleanupState() {
 // Watch for dialog close to cleanup
 watch(show, (visible) => {
   if (!visible) {
+    // If dialog is closing without subscription and autoDeleteOnCancel is true
+    if (props.autoDeleteOnCancel && !subscriptionCompleted.value && rssId.value) {
+      emit('cancelled', rssId.value);
+    }
     cleanupState();
   }
 });
@@ -285,6 +307,7 @@ defineExpose({
     // Cleanup any previous state first
     cleanupState();
 
+    subscriptionCompleted.value = false;
     rssId.value = id;
     loading.bangumi = true;
     show.value = true;
@@ -416,6 +439,8 @@ async function subscribe() {
       message.success(
         t('rss.subscribe_success_count', { count: bangumiList.value.length })
       );
+      subscriptionCompleted.value = true;
+      emit('subscribed');
       getAll();
       show.value = false;
     } catch (e) {
@@ -432,6 +457,8 @@ async function subscribe() {
     try {
       await apiDownload.subscribe(bangumi.value, rssItem.value);
       message.success(t('notify.update_success'));
+      subscriptionCompleted.value = true;
+      emit('subscribed');
       getAll();
       show.value = false;
     } catch (e) {
@@ -461,6 +488,8 @@ async function collect() {
         message.success(
           t('rss.collect_success_count', { count: successCount })
         );
+        subscriptionCompleted.value = true;
+        emit('subscribed');
         getAll();
         show.value = false;
       } else {
@@ -479,6 +508,8 @@ async function collect() {
     try {
       await apiDownload.collection(bangumi.value);
       message.success(t('notify.update_success'));
+      subscriptionCompleted.value = true;
+      emit('subscribed');
       getAll();
       show.value = false;
     } catch (e) {

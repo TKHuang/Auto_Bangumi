@@ -42,13 +42,26 @@ async def add_rss(
     official_title: str | None = None,
     season: int | None = None,
     group_name: str | None = None,
+    skip_bangumi: bool = False,
 ):
     analyser = RSSAnalyser()
 
     def _sync():
         with RSSEngine() as engine:
-            # For non-aggregate RSS: parse FIRST before adding to database
-            # This prevents orphan RSS records when parsing fails
+            if skip_bangumi:
+                result = engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+                if not result.status:
+                    return result
+                
+                all_rss = engine.rss.search_all()
+                rss_id = None
+                for rss_item in all_rss:
+                    if rss_item.url == rss.url:
+                        rss_id = rss_item.id
+                        break
+                
+                return {"status": True, "msg_en": "RSS added successfully.", "msg_zh": "RSS 添加成功。", "rss_id": rss_id}
+            
             if not rss.aggregate:
                 # Parse first - this may raise BangumiParsingError
                 data = analyser.link_to_data(rss, official_title, season, group_name)
@@ -140,7 +153,13 @@ async def add_rss(
                 return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
 
     try:
-        return u_response(await anyio.to_thread.run_sync(_sync))
+        result = await anyio.to_thread.run_sync(_sync)  # type: ignore
+        if isinstance(result, dict) and "rss_id" in result:
+            return JSONResponse(
+                status_code=200,
+                content=result,
+            )
+        return u_response(result)  # type: ignore
     except BangumiParsingError as e:
         return JSONResponse(
             status_code=422,
