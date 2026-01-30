@@ -28,26 +28,19 @@ class TorrentManager(Database):
         ]
         logger.debug(f"[DEBUG] __match_torrents_list: matched {len(matched)} torrents by path")
         
-        # Fallback: if no matches and we have bangumi_id, query database
-        # This handles PikPak where hash_map may be empty
         if not matched and bangumi_id:
             logger.debug(f"[DEBUG] __match_torrents_list: path matching failed, trying database fallback")
             db_torrents = self.torrent.search_by_bangumi_id(bangumi_id)
-            # Only return hashes that exist in the downloader (case-insensitive)
-            downloader_hashes = {t.hash.lower() for t in torrents if t.hash}
-            matched = [
-                t.hash for t in db_torrents 
-                if t.hash and t.hash.lower() in downloader_hashes
-            ]
+            matched = [t.hash for t in db_torrents if t.hash]
             logger.debug(f"[DEBUG] __match_torrents_list: matched {len(matched)} torrents from database")
         
         return matched
 
-    def delete_torrents(self, data: Bangumi, client: DownloadClient):
+    def delete_torrents(self, data: Bangumi, client: DownloadClient, delete_files: bool = True):
         hash_list = self.__match_torrents_list(data, bangumi_id=data.id)
         if hash_list:
-            client.delete_torrent(hash_list)
-            logger.info(f"Delete rule and torrents for {data.official_title}")
+            client.delete_torrent(hash_list, delete_files=delete_files)
+            logger.info(f"Delete rule and torrents for {data.official_title} (delete_files={delete_files})")
             return ResponseModel(
                 status_code=200,
                 status=True,
@@ -62,20 +55,22 @@ class TorrentManager(Database):
                 msg_zh=f"无法找到 {data.official_title} 的种子",
             )
 
-    def delete_rule(self, _id: int | str, file: bool = False):
+    def delete_rule(self, _id: int | str, file: bool = False, delete_files: bool = True):
         data = self.bangumi.search_id(int(_id))
         if isinstance(data, Bangumi):
             with DownloadClient() as client:
-                # Delete the bangumi rule (this cascades to delete associated torrents)
-                self.bangumi.delete_one(int(_id))
+                torrent_message = None
                 if file:
-                    torrent_message = self.delete_torrents(data, client)
+                    torrent_message = self.delete_torrents(data, client, delete_files=delete_files)
+                self.bangumi.delete_one(int(_id))
                 logger.info(f"[Manager] Delete rule for {data.official_title}")
+                torrent_msg_en = torrent_message.msg_en if torrent_message else ""
+                torrent_msg_zh = torrent_message.msg_zh if torrent_message else ""
                 return ResponseModel(
                     status_code=200,
                     status=True,
-                    msg_en=f"Delete rule for {data.official_title}. {torrent_message.msg_en if file else ''}",
-                    msg_zh=f"删除 {data.official_title} 规则。{torrent_message.msg_zh if file else ''}",
+                    msg_en=f"Delete rule for {data.official_title}. {torrent_msg_en}",
+                    msg_zh=f"删除 {data.official_title} 规则。{torrent_msg_zh}",
                 )
         else:
             return ResponseModel(
