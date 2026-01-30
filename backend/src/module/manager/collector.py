@@ -122,15 +122,20 @@ class SeasonCollector(DownloadClient):
                 )
 
     @staticmethod
-    def subscribe_season(data: Bangumi, parser: str = "mikan"):
+    def subscribe_season(data: Bangumi, parser: str = "mikan", delete_files: bool = False):
         """Subscribe to a single bangumi.
         
         For non-aggregate RSS, this method handles single bangumi recreation:
         - Deletes existing bangumi from this RSS (typically just 1)
+        - Deletes corresponding torrents from downloader
         - Inserts the new bangumi
         - Downloads torrents
         
-        For aggregate RSS with multiple bangumi, use subscribe_batch() instead.
+        Args:
+            data: Bangumi object to subscribe
+            parser: Parser type (default: "mikan")
+            delete_files: If True, delete downloaded files when removing old torrents.
+                         If False (default), only remove torrents but keep files.
         """
         with RSSEngine() as engine:
             try:
@@ -200,6 +205,17 @@ class SeasonCollector(DownloadClient):
                             f"[Collector] Deleting {len(existing_bangumi)} existing bangumi "
                             f"from RSS ID {data.rss_id} before inserting: {data.official_title}"
                         )
+                        with DownloadClient() as client:
+                            for bangumi in existing_bangumi:
+                                db_torrents = engine.torrent.search_by_bangumi_id(bangumi.id)
+                                if db_torrents:
+                                    hash_list = [t.hash for t in db_torrents if t.hash]
+                                    if hash_list:
+                                        client.delete_torrent(hash_list, delete_files=delete_files)
+                                        logger.info(
+                                            f"[Collector] Deleted {len(hash_list)} torrents for {bangumi.official_title} "
+                                            f"(delete_files={delete_files})"
+                                        )
                         engine.bangumi.delete_all_by_rss_id(data.rss_id)
 
                 # Add Bangumi to database
@@ -214,6 +230,24 @@ class SeasonCollector(DownloadClient):
 
                 # Now download torrents - they will be linked to the Bangumi
                 result = engine.download_bangumi(data)
+                
+                # If all torrents were filtered out, set pending_review
+                if (
+                    isinstance(result, ResponseModel)
+                    and not result.status
+                    and result.status_code == 406
+                    and "filtered out" in result.msg_en.lower()
+                ):
+                    # Mark bangumi as pending review since all torrents were filtered
+                    data.pending_review = True
+                    data.global_filter_matches = data.filter
+                    engine.bangumi.update_pending_review(data.id, True, data.filter)
+                    engine.commit()
+                    logger.info(
+                        f"[Collector] Bangumi {data.official_title} set to pending review "
+                        f"(all torrents filtered by: {data.filter})"
+                    )
+                
                 return result
 
             except Exception as e:
@@ -226,19 +260,22 @@ class SeasonCollector(DownloadClient):
                 raise
 
     @staticmethod
-    def subscribe_batch(bangumi_list: list, rss_id: int, parser: str = "mikan"):
+    def subscribe_batch(bangumi_list: list, rss_id: int, parser: str = "mikan", delete_files: bool = False):
         """Subscribe to multiple bangumi in a single atomic transaction.
         
         This method is designed for recreation scenarios where multiple bangumi
         need to be subscribed from a single RSS feed. It:
         1. Deletes all existing bangumi from the RSS ID ONCE
-        2. Inserts all new bangumi in a single transaction
-        3. Downloads torrents for each bangumi
+        2. Deletes corresponding torrents from downloader
+        3. Inserts all new bangumi in a single transaction
+        4. Downloads torrents for each bangumi
         
         Args:
             bangumi_list: List of Bangumi objects to subscribe
             rss_id: The RSS ID these bangumi belong to
             parser: Parser type (default: "mikan")
+            delete_files: If True, delete downloaded files when removing old torrents.
+                         If False (default), only remove torrents but keep files.
             
         Returns:
             ResponseModel with success/failure counts
@@ -253,13 +290,23 @@ class SeasonCollector(DownloadClient):
         
         with RSSEngine() as engine:
             try:
-                # Step 1: Delete ALL existing bangumi from this RSS (ONCE)
                 existing_bangumi = engine.bangumi.get_all_by_rss_id(rss_id)
                 if existing_bangumi:
                     logger.info(
                         f"[Collector] Batch recreation: deleting ALL {len(existing_bangumi)} existing bangumi "
                         f"from RSS ID {rss_id} before inserting {len(bangumi_list)} new ones"
                     )
+                    with DownloadClient() as client:
+                        for bangumi in existing_bangumi:
+                            db_torrents = engine.torrent.search_by_bangumi_id(bangumi.id)
+                            if db_torrents:
+                                hash_list = [t.hash for t in db_torrents if t.hash]
+                                if hash_list:
+                                    client.delete_torrent(hash_list, delete_files=delete_files)
+                                    logger.info(
+                                        f"[Collector] Deleted {len(hash_list)} torrents for {bangumi.official_title} "
+                                        f"(delete_files={delete_files})"
+                                    )
                     deleted_count = engine.bangumi.delete_all_by_rss_id(rss_id)
                     logger.info(f"[Collector] Deleted {deleted_count} bangumi for batch recreation")
                 
@@ -295,6 +342,21 @@ class SeasonCollector(DownloadClient):
                         try:
                             result = engine.download_bangumi(data)
                             download_results.append((data.official_title, result))
+                            
+                            # If all torrents were filtered out, set pending_review
+                            if (
+                                isinstance(result, ResponseModel)
+                                and not result.status
+                                and result.status_code == 406
+                                and "filtered out" in result.msg_en.lower()
+                            ):
+                                data.pending_review = True
+                                data.global_filter_matches = data.filter
+                                engine.bangumi.update_pending_review(data.id, True, data.filter)
+                                logger.info(
+                                    f"[Collector] Bangumi {data.official_title} set to pending review "
+                                    f"(all torrents filtered by: {data.filter})"
+                                )
                         except Exception as e:
                             logger.error(f"[Collector] Failed to download torrents for {data.official_title}: {e}")
                 

@@ -118,9 +118,9 @@ class DownloadClient(TorrentPath):
             torrent_hash=_hash, old_path=old_path, new_path=new_path
         )
 
-    def delete_torrent(self, hashes):
-        self.client.torrents_delete(hashes)
-        logger.info("[Downloader] Remove torrents.")
+    def delete_torrent(self, hashes, delete_files: bool = True):
+        self.client.torrents_delete(hashes, delete_files=delete_files)
+        logger.info(f"[Downloader] Remove torrents (delete_files={delete_files}).")
 
     @staticmethod
     def _is_valid_torrent(content: bytes | None) -> bool:

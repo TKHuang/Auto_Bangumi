@@ -193,6 +193,10 @@
     "delete_failed": "Failed to delete RSS",
     "confirm": "Confirm",
     "cancel": "Cancel",
+    "delete_files_title": "Delete Downloaded Files?",
+    "delete_files_message": "Do you want to delete the downloaded files for existing episodes?",
+    "delete_files_yes": "Delete Files",
+    "delete_files_no": "Keep Files",
     "manual_input": {
       "parsing_failed_title": "Parsing Failed",
       "original_torrent": "Original Torrent Name",

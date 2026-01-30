@@ -497,13 +497,12 @@ async def download_collection(data: Bangumi):
 @router.post(
     "/subscribe", response_model=APIResponse, dependencies=[Depends(get_current_user)]
 )
-async def subscribe(data: Bangumi, rss: RSSItem):
+async def subscribe(data: Bangumi, rss: RSSItem, file: bool = False):
     def _sync():
         with SeasonCollector() as collector:
             try:
-                return collector.subscribe_season(data, parser=rss.parser)
+                return collector.subscribe_season(data, parser=rss.parser, delete_files=file)
             except ValueError as e:
-                # Handle duplicate subscription error (composite key conflict)
                 error_msg = str(e)
                 return ResponseModel(
                     status=False,
@@ -517,22 +516,11 @@ async def subscribe(data: Bangumi, rss: RSSItem):
 @router.post(
     "/subscribe/batch", response_model=APIResponse, dependencies=[Depends(get_current_user)]
 )
-async def subscribe_batch(bangumi_list: list[Bangumi], rss: RSSItem):
-    """Subscribe to multiple bangumi in a single atomic transaction.
-    
-    This endpoint is designed for recreation scenarios where multiple bangumi
-    need to be subscribed from a single RSS feed. It:
-    1. Deletes all existing bangumi from the RSS ID ONCE
-    2. Inserts all new bangumi in a single transaction
-    3. Downloads torrents for each bangumi
-    
-    This is more efficient than calling /subscribe multiple times and avoids
-    the create-delete loop issue in recreation.
-    """
+async def subscribe_batch(bangumi_list: list[Bangumi], rss: RSSItem, file: bool = False):
     def _sync():
         with SeasonCollector() as collector:
             try:
-                return collector.subscribe_batch(bangumi_list, rss.id, parser=rss.parser)
+                return collector.subscribe_batch(bangumi_list, rss.id, parser=rss.parser, delete_files=file)
             except Exception as e:
                 logger.error(f"Batch subscription failed: {e}")
                 return ResponseModel(

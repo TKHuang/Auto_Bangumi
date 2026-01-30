@@ -57,11 +57,7 @@ export const apiDownload = {
     return data;
   },
 
-  /**
-   * 新番
-   * @param bangumiData - Bangumi 数据
-   */
-  async subscribe(bangumiData: BangumiRule, rss: RSS) {
+  async subscribe(bangumiData: BangumiRule, rss: RSS, deleteFiles: boolean = false) {
     const { id: _, ...rest } = bangumiData;
     const bangumi = {
       ...rest,
@@ -73,18 +69,13 @@ export const apiDownload = {
       rss,
     };
     const { data } = await axios.post<ApiSuccess>(
-      'api/v1/rss/subscribe',
+      `api/v1/rss/subscribe?file=${deleteFiles}`,
       postData
     );
     return data;
   },
 
-  /**
-   * 批量订阅新番 (用于重建 RSS)
-   * @param bangumiList - Bangumi 数据列表
-   * @param rss - RSS 配置
-   */
-  async subscribeBatch(bangumiList: BangumiRule[], rss: RSS) {
+  async subscribeBatch(bangumiList: BangumiRule[], rss: RSS, deleteFiles: boolean = false) {
     const convertedList = bangumiList.map((bangumiData) => {
       const { id: _, ...rest } = bangumiData;
       return {
@@ -98,7 +89,7 @@ export const apiDownload = {
       rss,
     };
     const { data } = await axios.post<ApiSuccess>(
-      'api/v1/rss/subscribe/batch',
+      `api/v1/rss/subscribe/batch?file=${deleteFiles}`,
       postData
     );
     return data;

@@ -193,6 +193,10 @@
     "delete_failed": "删除 RSS 失败",
     "confirm": "确定",
     "cancel": "取消",
+    "delete_files_title": "删除已下载的文件？",
+    "delete_files_message": "是否删除已有剧集的下载文件？",
+    "delete_files_yes": "删除文件",
+    "delete_files_no": "保留文件",
     "manual_input": {
       "parsing_failed_title": "解析失败",
       "original_torrent": "原始种子名称",

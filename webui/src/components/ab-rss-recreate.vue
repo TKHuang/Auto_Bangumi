@@ -53,6 +53,14 @@ const loading = reactive({
   subscribe: false,
 });
 
+const deleteFilesDialog = reactive<{
+  show: boolean;
+  action: 'subscribe' | 'collect';
+}>({
+  show: false,
+  action: 'subscribe',
+});
+
 // Request cancellation management
 let abortController: AbortController | null = null;
 
@@ -427,15 +435,36 @@ function toggleExpand(index: number) {
   }
 }
 
+function showDeleteFilesDialog(action: 'subscribe' | 'collect') {
+  deleteFilesDialog.action = action;
+  deleteFilesDialog.show = true;
+}
+
+async function confirmDeleteFiles(deleteFiles: boolean) {
+  deleteFilesDialog.show = false;
+  
+  if (deleteFilesDialog.action === 'subscribe') {
+    await doSubscribe(deleteFiles);
+  } else {
+    await doCollect(deleteFiles);
+  }
+}
+
 async function subscribe() {
+  if (props.autoDeleteOnCancel) {
+    await doSubscribe(false);
+  } else {
+    showDeleteFilesDialog('subscribe');
+  }
+}
+
+async function doSubscribe(deleteFiles: boolean) {
   if (!rssItem.value) return;
 
   if (isAggregate.value) {
-    // Multi-bangumi mode: use batch subscribe (single API call)
-    // This avoids the create-delete loop issue when subscribing multiple bangumi
     loading.subscribe = true;
     try {
-      await apiDownload.subscribeBatch(bangumiList.value, rssItem.value);
+      await apiDownload.subscribeBatch(bangumiList.value, rssItem.value, deleteFiles);
       message.success(
         t('rss.subscribe_success_count', { count: bangumiList.value.length })
       );
@@ -450,12 +479,11 @@ async function subscribe() {
       loading.subscribe = false;
     }
   } else {
-    // Single bangumi mode - original behavior
     if (!bangumi.value) return;
 
     loading.subscribe = true;
     try {
-      await apiDownload.subscribe(bangumi.value, rssItem.value);
+      await apiDownload.subscribe(bangumi.value, rssItem.value, deleteFiles);
       message.success(t('notify.update_success'));
       subscriptionCompleted.value = true;
       emit('subscribed');
@@ -470,8 +498,15 @@ async function subscribe() {
 }
 
 async function collect() {
+  if (props.autoDeleteOnCancel) {
+    await doCollect(false);
+  } else {
+    showDeleteFilesDialog('collect');
+  }
+}
+
+async function doCollect(_deleteFiles: boolean) {
   if (isAggregate.value) {
-    // Multi-bangumi mode: collect ALL bangumi (no selection)
     loading.collect = true;
     try {
       let successCount = 0;
@@ -501,7 +536,6 @@ async function collect() {
       loading.collect = false;
     }
   } else {
-    // Single bangumi mode - original behavior
     if (!bangumi.value) return;
 
     loading.collect = true;
@@ -861,6 +895,22 @@ async function collect() {
         </ab-button>
       </div>
     </div>
+
+    <ab-popup
+      v-model:show="deleteFilesDialog.show"
+      :title="$t('rss.delete_files_title')"
+    >
+      <div>{{ $t('rss.delete_files_message') }}</div>
+      <div line my-8></div>
+      <div f-cer gap-x-10>
+        <ab-button size="small" type="warn" @click="() => confirmDeleteFiles(true)">
+          {{ $t('rss.delete_files_yes') }}
+        </ab-button>
+        <ab-button size="small" @click="() => confirmDeleteFiles(false)">
+          {{ $t('rss.delete_files_no') }}
+        </ab-button>
+      </div>
+    </ab-popup>
   </ab-popup>
 </template>
 

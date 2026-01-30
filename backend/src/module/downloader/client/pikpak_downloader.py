@@ -1153,15 +1153,17 @@ class PikPakDownloader:
             return False
 
     @pikpak_retry(max_retries=3, initial_delay=5.0)
-    def torrents_delete(self, hashes: str | list[str]) -> None:
-        """Delete torrents and their files from PikPak.
+    def torrents_delete(self, hashes: str | list[str], delete_files: bool = True) -> None:
+        """Delete torrents and optionally their files from PikPak.
 
-        Removes both the in-progress offline tasks (if any) and completed files
+        Removes both the in-progress offline tasks (if any) and optionally completed files
         from PikPak cloud storage. Idempotent - silently succeeds if the
         torrents/files are not found.
 
         Args:
             hashes: A single 40-character hex torrent hash or a list of hashes to delete.
+            delete_files: If True, also delete the downloaded files. If False, only remove
+                         the torrent/task but keep the files.
         """
         # Normalize input to list
         if isinstance(hashes, str):
@@ -1170,19 +1172,12 @@ class PikPakDownloader:
             hash_list = list(hashes)
 
         for torrent_hash in hash_list:
-            self._delete_single_torrent(torrent_hash)
+            self._delete_single_torrent(torrent_hash, delete_files=delete_files)
 
-    def _delete_single_torrent(self, torrent_hash: str) -> None:
-        """Delete a single torrent and its files from PikPak.
-
-        Only removes the hash from tracking after verified successful deletion.
-        This allows retry on failure.
-
-        Args:
-            torrent_hash: 40-character hex torrent hash to delete.
-        """
+    def _delete_single_torrent(self, torrent_hash: str, delete_files: bool = True) -> None:
+        """Delete a single torrent and optionally its files from PikPak."""
         normalized_hash = torrent_hash.lower()
-        logger.info(f"Deleting torrent from PikPak: {normalized_hash}")
+        logger.info(f"Deleting torrent from PikPak: {normalized_hash} (delete_files={delete_files})")
 
         deletion_successful = False
 
@@ -1214,42 +1209,43 @@ class PikPakDownloader:
                         logger.debug(f"Found offline task {task_id} for hash, deleting")
                         self._run_async(
                             self._client.delete_tasks(
-                                task_ids=[task_id], delete_files=True
+                                task_ids=[task_id], delete_files=delete_files
                             )
                         )
                         deletion_successful = True
                         logger.info(
-                            f"Deleted offline task for torrent: {normalized_hash}"
+                            f"Deleted offline task for torrent: {normalized_hash} (files deleted: {delete_files})"
                         )
                     break
 
         except Exception as e:
             logger.debug(f"Error finding/deleting offline task: {e}")
 
-        # If task was deleted with delete_files=True, we're done
+        # If task was deleted, we're done
         if deletion_successful:
             return
 
-        # If no task found, try to delete the completed file directly
-        current_path = self.get_torrent_path(normalized_hash)
-        if current_path:
-            # Try to find and delete files for this torrent
-            torrents = self.torrents_info()
-            for t in torrents:
-                if t.hash == normalized_hash:
-                    file_path = f"{current_path}/{t.name}".replace("//", "/")
-                    file_id = self._find_file_id_by_path(file_path)
-                    if file_id:
-                        try:
-                            logger.debug(f"Deleting file {file_id} to trash")
-                            self._run_async(self._client.delete_to_trash(ids=[file_id]))
-                            deletion_successful = True
-                            logger.info(
-                                f"Deleted completed file for torrent: {normalized_hash}"
-                            )
-                        except Exception as e:
-                            logger.debug(f"Error deleting file to trash: {e}")
-                    break
+        # If no task found and delete_files is True, try to delete the completed file directly
+        if delete_files:
+            current_path = self.get_torrent_path(normalized_hash)
+            if current_path:
+                # Try to find and delete files for this torrent
+                torrents = self.torrents_info()
+                for t in torrents:
+                    if t.hash == normalized_hash:
+                        file_path = f"{current_path}/{t.name}".replace("//", "/")
+                        file_id = self._find_file_id_by_path(file_path)
+                        if file_id:
+                            try:
+                                logger.debug(f"Deleting file {file_id} to trash")
+                                self._run_async(self._client.delete_to_trash(ids=[file_id]))
+                                deletion_successful = True
+                                logger.info(
+                                    f"Deleted completed file for torrent: {normalized_hash}"
+                                )
+                            except Exception as e:
+                                logger.debug(f"Error deleting file to trash: {e}")
+                        break
 
         if deletion_successful:
             logger.debug(f"Torrent deletion complete for: {normalized_hash}")
