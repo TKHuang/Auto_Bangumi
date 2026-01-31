@@ -1405,6 +1405,7 @@ class PikPakDownloader:
                         logger.debug(
                             f"Updated path for {torrent_record.name}: {full_path}"
                         )
+                db.commit()
 
             logger.info(f"Successfully moved files to: {full_path}")
 

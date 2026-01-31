@@ -394,6 +394,7 @@ class Renamer(DownloadClient):
                 torrent.renamed_at = datetime.now()
                 torrent.renamed_file_count = file_count
                 db.torrent.update(torrent)
+                db.commit()
             else:
                 logger.warning(
                     f"[Renamer] Could not find torrent record for hash: {torrent_hash}"

@@ -112,6 +112,8 @@ class RSSEngine(Database):
                 # Persist newly generated save_path to database
                 if not save_path_before and bangumi.save_path:
                     self.bangumi.update_save_path(bangumi.id, bangumi.save_path)
+        
+        self.commit()
 
         return ResponseModel(
             status=True,
@@ -139,6 +141,7 @@ class RSSEngine(Database):
                     )
         rss_data = RSSItem(name=name, url=rss_link, aggregate=aggregate, parser=parser)
         if self.rss.add(rss_data):
+            self.commit()
             return ResponseModel(
                 status=True,
                 status_code=200,
@@ -156,6 +159,7 @@ class RSSEngine(Database):
     def disable_list(self, rss_id_list: list[int]):
         for rss_id in rss_id_list:
             self.rss.disable(rss_id)
+        self.commit()
         return ResponseModel(
             status=True,
             status_code=200,
@@ -166,6 +170,7 @@ class RSSEngine(Database):
     def enable_list(self, rss_id_list: list[int]):
         for rss_id in rss_id_list:
             self.rss.enable(rss_id)
+        self.commit()
         return ResponseModel(
             status=True,
             status_code=200,
@@ -176,6 +181,7 @@ class RSSEngine(Database):
     def delete_list(self, rss_id_list: list[int]):
         for rss_id in rss_id_list:
             self.rss.delete(rss_id)
+        self.commit()
         return ResponseModel(
             status=True,
             status_code=200,
@@ -229,6 +235,7 @@ class RSSEngine(Database):
                     logger.info(
                         f"[Engine] Auto-fixed {backfilled} bangumi records for RSS: {rss_item.name}"
                     )
+                    self.commit()
 
                 new_torrents = self.pull_rss(rss_item)
                 rss_item.last_status = "Success"
@@ -250,6 +257,7 @@ class RSSEngine(Database):
                 # This is required for PikPak to store pikpak_cloud_path
                 if matched_torrents:
                     self.torrent.add_all(matched_torrents)
+                    self.commit()
                     logger.debug(
                         f"[Engine] Stored {len(matched_torrents)} matched torrents out of {len(new_torrents)} total"
                     )
@@ -270,6 +278,8 @@ class RSSEngine(Database):
                         # Set pikpak_cloud_path here to avoid DB lock conflicts
                         torrent.pikpak_cloud_path = matched_data.save_path
                         self.torrent.update(torrent)
+                
+                self.commit()
             except Exception as e:
                 logger.error(f"[Engine] Refresh RSS {rss_item.name} failed: {e}")
                 rss_item.last_status = "Error"
@@ -277,6 +287,7 @@ class RSSEngine(Database):
             finally:
                 rss_item.last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.rss.update(rss_item.id, rss_item)
+                self.commit()
 
     def download_bangumi(self, bangumi: Bangumi):
         with RequestContent() as req:
@@ -352,6 +363,7 @@ class RSSEngine(Database):
             # Add torrents to database BEFORE calling add_torrent
             # This is required for PikPak to store pikpak_cloud_path
             self.torrent.add_all(new_torrents)
+            self.commit()
 
             # Now add torrents to downloader (DB records exist for pikpak_cloud_path storage)
             with DownloadClient() as client:
@@ -366,6 +378,7 @@ class RSSEngine(Database):
                     torrent.downloaded = True
                     torrent.pikpak_cloud_path = bangumi.save_path
                     self.torrent.update(torrent)
+                self.commit()
                 return ResponseModel(
                     status=True,
                     status_code=200,

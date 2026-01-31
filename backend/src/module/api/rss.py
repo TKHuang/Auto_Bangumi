@@ -202,7 +202,9 @@ async def enable_many_rss(
 async def delete_rss(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
-            return engine.rss.delete(rss_id)
+            result = engine.rss.delete(rss_id)
+            engine.commit()
+            return result
     result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(
@@ -238,7 +240,9 @@ async def delete_many_rss(
 async def disable_rss(rss_id: int):
     def _sync():
         with RSSEngine() as engine:
-            return engine.rss.disable(rss_id)
+            result = engine.rss.disable(rss_id)
+            engine.commit()
+            return result
     result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(
@@ -276,7 +280,9 @@ async def update_rss(
         raise UNAUTHORIZED
     def _sync():
         with RSSEngine() as engine:
-            return engine.rss.update(rss_id, data)
+            result = engine.rss.update(rss_id, data)
+            engine.commit()
+            return result
     result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(

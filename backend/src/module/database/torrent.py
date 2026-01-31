@@ -13,29 +13,21 @@ class TorrentDatabase:
 
     def add(self, data: Torrent):
         self.session.add(data)
-        self.session.commit()
-        self.session.refresh(data)
         logger.debug(f"Insert {data.name} in database.")
 
     def add_all(self, datas: list[Torrent]):
         self.session.add_all(datas)
-        self.session.commit()
         logger.debug(f"Insert {len(datas)} torrents in database.")
 
     def update(self, data: Torrent):
         self.session.add(data)
-        self.session.commit()
-        self.session.refresh(data)
         logger.debug(f"Update {data.name} in database.")
 
     def update_all(self, datas: list[Torrent]):
         self.session.add_all(datas)
-        self.session.commit()
 
     def update_one_user(self, data: Torrent):
         self.session.add(data)
-        self.session.commit()
-        self.session.refresh(data)
         logger.debug(f"Update {data.name} in database.")
 
     def search(self, _id: int) -> Torrent:
@@ -140,5 +132,4 @@ class TorrentDatabase:
                 t.renamed_at = None
                 t.renamed_file_count = None
                 count += 1
-        self.session.commit()
         return count

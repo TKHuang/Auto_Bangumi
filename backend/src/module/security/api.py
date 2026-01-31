@@ -41,6 +41,7 @@ def update_user_info(user_data: UserUpdate, current_user):
     try:
         with Database() as db:
             db.user.update_user(current_user, user_data)
+            db.commit()
         return True
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

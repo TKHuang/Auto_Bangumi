@@ -54,7 +54,6 @@ class UserDatabase:
         if update_user.password:
             result.password = get_password_hash(update_user.password)
         self.session.add(result)
-        self.session.commit()
         return result
 
     def merge_old_user(self):
@@ -97,4 +96,3 @@ class UserDatabase:
         # Add default user
         user = User(username="admin", password=get_password_hash("adminadmin"))
         self.session.add(user)
-        self.session.commit()

@@ -21,8 +21,6 @@ class RSSDatabase:
         else:
             logger.debug(f"RSS Item {data.url} not exists, adding...")
             self.session.add(data)
-            self.session.commit()
-            self.session.refresh(data)
             return True
 
     def add_all(self, data: list[RSSItem]):
@@ -40,8 +38,6 @@ class RSSDatabase:
         for key, value in dict_data.items():
             setattr(db_data, key, value)
         self.session.add(db_data)
-        self.session.commit()
-        self.session.refresh(db_data)
         return True
 
     def enable(self, _id: int):
@@ -51,8 +47,6 @@ class RSSDatabase:
             return False
         db_data.enabled = True
         self.session.add(db_data)
-        self.session.commit()
-        self.session.refresh(db_data)
         return True
 
     def disable(self, _id: int):
@@ -62,8 +56,6 @@ class RSSDatabase:
             return False
         db_data.enabled = False
         self.session.add(db_data)
-        self.session.commit()
-        self.session.refresh(db_data)
         return True
 
     def search_id(self, _id: int) -> RSSItem:
@@ -136,7 +128,6 @@ class RSSDatabase:
             # Step 4: Delete the RSS item
             rss_condition = delete(RSSItem).where(RSSItem.id == _id)
             self.session.exec(rss_condition)
-            self.session.commit()
             logger.debug(f"[RSS] Successfully deleted RSS ID: {_id} with cascade")
             return True
         except Exception as e:
@@ -147,4 +138,3 @@ class RSSDatabase:
     def delete_all(self):
         condition = delete(RSSItem)
         self.session.exec(condition)
-        self.session.commit()

@@ -72,9 +72,11 @@ class SeasonCollector(DownloadClient):
                 bangumi.eps_collect = True
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
+                engine.commit()
                 # Sync torrents that exist in qB but not in DB
                 if already_in_qb_torrents:
                     engine.torrent.add_all(already_in_qb_torrents)
+                    engine.commit()
                     logger.info(
                         f"[Collector] Synced {len(already_in_qb_torrents)} existing torrents to database "
                         f"for {bangumi.official_title}"
@@ -90,6 +92,7 @@ class SeasonCollector(DownloadClient):
             # This is required for PikPak to store pikpak_cloud_path
             all_torrents_to_add = new_torrents + already_in_qb_torrents
             engine.torrent.add_all(all_torrents_to_add)
+            engine.commit()
 
             if self.add_torrent(new_torrents, bangumi):
                 logger.info(
@@ -104,6 +107,7 @@ class SeasonCollector(DownloadClient):
                 bangumi.eps_collect = True
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
+                engine.commit()
                 return ResponseModel(
                     status=True,
                     status_code=200,
@@ -214,9 +218,10 @@ class SeasonCollector(DownloadClient):
                                         client.delete_torrent(hash_list, delete_files=delete_files)
                                         logger.info(
                                             f"[Collector] Deleted {len(hash_list)} torrents for {bangumi.official_title} "
-                                            f"(delete_files={delete_files})"
-                                        )
+                                         f"(delete_files={delete_files})"
+                                         )
                         engine.bangumi.delete_all_by_rss_id(data.rss_id)
+                        engine.commit()
 
                 # Add Bangumi to database
                 engine.bangumi.add(data)
@@ -305,9 +310,10 @@ class SeasonCollector(DownloadClient):
                                     client.delete_torrent(hash_list, delete_files=delete_files)
                                     logger.info(
                                         f"[Collector] Deleted {len(hash_list)} torrents for {bangumi.official_title} "
-                                        f"(delete_files={delete_files})"
-                                    )
+                                         f"(delete_files={delete_files})"
+                                         )
                     deleted_count = engine.bangumi.delete_all_by_rss_id(rss_id)
+                    engine.commit()
                     logger.info(f"[Collector] Deleted {deleted_count} bangumi for batch recreation")
                 
                 # Step 2: Insert all new bangumi
@@ -353,6 +359,7 @@ class SeasonCollector(DownloadClient):
                                 data.pending_review = True
                                 data.global_filter_matches = data.filter
                                 engine.bangumi.update_pending_review(data.id, True, data.filter)
+                                engine.commit()
                                 logger.info(
                                     f"[Collector] Bangumi {data.official_title} set to pending review "
                                     f"(all torrents filtered by: {data.filter})"
@@ -443,3 +450,4 @@ def eps_complete():
                             collector.collect_season(data)
                 data.eps_collect = True
             engine.bangumi.update_all(datas)
+            engine.commit()

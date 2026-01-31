@@ -138,6 +138,7 @@ async def retrigger_rename(bangumi_id: int):
         # Step 1: Clear rename status
         with Database() as db:
             reset_count = db.torrent.clear_rename_status(bangumi_id)
+            db.commit()
 
         # Step 2: Trigger immediate rename for this bangumi
         with Renamer() as renamer:
@@ -179,6 +180,8 @@ async def activate_pending_bangumi(
             success, message = manager.bangumi.activate_pending(bangumi_id, filter)
             if not success:
                 return False, message, None
+            
+            manager.commit()
 
             # Get the activated bangumi for downloading
             bangumi = manager.bangumi.search_id(bangumi_id)
@@ -254,6 +257,7 @@ async def reset_all():
     def _sync():
         with TorrentManager() as manager:
             manager.bangumi.delete_all()
+            manager.commit()
     await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,

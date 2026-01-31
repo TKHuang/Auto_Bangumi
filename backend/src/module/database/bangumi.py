@@ -32,13 +32,11 @@ class BangumiDatabase:
             )
             return False
         self.session.add(data)
-        self.session.commit()
         logger.debug(f"[Database] Insert {data.official_title} into database.")
         return True
 
     def add_all(self, datas: list[Bangumi]):
         self.session.add_all(datas)
-        self.session.commit()
         logger.debug(f"[Database] Insert {len(datas)} bangumi into database.")
 
     def update(self, data: Bangumi | BangumiUpdate, _id: int = None) -> bool:
@@ -54,14 +52,11 @@ class BangumiDatabase:
         for key, value in bangumi_data.items():
             setattr(db_data, key, value)
         self.session.add(db_data)
-        self.session.commit()
-        self.session.refresh(db_data)
         logger.debug(f"[Database] Update {data.official_title}")
         return True
 
     def update_all(self, datas: list[Bangumi]):
         self.session.add_all(datas)
-        self.session.commit()
         logger.debug(f"[Database] Update {len(datas)} bangumi.")
 
     def update_rss(self, title_raw, rss_set: str):
@@ -71,8 +66,6 @@ class BangumiDatabase:
         bangumi.rss_link = rss_set
         bangumi.added = False
         self.session.add(bangumi)
-        self.session.commit()
-        self.session.refresh(bangumi)
         logger.debug(f"[Database] Update {title_raw} rss_link to {rss_set}.")
 
     def update_poster(self, title_raw, poster_link: str):
@@ -80,8 +73,6 @@ class BangumiDatabase:
         bangumi = self.session.exec(statement).first()
         bangumi.poster_link = poster_link
         self.session.add(bangumi)
-        self.session.commit()
-        self.session.refresh(bangumi)
         logger.debug(f"[Database] Update {title_raw} poster_link to {poster_link}.")
 
     def update_save_path(self, bangumi_id: int, save_path: str):
@@ -96,8 +87,6 @@ class BangumiDatabase:
             return
         bangumi.save_path = save_path
         self.session.add(bangumi)
-        self.session.commit()
-        self.session.refresh(bangumi)
         logger.debug(f"[Database] Update bangumi {bangumi_id} save_path to {save_path}.")
 
     def delete_one(self, _id: int):
@@ -112,7 +101,6 @@ class BangumiDatabase:
         statement = select(Bangumi).where(Bangumi.id == _id)
         bangumi = self.session.exec(statement).first()
         self.session.delete(bangumi)
-        self.session.commit()
         logger.debug(f"[Database] Delete bangumi id: {_id}.")
 
     def delete_many(self, ids: list[int]) -> int:
@@ -136,7 +124,6 @@ class BangumiDatabase:
         # Delete all bangumi in batch
         bangumi_delete_stmt = delete(Bangumi).where(col(Bangumi.id).in_(ids))
         self.session.exec(bangumi_delete_stmt)
-        self.session.commit()
 
         logger.debug(f"[Database] Batch deleted {len(ids)} bangumi and their torrents.")
         return len(ids)
@@ -144,7 +131,6 @@ class BangumiDatabase:
     def delete_all(self):
         statement = delete(Bangumi)
         self.session.exec(statement)
-        self.session.commit()
 
     def search_all(self) -> list[Bangumi]:
         statement = select(Bangumi).where(Bangumi.pending_review == false())
@@ -411,8 +397,6 @@ class BangumiDatabase:
         bangumi = self.session.exec(statement).first()
         bangumi.deleted = True
         self.session.add(bangumi)
-        self.session.commit()
-        self.session.refresh(bangumi)
         logger.debug(f"[Database] Disable rule {bangumi.title_raw}.")
 
     def disable_many(self, ids: list[int]) -> int:
@@ -434,7 +418,6 @@ class BangumiDatabase:
             bangumi.deleted = True
             self.session.add(bangumi)
 
-        self.session.commit()
         logger.debug(f"[Database] Batch disabled {len(bangumi_list)} bangumi rules.")
         return len(bangumi_list)
 
@@ -510,7 +493,6 @@ class BangumiDatabase:
             bangumi.rss_id = rss_id
             self.session.add(bangumi)
 
-        self.session.commit()
         logger.info(
             f"[Database] Backfilled rss_id={rss_id} for {len(bangumi_list)} bangumi records."
         )
@@ -584,8 +566,6 @@ class BangumiDatabase:
             bangumi.filter = filter_value
 
         self.session.add(bangumi)
-        self.session.commit()
-        self.session.refresh(bangumi)
         logger.debug(f"[Database] Activated pending bangumi: {bangumi.official_title}")
         return True, "Bangumi activated successfully"
 
@@ -613,7 +593,6 @@ class BangumiDatabase:
             bangumi.global_filter_matches = None
 
         self.session.add(bangumi)
-        self.session.commit()
         logger.debug(
             f"[Database] Updated pending_review for {bangumi.official_title}: {pending}"
         )
