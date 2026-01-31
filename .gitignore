@@ -223,8 +223,9 @@ dev-config
 .claude
 
 # dev config
-/config/
-/backend/config/
+config/
+backend/config/
 
 # dev data directories
-/data/
+data/
+.sisyphus/
