@@ -1179,57 +1179,29 @@ class PikPakDownloader:
         normalized_hash = torrent_hash.lower()
         logger.info(f"Deleting torrent from PikPak: {normalized_hash} (delete_files={delete_files})")
 
-        deletion_successful = False
+        task_id = None
+        files_deleted = False
+        task_deleted = False
 
-        # First, try to find and delete the offline task
         try:
-            # Get all offline tasks to find the matching task ID
-            result = self._run_async(
-                self._client.offline_list(
-                    phase=[
-                        "PHASE_TYPE_RUNNING",
-                        "PHASE_TYPE_ERROR",
-                        "PHASE_TYPE_COMPLETE",
-                        "PHASE_TYPE_PENDING",
-                    ]
-                )
-            )
-
-            tasks = result.get("tasks", [])
-            for task in tasks:
-                # Check if this task matches the hash
-                file_url = task.get("file_url", "") or task.get("params", {}).get(
-                    "url", ""
-                )
-                task_hash = self._extract_hash(file_url)
-
-                if task_hash and task_hash.lower() == normalized_hash:
-                    task_id = task.get("id")
-                    if task_id:
-                        logger.debug(f"Found offline task {task_id} for hash, deleting")
-                        self._run_async(
-                            self._client.delete_tasks(
-                                task_ids=[task_id], delete_files=delete_files
-                            )
-                        )
-                        deletion_successful = True
-                        logger.info(
-                            f"Deleted offline task for torrent: {normalized_hash} (files deleted: {delete_files})"
-                        )
-                    break
-
+            task_id = self._find_offline_task_id(normalized_hash)
         except Exception as e:
-            logger.debug(f"Error finding/deleting offline task: {e}")
+            logger.debug(f"Error finding offline task: {e}")
 
-        # If task was deleted, we're done
-        if deletion_successful:
-            return
+        if task_id:
+            try:
+                self._delete_tasks_direct([task_id], delete_files=delete_files)
+                task_deleted = True
+                if delete_files:
+                    files_deleted = True
+                logger.info(f"Deleted task for torrent: {normalized_hash} (delete_files={delete_files})")
+            except Exception as e:
+                logger.debug(f"Error deleting task: {e}")
 
         # If no task found and delete_files is True, try to delete the completed file directly
-        if delete_files:
+        if not files_deleted and delete_files:
             current_path = self.get_torrent_path(normalized_hash)
             if current_path:
-                # Try to find and delete files for this torrent
                 torrents = self.torrents_info()
                 for t in torrents:
                     if t.hash == normalized_hash:
@@ -1239,7 +1211,7 @@ class PikPakDownloader:
                             try:
                                 logger.debug(f"Deleting file {file_id} to trash")
                                 self._run_async(self._client.delete_to_trash(ids=[file_id]))
-                                deletion_successful = True
+                                files_deleted = True
                                 logger.info(
                                     f"Deleted completed file for torrent: {normalized_hash}"
                                 )
@@ -1247,10 +1219,62 @@ class PikPakDownloader:
                                 logger.debug(f"Error deleting file to trash: {e}")
                         break
 
-        if deletion_successful:
+        if task_deleted or files_deleted:
             logger.debug(f"Torrent deletion complete for: {normalized_hash}")
         else:
             logger.warning(f"Could not verify deletion for {normalized_hash}")
+
+    def _find_offline_task_id(self, normalized_hash: str) -> str | None:
+        """Find the offline task ID for a given torrent hash."""
+        result = self._run_async(
+            self._client.offline_list(
+                phase=[
+                    "PHASE_TYPE_RUNNING",
+                    "PHASE_TYPE_ERROR",
+                    "PHASE_TYPE_COMPLETE",
+                    "PHASE_TYPE_PENDING",
+                ]
+            )
+        )
+
+        tasks = result.get("tasks", [])
+        for task in tasks:
+            file_url = task.get("file_url", "") or task.get("params", {}).get(
+                "url", ""
+            )
+            task_hash = self._extract_hash(file_url)
+
+            if task_hash and task_hash.lower() == normalized_hash:
+                return task.get("id")
+        
+        return None
+
+    def _delete_tasks_direct(self, task_ids: list[str], delete_files: bool = False) -> None:
+        """Delete tasks using direct HTTP call with comma-separated task_ids.
+        
+        The pikpakapi library's delete_tasks passes task_ids as a list which httpx
+        serializes incorrectly. This method joins them as comma-separated string.
+        """
+        async def _do_delete():
+            url = f"https://{self._client.PIKPAK_API_HOST}/drive/v1/tasks"
+            headers = self._client.get_headers()
+            params = {
+                "task_ids": ",".join(task_ids),
+                "delete_files": str(delete_files).lower(),
+            }
+            logger.debug(f"Delete tasks request: url={url}, params={params}")
+            response = await self._client.httpx_client.request(
+                "DELETE",
+                url,
+                params=params,
+                headers=headers,
+            )
+            if response.status_code != 200:
+                logger.warning(f"Delete tasks returned status {response.status_code}: {response.text}")
+            else:
+                logger.debug(f"Delete tasks response: {response.text}")
+        
+        self._run_async(_do_delete())
 
     @pikpak_retry(max_retries=3, initial_delay=5.0)
     def move_torrent(self, hashes: list[str], new_location: str) -> bool:
