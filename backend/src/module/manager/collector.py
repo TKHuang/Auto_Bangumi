@@ -221,7 +221,6 @@ class SeasonCollector(DownloadClient):
                                          f"(delete_files={delete_files})"
                                          )
                         engine.bangumi.delete_all_by_rss_id(data.rss_id)
-                        engine.commit()
 
                 # Add Bangumi to database
                 engine.bangumi.add(data)
@@ -313,7 +312,6 @@ class SeasonCollector(DownloadClient):
                                          f"(delete_files={delete_files})"
                                          )
                     deleted_count = engine.bangumi.delete_all_by_rss_id(rss_id)
-                    engine.commit()
                     logger.info(f"[Collector] Deleted {deleted_count} bangumi for batch recreation")
                 
                 # Step 2: Insert all new bangumi
@@ -334,7 +332,7 @@ class SeasonCollector(DownloadClient):
                         logger.error(f"[Collector] Failed to insert {data.official_title}: {e}")
                         failed_titles.append(data.official_title)
                 
-                # Commit all inserts in single transaction
+                # Commit all deletes and inserts in single transaction
                 engine.commit()
                 logger.info(
                     f"[Collector] Batch recreation committed: {success_count}/{len(bangumi_list)} bangumi "

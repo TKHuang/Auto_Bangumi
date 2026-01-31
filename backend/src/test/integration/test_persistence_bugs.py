@@ -124,6 +124,7 @@ class TestPersistenceBugs:
                 deleted=False,
             )
             db.bangumi.update(update_data, 1)
+            db.commit()
 
         with Session(in_memory_engine) as fresh_session:
             statement = select(Bangumi).where(Bangumi.id == 1)
@@ -220,6 +221,7 @@ class TestPersistenceBugs:
                 deleted=False,
             )
             db.bangumi.update(update_data, 2)
+            db.commit()
 
         with Session(in_memory_engine) as fresh_session:
             statement = select(Bangumi).where(Bangumi.id == 2)

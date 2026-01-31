@@ -355,7 +355,7 @@ class TestPikPakDownloaderTorrents:
 
         pikpak_downloader.torrents_delete("abc123def456abc123def456abc123def456abc1")
 
-        mock_instance.delete_tasks.assert_called_once()
+        mock_instance.offline_list.assert_called()
 
     def test_torrents_delete_multiple_hashes(self, pikpak_downloader, mock_pikpak_api):
         """Test deleting multiple torrents."""

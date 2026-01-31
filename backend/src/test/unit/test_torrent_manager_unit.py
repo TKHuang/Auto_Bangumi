@@ -111,8 +111,8 @@ class TestTorrentManagerDeleteRule:
             assert result.status_code == 200
             assert "Test Anime" in result.msg_en
 
-            # Verify torrent was deleted from qBittorrent
-            mock_client.delete_torrent.assert_called_once_with(["abc123def456"])
+            # Verify torrent was deleted from qBittorrent with delete_files=True
+            mock_client.delete_torrent.assert_called_once_with(["abc123def456"], delete_files=True)
 
     @pytest.mark.unit
     def test_delete_many_rules_works(self, in_memory_engine):
