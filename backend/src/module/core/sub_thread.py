@@ -46,10 +46,11 @@ class RSSThread(ProgramStatus):
 
     @property
     def rss_thread(self):
-        if not self._rss_thread.is_alive():
-            self._rss_thread = threading.Thread(
-                target=self.rss_loop,
-            )
+        with self.lock:
+            if not self._rss_thread.is_alive():
+                self._rss_thread = threading.Thread(
+                    target=self.rss_loop,
+                )
         return self._rss_thread
 
 
@@ -83,8 +84,9 @@ class RenameThread(ProgramStatus):
 
     @property
     def rename_thread(self):
-        if not self._rename_thread.is_alive():
-            self._rename_thread = threading.Thread(
-                target=self.rename_loop,
-            )
+        with self.lock:
+            if not self._rename_thread.is_alive():
+                self._rename_thread = threading.Thread(
+                    target=self.rename_loop,
+                )
         return self._rename_thread

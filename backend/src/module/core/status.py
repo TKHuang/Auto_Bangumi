@@ -8,7 +8,7 @@ class ProgramStatus(Checker):
     def __init__(self):
         super().__init__()
         self.stop_event = threading.Event()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self._downloader_status = False
         self._torrents_status = False
 
