@@ -133,3 +133,13 @@ class TorrentDatabase:
                 t.renamed_file_count = None
                 count += 1
         return count
+
+    def get_unrenamed_hashes(self) -> set[str]:
+        """Get hashes of torrents that haven't been renamed yet.
+
+        Returns:
+            Set of torrent hashes (lowercase) where renamed_at is None.
+        """
+        statement = select(Torrent).where(Torrent.renamed_at.is_(None))
+        torrents = self.session.exec(statement).all()
+        return {t.hash.lower() for t in torrents if t.hash}
