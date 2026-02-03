@@ -11,8 +11,10 @@ router = APIRouter(prefix="/log", tags=["log"])
 @router.get("", response_model=str, dependencies=[Depends(get_current_user)])
 async def get_log():
     if LOG_PATH.exists():
-        with open(LOG_PATH, "rb") as f:
-            return Response(f.read(), media_type="text/plain")
+        with open(LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            last_100_lines = "".join(lines[-100:])
+            return Response(last_100_lines, media_type="text/plain")
     else:
         return Response("Log file not found", status_code=404)
 
