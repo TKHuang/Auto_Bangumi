@@ -19,8 +19,8 @@ class RSSEngine(Database):
     @staticmethod
     def _get_torrents(rss: RSSItem) -> list[Torrent]:
         with RequestContent() as req:
-            torrents = req.get_torrents(rss.url)
-            # Add RSS ID
+            # _filter="" bypasses global filter; per-bangumi filters apply during match_torrent
+            torrents = req.get_torrents(rss.url, _filter="")
             for torrent in torrents:
                 torrent.rss_id = rss.id
         return torrents
