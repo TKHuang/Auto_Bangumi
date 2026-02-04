@@ -14,10 +14,13 @@ from zen_bangumi.domain.models.rss import RSSItem
 from zen_bangumi.domain.models.torrent import Torrent
 from zen_bangumi.domain.parser.bangumi_parser import BangumiParser
 from zen_bangumi.repositories.bangumi import BangumiRepository
+from zen_bangumi.repositories.rss import RSSRepository
 from zen_bangumi.repositories.torrent import TorrentRepository
 
 logger = logging.getLogger(__name__)
 
+
+from dataclasses import field
 
 @dataclass
 class RefreshResult:
@@ -26,11 +29,7 @@ class RefreshResult:
     new_bangumi: int = 0
     new_torrents: int = 0
     downloads_triggered: int = 0
-    errors: list[str] = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -132,13 +131,14 @@ def process_rss_feed(
             )
             new_torrents_list.append(torrent)
 
-        # Create download command
-        download_cmd = DownloadTorrent(
-            torrent_url=link,
-            save_path="/downloads/Bangumi",  # Default path
-            bangumi_id=matched_bangumi.id if matched_bangumi else None,
-        )
-        download_commands.append(download_cmd)
+        # Create download command (only if bangumi matched)
+        if matched_bangumi:
+            download_cmd = DownloadTorrent(
+                torrent_url=link,
+                save_path="/downloads/Bangumi",
+                bangumi_id=matched_bangumi.id,
+            )
+            download_commands.append(download_cmd)
 
     return ProcessedFeed(
         new_bangumi=new_bangumi_list,
@@ -174,6 +174,7 @@ def _match_bangumi(parsed, existing_bangumi: list[Bangumi]) -> Optional[Bangumi]
 
 async def refresh_rss(
     rss_id: int,
+    rss_repo: RSSRepository,
     bangumi_repo: BangumiRepository,
     torrent_repo: TorrentRepository,
 ) -> RefreshResult:
@@ -181,6 +182,7 @@ async def refresh_rss(
 
     Args:
         rss_id: ID of RSS feed to refresh
+        rss_repo: RSS repository
         bangumi_repo: Bangumi repository
         torrent_repo: Torrent repository
 
@@ -190,20 +192,74 @@ async def refresh_rss(
     result = RefreshResult()
 
     try:
-        # Get RSS item from database
-        # Note: This would need RSSRepository, simplified for now
-        # rss_item = await rss_repo.get_by_id(rss_id)
+        rss_items = await rss_repo.get_all()
+        rss_item = next((r for r in rss_items if r.id == rss_id), None)
         
-        # For now, return empty result
-        # Full implementation would:
-        # 1. Fetch RSS feed via httpx
-        # 2. Parse with feedparser
-        # 3. Get existing bangumi and torrents
-        # 4. Call process_rss_feed
-        # 5. Save new bangumi and torrents
-        # 6. Execute download commands via interpreter
+        if not rss_item:
+            result.errors.append(f"RSS feed {rss_id} not found")
+            return result
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(rss_item.url)
+            response.raise_for_status()
+            feed_content = response.text
+
+        feed = feedparser.parse(feed_content)
         
-        logger.info(f"RSS refresh for feed {rss_id} - implementation pending")
+        if not feed.entries:
+            logger.warning(f"No entries found in RSS feed {rss_id}")
+            return result
+
+        existing_bangumi = await bangumi_repo.get_all()
+        
+        from zen_bangumi.domain.models.torrent import Torrent
+        from sqlalchemy import select
+        stmt = select(Torrent)
+        torrent_result = await torrent_repo.session.execute(stmt)
+        existing_torrents = list(torrent_result.scalars().all())
+
+        processed = process_rss_feed(
+            [dict(entry) for entry in feed.entries],  # type: ignore
+            rss_item,
+            existing_bangumi,
+            existing_torrents,
+        )
+
+        for bangumi in processed.new_bangumi:
+            bangumi_dict = {
+                "rss_id": bangumi.rss_id,
+                "official_title": bangumi.official_title,
+                "title_raw": bangumi.title_raw,
+                "season": bangumi.season,
+                "group_name": bangumi.group_name,
+                "dpi": bangumi.dpi,
+                "source": bangumi.source,
+                "subtitle": bangumi.subtitle,
+                "pending_review": bangumi.pending_review,
+                "filter": bangumi.filter,
+                "rss_link": bangumi.rss_link,
+            }
+            await bangumi_repo.create(bangumi_dict)
+            result.new_bangumi += 1
+
+        for torrent in processed.new_torrents:
+            torrent_dict = {
+                "bangumi_id": torrent.bangumi_id,
+                "rss_id": torrent.rss_id,
+                "name": torrent.name,
+                "url": torrent.url,
+                "hash": torrent.hash,
+                "downloaded": torrent.downloaded,
+            }
+            await torrent_repo.create(torrent_dict)
+            result.new_torrents += 1
+
+        result.downloads_triggered = len(processed.download_commands)
+        
+        logger.info(
+            f"RSS refresh complete for feed {rss_id}: "
+            f"{result.new_bangumi} bangumi, {result.new_torrents} torrents"
+        )
         
     except Exception as e:
         logger.error(f"Error refreshing RSS feed {rss_id}: {e}")
@@ -213,12 +269,14 @@ async def refresh_rss(
 
 
 async def refresh_all_rss(
+    rss_repo: RSSRepository,
     bangumi_repo: BangumiRepository,
     torrent_repo: TorrentRepository,
 ) -> dict[int, RefreshResult]:
     """Refresh all enabled RSS feeds sequentially.
 
     Args:
+        rss_repo: RSS repository
         bangumi_repo: Bangumi repository
         torrent_repo: Torrent repository
 
@@ -227,13 +285,17 @@ async def refresh_all_rss(
     """
     results: dict[int, RefreshResult] = {}
 
-    # Get all enabled RSS feeds
-    # For now, return empty results
-    # Full implementation would:
-    # 1. Get all enabled RSS feeds from RSSRepository
-    # 2. For each feed, call refresh_rss
-    # 3. Collect results
+    enabled_feeds = await rss_repo.get_enabled()
+    
+    for rss_item in enabled_feeds:
+        result = await refresh_rss(
+            rss_item.id,
+            rss_repo,
+            bangumi_repo,
+            torrent_repo,
+        )
+        results[rss_item.id] = result
 
-    logger.info("Batch RSS refresh - implementation pending")
+    logger.info(f"Batch RSS refresh complete: {len(results)} feeds processed")
 
     return results
