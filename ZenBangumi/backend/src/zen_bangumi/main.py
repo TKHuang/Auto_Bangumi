@@ -20,6 +20,7 @@ from zen_bangumi.api.search import router as search_router
 from zen_bangumi.config.loader import ConfigLoader
 from zen_bangumi.database.engine import create_all_tables, engine
 from zen_bangumi.domain.models.user import User
+from zen_bangumi.scheduler.fallback import AsyncScheduler
 from zen_bangumi.services.user import create_user
 
 logger = logging.getLogger(__name__)
@@ -53,11 +54,17 @@ async def lifespan(app: FastAPI):
             logger.warning("Default admin user created: username=admin, password=admin")
             logger.warning("IMPORTANT: Please change the default password immediately!")
     
+    scheduler = AsyncScheduler()
+    await scheduler.start()
+    app.state.scheduler = scheduler
+    logger.info("Background scheduler started")
+    
     logger.info("ZenBangumi startup complete")
     
     yield
     
     logger.info("Shutting down ZenBangumi...")
+    await scheduler.stop()
     await engine.dispose()
 
 
