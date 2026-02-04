@@ -6,8 +6,8 @@ from zen_bangumi.repositories.torrent import TorrentRepository
 
 
 @pytest.mark.asyncio
-async def test_create_torrent(test_session):
-    repo = TorrentRepository(test_session)
+async def test_create_torrent(db_session):
+    repo = TorrentRepository(db_session)
     data = {
         "name": "Test Torrent",
         "url": "https://example.com/torrent1",
@@ -23,8 +23,8 @@ async def test_create_torrent(test_session):
 
 
 @pytest.mark.asyncio
-async def test_create_torrent_with_duplicate_hash_returns_existing(test_session):
-    repo = TorrentRepository(test_session)
+async def test_create_torrent_with_duplicate_hash_returns_existing(db_session):
+    repo = TorrentRepository(db_session)
     
     data1 = {
         "name": "Torrent 1",
@@ -45,8 +45,8 @@ async def test_create_torrent_with_duplicate_hash_returns_existing(test_session)
 
 
 @pytest.mark.asyncio
-async def test_get_by_hash(test_session):
-    repo = TorrentRepository(test_session)
+async def test_get_by_hash(db_session):
+    repo = TorrentRepository(db_session)
     
     data = {
         "name": "Test Torrent",
@@ -62,8 +62,8 @@ async def test_get_by_hash(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_unrenamed(test_session):
-    repo = TorrentRepository(test_session)
+async def test_get_unrenamed(db_session):
+    repo = TorrentRepository(db_session)
     
     renamed = await repo.create({
         "name": "Renamed Torrent",
@@ -88,8 +88,8 @@ async def test_get_unrenamed(test_session):
 
 
 @pytest.mark.asyncio
-async def test_mark_renamed(test_session):
-    repo = TorrentRepository(test_session)
+async def test_mark_renamed(db_session):
+    repo = TorrentRepository(db_session)
     
     torrent = await repo.create({
         "name": "Test Torrent",
@@ -108,8 +108,8 @@ async def test_mark_renamed(test_session):
 
 
 @pytest.mark.asyncio
-async def test_mark_renamed_without_cloud_path(test_session):
-    repo = TorrentRepository(test_session)
+async def test_mark_renamed_without_cloud_path(db_session):
+    repo = TorrentRepository(db_session)
     
     torrent = await repo.create({
         "name": "Test Torrent",
@@ -126,8 +126,8 @@ async def test_mark_renamed_without_cloud_path(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_by_bangumi(test_session):
-    repo = TorrentRepository(test_session)
+async def test_get_by_bangumi(db_session):
+    repo = TorrentRepository(db_session)
     
     torrent1 = await repo.create({
         "name": "Torrent 1",
@@ -160,8 +160,8 @@ async def test_get_by_bangumi(test_session):
 
 
 @pytest.mark.asyncio
-async def test_create_torrent_without_hash(test_session):
-    repo = TorrentRepository(test_session)
+async def test_create_torrent_without_hash(db_session):
+    repo = TorrentRepository(db_session)
     
     data = {
         "name": "Test Torrent",

@@ -6,8 +6,8 @@ from zen_bangumi.repositories.torrent import TorrentRepository
 
 
 @pytest.mark.asyncio
-async def test_create_rss_item(test_session):
-    repo = RSSRepository(test_session)
+async def test_create_rss_item(db_session):
+    repo = RSSRepository(db_session)
     
     rss = await repo.create(
         url="https://example.com/rss",
@@ -24,8 +24,8 @@ async def test_create_rss_item(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_all(test_session):
-    repo = RSSRepository(test_session)
+async def test_get_all(db_session):
+    repo = RSSRepository(db_session)
     
     await repo.create("https://example.com/rss1", "RSS 1")
     await repo.create("https://example.com/rss2", "RSS 2")
@@ -35,8 +35,8 @@ async def test_get_all(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_enabled(test_session):
-    repo = RSSRepository(test_session)
+async def test_get_enabled(db_session):
+    repo = RSSRepository(db_session)
     
     enabled = await repo.create("https://example.com/rss1", "RSS 1", enabled=True)
     disabled = await repo.create("https://example.com/rss2", "RSS 2", enabled=False)
@@ -49,8 +49,8 @@ async def test_get_enabled(test_session):
 
 
 @pytest.mark.asyncio
-async def test_update_rss_item(test_session):
-    repo = RSSRepository(test_session)
+async def test_update_rss_item(db_session):
+    repo = RSSRepository(db_session)
     
     rss = await repo.create("https://example.com/rss", "Original Name")
     
@@ -62,10 +62,10 @@ async def test_update_rss_item(test_session):
 
 
 @pytest.mark.asyncio
-async def test_delete_rss_cascades_to_bangumi_and_torrents(test_session):
-    rss_repo = RSSRepository(test_session)
-    bangumi_repo = BangumiRepository(test_session)
-    torrent_repo = TorrentRepository(test_session)
+async def test_delete_rss_cascades_to_bangumi_and_torrents(db_session):
+    rss_repo = RSSRepository(db_session)
+    bangumi_repo = BangumiRepository(db_session)
+    torrent_repo = TorrentRepository(db_session)
     
     rss = await rss_repo.create("https://example.com/rss", "Test RSS")
     
@@ -92,8 +92,8 @@ async def test_delete_rss_cascades_to_bangumi_and_torrents(test_session):
 
 
 @pytest.mark.asyncio
-async def test_delete_nonexistent_rss_raises_error(test_session):
-    repo = RSSRepository(test_session)
+async def test_delete_nonexistent_rss_raises_error(db_session):
+    repo = RSSRepository(db_session)
     
     with pytest.raises(ValueError, match="not found"):
         await repo.delete(9999)

@@ -7,12 +7,12 @@ from zen_bangumi.api.auth import router, get_session
 from zen_bangumi.services.user import create_user
 
 
-def create_test_app(test_session):
+def create_test_app(db_session):
     app = FastAPI()
     
     class DBSessionMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
-            request.state.db = test_session
+            request.state.db = db_session
             response = await call_next(request)
             return response
     
@@ -22,11 +22,11 @@ def create_test_app(test_session):
 
 
 @pytest.mark.asyncio
-async def test_login_with_valid_credentials_returns_200_and_sets_cookie(test_session):
-    await create_user("testuser", "testpass123", test_session)
-    await test_session.commit()
+async def test_login_with_valid_credentials_returns_200_and_sets_cookie(db_session):
+    await create_user("testuser", "testpass123", db_session)
+    await db_session.commit()
     
-    app = create_test_app(test_session)
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -44,11 +44,11 @@ async def test_login_with_valid_credentials_returns_200_and_sets_cookie(test_ses
 
 
 @pytest.mark.asyncio
-async def test_login_with_invalid_credentials_returns_401(test_session):
-    await create_user("testuser", "correctpass", test_session)
-    await test_session.commit()
+async def test_login_with_invalid_credentials_returns_401(db_session):
+    await create_user("testuser", "correctpass", db_session)
+    await db_session.commit()
     
-    app = create_test_app(test_session)
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -64,8 +64,8 @@ async def test_login_with_invalid_credentials_returns_401(test_session):
 
 
 @pytest.mark.asyncio
-async def test_logout_clears_cookie(test_session):
-    app = create_test_app(test_session)
+async def test_logout_clears_cookie(db_session):
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -78,11 +78,11 @@ async def test_logout_clears_cookie(test_session):
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_with_valid_token_returns_200_and_new_cookie(test_session):
-    await create_user("testuser", "testpass123", test_session)
-    await test_session.commit()
+async def test_refresh_token_with_valid_token_returns_200_and_new_cookie(db_session):
+    await create_user("testuser", "testpass123", db_session)
+    await db_session.commit()
     
-    app = create_test_app(test_session)
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -107,8 +107,8 @@ async def test_refresh_token_with_valid_token_returns_200_and_new_cookie(test_se
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_without_token_returns_401(test_session):
-    app = create_test_app(test_session)
+async def test_refresh_token_without_token_returns_401(db_session):
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -121,11 +121,11 @@ async def test_refresh_token_without_token_returns_401(test_session):
 
 
 @pytest.mark.asyncio
-async def test_update_password_with_correct_old_password_returns_200(test_session):
-    await create_user("testuser", "oldpass123", test_session)
-    await test_session.commit()
+async def test_update_password_with_correct_old_password_returns_200(db_session):
+    await create_user("testuser", "oldpass123", db_session)
+    await db_session.commit()
     
-    app = create_test_app(test_session)
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -150,11 +150,11 @@ async def test_update_password_with_correct_old_password_returns_200(test_sessio
 
 
 @pytest.mark.asyncio
-async def test_update_password_with_wrong_old_password_returns_401(test_session):
-    await create_user("testuser", "correctpass", test_session)
-    await test_session.commit()
+async def test_update_password_with_wrong_old_password_returns_401(db_session):
+    await create_user("testuser", "correctpass", db_session)
+    await db_session.commit()
     
-    app = create_test_app(test_session)
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -179,8 +179,8 @@ async def test_update_password_with_wrong_old_password_returns_401(test_session)
 
 
 @pytest.mark.asyncio
-async def test_update_password_without_authentication_returns_401(test_session):
-    app = create_test_app(test_session)
+async def test_update_password_without_authentication_returns_401(db_session):
+    app = create_test_app(db_session)
     
     async with AsyncClient(
         transport=ASGITransport(app=app),

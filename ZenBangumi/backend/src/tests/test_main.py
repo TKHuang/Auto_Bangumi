@@ -7,7 +7,7 @@ from zen_bangumi.services.user import create_user
 
 
 @pytest.mark.asyncio
-async def test_app_starts_without_errors(test_session):
+async def test_app_starts_without_errors(db_session):
     """Test that FastAPI app instance can be created."""
     from zen_bangumi.main import app
     
@@ -16,7 +16,7 @@ async def test_app_starts_without_errors(test_session):
 
 
 @pytest.mark.asyncio
-async def test_cors_headers_present_in_response(test_session):
+async def test_cors_headers_present_in_response(db_session):
     """Test that CORS middleware adds appropriate headers to responses."""
     from zen_bangumi.main import app
     
@@ -34,7 +34,7 @@ async def test_cors_headers_present_in_response(test_session):
 
 
 @pytest.mark.asyncio
-async def test_auth_router_registered(test_session):
+async def test_auth_router_registered(db_session):
     """Test that auth router is registered in the application."""
     from zen_bangumi.main import app
     
@@ -43,7 +43,7 @@ async def test_auth_router_registered(test_session):
 
 
 @pytest.mark.asyncio
-async def test_unauthorized_exception_returns_json(test_session):
+async def test_unauthorized_exception_returns_json(db_session):
     """Test that 401 exceptions return proper JSON responses."""
     from zen_bangumi.main import app
     
@@ -87,21 +87,21 @@ async def test_lifespan_creates_database_tables(test_engine):
 
 
 @pytest.mark.asyncio
-async def test_lifespan_admin_user_creation_logic(test_session):
+async def test_lifespan_admin_user_creation_logic(db_session):
     """Test that admin user can be created when no users exist."""
     from sqlalchemy import select
     from zen_bangumi.domain.models.user import User
     
     stmt = select(User)
-    result = await test_session.execute(stmt)
+    result = await db_session.execute(stmt)
     users = result.scalars().all()
     
     if not users:
-        await create_user("admin", "admin", test_session)
-        await test_session.commit()
+        await create_user("admin", "admin", db_session)
+        await db_session.commit()
     
     stmt = select(User).where(User.username == "admin")
-    result = await test_session.execute(stmt)
+    result = await db_session.execute(stmt)
     admin_user = result.scalar_one_or_none()
     
     assert admin_user is not None

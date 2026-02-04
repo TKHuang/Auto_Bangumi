@@ -6,8 +6,8 @@ from zen_bangumi.repositories.exceptions import ConcurrentModificationError
 
 
 @pytest.mark.asyncio
-async def test_create_bangumi(test_session):
-    repo = BangumiRepository(test_session)
+async def test_create_bangumi(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -24,8 +24,8 @@ async def test_create_bangumi(test_session):
 
 
 @pytest.mark.asyncio
-async def test_create_bangumi_with_empty_group_name_defaults_to_unknown(test_session):
-    repo = BangumiRepository(test_session)
+async def test_create_bangumi_with_empty_group_name_defaults_to_unknown(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -38,8 +38,8 @@ async def test_create_bangumi_with_empty_group_name_defaults_to_unknown(test_ses
 
 
 @pytest.mark.asyncio
-async def test_create_duplicate_composite_key_raises_error(test_session):
-    repo = BangumiRepository(test_session)
+async def test_create_duplicate_composite_key_raises_error(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -53,8 +53,8 @@ async def test_create_duplicate_composite_key_raises_error(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_by_id(test_session):
-    repo = BangumiRepository(test_session)
+async def test_get_by_id(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -70,8 +70,8 @@ async def test_get_by_id(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_by_composite_key(test_session):
-    repo = BangumiRepository(test_session)
+async def test_get_by_composite_key(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -88,8 +88,8 @@ async def test_get_by_composite_key(test_session):
 
 
 @pytest.mark.asyncio
-async def test_update_with_correct_version(test_session):
-    repo = BangumiRepository(test_session)
+async def test_update_with_correct_version(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -109,8 +109,8 @@ async def test_update_with_correct_version(test_session):
 
 
 @pytest.mark.asyncio
-async def test_update_with_wrong_version_raises_concurrent_modification_error(test_session):
-    repo = BangumiRepository(test_session)
+async def test_update_with_wrong_version_raises_concurrent_modification_error(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -128,8 +128,8 @@ async def test_update_with_wrong_version_raises_concurrent_modification_error(te
 
 
 @pytest.mark.asyncio
-async def test_delete_soft_deletes_bangumi(test_session):
-    repo = BangumiRepository(test_session)
+async def test_delete_soft_deletes_bangumi(db_session):
+    repo = BangumiRepository(db_session)
     data = {
         "official_title": "Test Bangumi",
         "season": 1,
@@ -146,8 +146,8 @@ async def test_delete_soft_deletes_bangumi(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_active_excludes_deleted_and_pending(test_session):
-    repo = BangumiRepository(test_session)
+async def test_get_active_excludes_deleted_and_pending(db_session):
+    repo = BangumiRepository(db_session)
     
     active = await repo.create({
         "official_title": "Active Bangumi",
@@ -182,8 +182,8 @@ async def test_get_active_excludes_deleted_and_pending(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_pending_review(test_session):
-    repo = BangumiRepository(test_session)
+async def test_get_pending_review(db_session):
+    repo = BangumiRepository(db_session)
     
     active = await repo.create({
         "official_title": "Active Bangumi",
@@ -209,8 +209,8 @@ async def test_get_pending_review(test_session):
 
 
 @pytest.mark.asyncio
-async def test_match_torrent_finds_matching_bangumi(test_session):
-    repo = BangumiRepository(test_session)
+async def test_match_torrent_finds_matching_bangumi(db_session):
+    repo = BangumiRepository(db_session)
     
     bangumi = await repo.create({
         "official_title": "Test Bangumi",
@@ -230,8 +230,8 @@ async def test_match_torrent_finds_matching_bangumi(test_session):
 
 
 @pytest.mark.asyncio
-async def test_match_torrent_returns_none_for_pending_bangumi(test_session):
-    repo = BangumiRepository(test_session)
+async def test_match_torrent_returns_none_for_pending_bangumi(db_session):
+    repo = BangumiRepository(db_session)
     
     await repo.create({
         "official_title": "Pending Bangumi",
@@ -250,8 +250,8 @@ async def test_match_torrent_returns_none_for_pending_bangumi(test_session):
 
 
 @pytest.mark.asyncio
-async def test_get_all_with_filters(test_session):
-    repo = BangumiRepository(test_session)
+async def test_get_all_with_filters(db_session):
+    repo = BangumiRepository(db_session)
     
     await repo.create({
         "official_title": "Bangumi A",
