@@ -1,0 +1,20 @@
+{
+  "app": {
+    "title": "ZenBangumi",
+    "logout": "登出"
+  },
+  "nav": {
+    "dashboard": "我的番組",
+    "rss": "RSS 管理",
+    "config": "系統設定",
+    "log": "日誌",
+    "calendar": "追番日曆",
+    "downloader": "下載器",
+    "search": "搜尋"
+  },
+  "status": {
+    "running": "運行中",
+    "stopped": "已停止",
+    "error": "錯誤"
+  }
+}

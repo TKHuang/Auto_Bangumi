@@ -1,0 +1,20 @@
+{
+  "app": {
+    "title": "ZenBangumi",
+    "logout": "Logout"
+  },
+  "nav": {
+    "dashboard": "My Bangumi",
+    "rss": "RSS Manager",
+    "config": "Settings",
+    "log": "Logs",
+    "calendar": "Calendar",
+    "downloader": "Downloader",
+    "search": "Search"
+  },
+  "status": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "error": "Error"
+  }
+}
