@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from zen_bangumi.api.auth import router as auth_router
 from zen_bangumi.api.bangumi import router as bangumi_router
+from zen_bangumi.api.config import router as config_router
+from zen_bangumi.api.log import router as log_router
+from zen_bangumi.api.program import router as program_router
 from zen_bangumi.api.rss import router as rss_router
 from zen_bangumi.domain.models.base import Base
 from zen_bangumi.domain.models.user import User
@@ -86,6 +89,9 @@ async def test_app(test_engine):
     app.add_middleware(TestDBSessionMiddleware)
     app.include_router(auth_router)
     app.include_router(bangumi_router)
+    app.include_router(config_router)
+    app.include_router(log_router)
+    app.include_router(program_router)
     app.include_router(rss_router)
     
     return app
