@@ -14,6 +14,7 @@ from zen_bangumi.api.config import router as config_router
 from zen_bangumi.api.log import router as log_router
 from zen_bangumi.api.program import router as program_router
 from zen_bangumi.api.rss import router as rss_router
+from zen_bangumi.api.search import router as search_router
 from zen_bangumi.domain.models.base import Base
 from zen_bangumi.domain.models.user import User
 from zen_bangumi.services.auth import create_access_token
@@ -93,6 +94,7 @@ async def test_app(test_engine):
     app.include_router(log_router)
     app.include_router(program_router)
     app.include_router(rss_router)
+    app.include_router(search_router)
     
     return app
 

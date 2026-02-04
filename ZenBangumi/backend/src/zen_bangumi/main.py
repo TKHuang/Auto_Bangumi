@@ -16,6 +16,7 @@ from zen_bangumi.api.config import router as config_router
 from zen_bangumi.api.log import router as log_router
 from zen_bangumi.api.program import router as program_router
 from zen_bangumi.api.rss import router as rss_router
+from zen_bangumi.api.search import router as search_router
 from zen_bangumi.config.loader import ConfigLoader
 from zen_bangumi.database.engine import create_all_tables, engine
 from zen_bangumi.domain.models.user import User
@@ -109,3 +110,4 @@ app.include_router(config_router)
 app.include_router(log_router)
 app.include_router(program_router)
 app.include_router(rss_router)
+app.include_router(search_router)
