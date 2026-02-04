@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+#
+# Combined Jellyfin + Rclone image
+# Eliminates FUSE mount propagation issues by keeping the rclone FUSE mount
+# internal to the container — no rshared/rslave needed.
+#
+
+FROM ghcr.io/jellyfin/jellyfin:latest
+
+# Install rclone, FUSE, supervisord, and config parsing dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        fuse3 \
+        jq \
+        ca-certificates \
+        curl \
+        unzip \
+        supervisor \
+    && curl https://rclone.org/install.sh | bash \
+    && apt-get remove -y curl unzip \
+    && apt-get autoremove -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "user_allow_other" >> /etc/fuse.conf
+
+# Internal FUSE mount point + cache dirs
+RUN mkdir -p /media/pikpak /cache/rclone /cache/jellyfin
+
+# Copy all scripts
+COPY scripts/jellyfin-rclone-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY scripts/rclone-mount.sh /usr/local/bin/rclone-mount.sh
+COPY scripts/jellyfin-start.sh /usr/local/bin/jellyfin-start.sh
+COPY scripts/supervisord.jellyfin-rclone.conf /etc/supervisor/supervisord.conf
+
+RUN chmod +x \
+    /usr/local/bin/entrypoint.sh \
+    /usr/local/bin/rclone-mount.sh \
+    /usr/local/bin/jellyfin-start.sh
+
+EXPOSE 8096
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

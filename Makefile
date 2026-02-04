@@ -9,10 +9,16 @@
 #   make logs       - Follow all logs
 # =============================================================================
 
-.PHONY: dev dev-build down logs clean help
+.PHONY: dev dev-build down logs clean help build-jellyfin-rclone build-ab build-all
 
 # Default target
 .DEFAULT_GOAL := help
+
+# Configurable image names/tags
+JELLYFIN_RCLONE_IMAGE ?= jellyfin-rclone
+JELLYFIN_RCLONE_TAG   ?= latest
+AB_IMAGE              ?= ab
+AB_TAG                ?= pikpak
 
 # Development environment
 dev: ## Start development environment (detached)
@@ -53,6 +59,15 @@ shell-backend: ## Open shell in backend container
 
 shell-webui: ## Open shell in webui container
 	docker compose -f docker-compose.dev.yml exec webui sh
+
+# Production image builds
+build-jellyfin-rclone: ## Build combined Jellyfin + Rclone image
+	docker build -f Dockerfile.jellyfin-rclone -t $(JELLYFIN_RCLONE_IMAGE):$(JELLYFIN_RCLONE_TAG) .
+
+build-ab: ## Build AutoBangumi image
+	docker build -f Dockerfile -t $(AB_IMAGE):$(AB_TAG) .
+
+build-all: build-ab build-jellyfin-rclone ## Build all production images
 
 # Help
 help: ## Show this help message

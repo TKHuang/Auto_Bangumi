@@ -1,0 +1,61 @@
+services:
+  autobangumi:
+    image: ab:pikpak
+    container_name: ab
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+    restart: unless-stopped
+    networks:
+      - ab-network
+    ports:
+      - "7892:7892"
+    volumes:
+      - ./ab-config:/app/config
+      - ./ab-data:/app/data
+    environment:
+      - TZ=Asia/Taipei
+      - UMASK=022
+
+  jellyfin:
+    image: jellyfin-rclone:latest
+    container_name: jellyfin
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+    restart: unless-stopped
+    depends_on:
+      - autobangumi
+    networks:
+      - ab-network
+    ports:
+      - "8096:8096"
+    volumes:
+      # AB config (read-only) — rclone reads PikPak credentials from here
+      - ./ab-config:/ab-config:ro
+      # Jellyfin config and cache
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache/jellyfin
+      # Custom fonts for subtitles
+      - ./fonts:/usr/share/fonts/truetype/custom:ro
+      # Rclone VFS cache — put on fast storage for best performance
+      - /Volumes/Tomato/rclone-cache:/cache/rclone
+      # Qbittorrent media
+      - /Volumes/Tomato/Bangumi:/media/qbittorrent
+      # PikPak: mounted internally by rclone at /media/pikpak (no host volume needed)
+    environment:
+      - TZ=Asia/Taipei
+      - RCLONE_CACHE_MAX_SIZE=500G
+      - RCLONE_CACHE_MAX_AGE=30d
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+
+networks:
+  ab-network:
+    driver: bridge
