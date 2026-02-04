@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zen-bangumi"
+version = "0.1.0"
+description = "ZenBangumi - Rewrite of Auto_Bangumi"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests for individual components",
+    "integration: Integration tests spanning multiple components",
+    "e2e: End-to-end tests for complete user workflows",
+    "slow: Tests that are slow to execute (performance benchmarks)",
+    "edge_case: Tests for edge cases and boundary conditions",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+select = ["E", "F", "I"]
+ignore = ["E501", "F401"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311"]
