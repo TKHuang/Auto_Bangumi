@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from zen_bangumi.api.auth import router as auth_router
 from zen_bangumi.api.bangumi import router as bangumi_router
+from zen_bangumi.api.rss import router as rss_router
 from zen_bangumi.config.loader import ConfigLoader
 from zen_bangumi.database.engine import create_all_tables, engine
 from zen_bangumi.domain.models.user import User
@@ -101,3 +102,4 @@ async def unauthorized_handler(request: Request, exc):
 
 app.include_router(auth_router)
 app.include_router(bangumi_router)
+app.include_router(rss_router)

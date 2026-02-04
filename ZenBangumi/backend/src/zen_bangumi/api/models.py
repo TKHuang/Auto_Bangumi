@@ -94,3 +94,44 @@ class TorrentResponse(BaseModel):
 class BangumiDeleteRequest(BaseModel):
     """Request model for batch delete."""
     bangumi_ids: list[int] = Field(..., min_length=1)
+
+
+# RSS API Models
+
+
+class RSSCreateRequest(BaseModel):
+    """Request model for creating a new RSS feed."""
+    name: Optional[str] = Field(None, max_length=200)
+    url: str = Field(..., min_length=1, max_length=1000)
+    aggregate: bool = Field(False, description="Whether this is an aggregate RSS feed")
+    parser: str = Field("mikan", max_length=50)
+    enabled: bool = Field(True, description="Whether this RSS feed is enabled")
+
+
+class RSSUpdateRequest(BaseModel):
+    """Request model for updating an RSS feed."""
+    name: Optional[str] = Field(None, max_length=200)
+    url: Optional[str] = Field(None, min_length=1, max_length=1000)
+    enabled: Optional[bool] = None
+    aggregate: Optional[bool] = None
+    parser: Optional[str] = Field(None, max_length=50)
+
+
+class RSSResponse(BaseModel):
+    """Response model for RSS feed data."""
+    model_config = {"from_attributes": True}
+    
+    id: int
+    name: Optional[str]
+    url: str
+    aggregate: bool
+    parser: str
+    enabled: bool
+    last_update: Optional[str]
+    last_status: Optional[str]
+    last_error: Optional[str]
+
+
+class PendingCountResponse(BaseModel):
+    """Response model for pending bangumi count."""
+    pending_count: int
