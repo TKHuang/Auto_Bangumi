@@ -1,55 +1,39 @@
-"""
-Pytest configuration and shared fixtures for ZenBangumi tests.
-
-Provides:
-- Async SQLite test engine (in-memory)
-- Async session factory
-- FastAPI TestClient with async support
-- Test configuration
-"""
-
 import asyncio
+from datetime import timedelta
 from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from httpx import AsyncClient
 
+from zen_bangumi.api.auth import router as auth_router
+from zen_bangumi.api.bangumi import router as bangumi_router
 from zen_bangumi.domain.models.base import Base
+from zen_bangumi.domain.models.user import User
+from zen_bangumi.services.auth import create_access_token
+from zen_bangumi.services.user import create_user
 
 
 @pytest_asyncio.fixture
 async def test_engine():
-    """
-    Create an in-memory SQLite async engine for testing.
-    
-    Uses sqlite+aiosqlite:// for async support.
-    WAL mode is not applicable to in-memory databases.
-    """
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         echo=False,
         connect_args={"check_same_thread": False},
     )
     
-    # Create all tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
     yield engine
     
-    # Cleanup
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def test_session(test_engine):
-    """
-    Create an async session for database operations in tests.
-    
-    Each test gets a fresh session connected to the in-memory test database.
-    """
+async def db_session(test_engine):
     async_session_factory = async_sessionmaker(
         test_engine,
         class_=AsyncSession,
@@ -64,28 +48,72 @@ async def test_session(test_engine):
 
 
 @pytest_asyncio.fixture
-async def test_client(test_engine):
-    """
-    Create a FastAPI TestClient with async support using httpx.AsyncClient.
+async def test_user(db_session: AsyncSession) -> User:
+    user = await create_user("testuser", "testpass", db_session)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_app(test_engine):
+    app = FastAPI()
     
-    This fixture is prepared for future use when FastAPI app is created.
-    Currently returns a basic AsyncClient for testing async HTTP operations.
-    """
-    client = AsyncClient(base_url="http://test")
-    try:
+    async def get_test_db():
+        async_session_factory = async_sessionmaker(
+            test_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        async with async_session_factory() as session:
+            yield session
+    
+    from starlette.middleware.base import BaseHTTPMiddleware
+    
+    class TestDBSessionMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            async_session_factory = async_sessionmaker(
+                test_engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+            )
+            async with async_session_factory() as session:
+                request.state.db = session
+                response = await call_next(request)
+            return response
+    
+    app.add_middleware(TestDBSessionMiddleware)
+    app.include_router(auth_router)
+    app.include_router(bangumi_router)
+    
+    return app
+
+
+@pytest_asyncio.fixture
+async def client(test_app: FastAPI, test_user: User):
+    token = create_access_token(test_user.id, timedelta(hours=1))
+    
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        cookies={"access_token": token},
+    ) as client:
         yield client
-    finally:
-        await client.aclose()
+
+
+@pytest_asyncio.fixture
+async def client_no_auth(test_app: FastAPI):
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        yield client
 
 
 @pytest.fixture
 def test_config():
-    """
-    Provide a test configuration object.
-    
-    Returns a dict with default test settings.
-    Can be extended as config models are created.
-    """
     return {
         "debug": True,
         "database_url": "sqlite+aiosqlite:///:memory:",
@@ -95,11 +123,6 @@ def test_config():
 
 @pytest.fixture
 def event_loop():
-    """
-    Create an event loop for async tests.
-    
-    pytest-asyncio uses this to run async fixtures and tests.
-    """
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
