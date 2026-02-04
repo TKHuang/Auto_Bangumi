@@ -63,6 +63,7 @@ class TorrentManager(Database):
                 if file:
                     torrent_message = self.delete_torrents(data, client, delete_files=delete_files)
                 self.bangumi.delete_one(int(_id))
+                self.commit()
                 logger.info(f"[Manager] Delete rule for {data.official_title}")
                 torrent_msg_en = torrent_message.msg_en if torrent_message else ""
                 torrent_msg_zh = torrent_message.msg_zh if torrent_message else ""
@@ -87,6 +88,7 @@ class TorrentManager(Database):
                 # client.remove_rule(data.rule_name)
                 data.deleted = True
                 self.bangumi.update(data)
+                self.commit()
                 if file:
                     torrent_message = self.delete_torrents(data, client)
                     return torrent_message
@@ -133,6 +135,7 @@ class TorrentManager(Database):
 
         # Batch delete from database
         count = self.bangumi.delete_many(ids)
+        self.commit()
         logger.info(f"[Manager] Batch deleted {count} bangumi rules")
 
         return ResponseModel(
@@ -170,6 +173,7 @@ class TorrentManager(Database):
 
         # Batch disable in database
         count = self.bangumi.disable_many(ids)
+        self.commit()
         logger.info(f"[Manager] Batch disabled {count} bangumi rules")
 
         return ResponseModel(
@@ -184,6 +188,7 @@ class TorrentManager(Database):
         if data:
             data.deleted = False
             self.bangumi.update(data)
+            self.commit()
             logger.info(f"[Manager] Enable rule for {data.official_title}")
             return ResponseModel(
                 status_code=200,
@@ -225,6 +230,7 @@ class TorrentManager(Database):
                     logger.debug("[DEBUG] update_rule: match_list is empty, skipping move_torrent")
             data.save_path = path
             self.bangumi.update(data, bangumi_id)
+            self.commit()
 
             # Clear rename status if rename-relevant fields changed
             if rename_fields_changed:
@@ -284,6 +290,7 @@ class TorrentManager(Database):
                     TitleParser().tmdb_poster_parser(bangumi)
 
         self.bangumi.update_all(bangumis)
+        self.commit()
         return ResponseModel(
             status_code=200,
             status=True,
@@ -320,6 +327,7 @@ class TorrentManager(Database):
             TitleParser().tmdb_poster_parser(bangumi)
 
         self.bangumi.update(bangumi)
+        self.commit()
         return ResponseModel(
             status_code=200,
             status=True,
