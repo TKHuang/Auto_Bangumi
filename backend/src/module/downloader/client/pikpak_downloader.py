@@ -720,7 +720,9 @@ class PikPakDownloader:
     def _find_file_id_by_path(self, cloud_path: str) -> str | None:
         """Find a file ID by its full cloud path.
 
-        Traverses the folder structure to locate the file.
+        Validates full path resolution to avoid returning a parent folder ID
+        when the target file doesn't exist (which would cause file_rename to
+        rename the folder, corrupting directory structure).
 
         Args:
             cloud_path: Full path like "/downloads/Bangumi/Series/S01E01.mkv".
@@ -739,6 +741,20 @@ class PikPakDownloader:
                 self._client.path_to_id(cloud_path, create=False)
             )
             if path_info:
+                returned_path = "/".join(
+                    [p.get("name", "") for p in path_info]
+                )
+                requested_path = cloud_path.lstrip("/")
+
+                if returned_path != requested_path:
+                    logger.warning(
+                        f"Partial path resolution in _find_file_id_by_path: "
+                        f"requested '{cloud_path}' but resolved to "
+                        f"'/{returned_path}'. Returning None to prevent "
+                        f"operating on wrong file/folder."
+                    )
+                    return None
+
                 file_id = path_info[-1].get("id")
                 logger.debug(f"Found file ID: {file_id} for path: {cloud_path}")
                 return file_id

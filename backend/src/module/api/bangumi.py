@@ -2,7 +2,6 @@ import anyio
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
-from module.database import Database
 from module.manager import Renamer, TorrentManager, TorrentStatusManager
 from module.models import APIResponse, Bangumi, BangumiUpdate, ResponseModel
 from module.rss import RSSEngine
@@ -128,6 +127,9 @@ async def retrigger_rename(bangumi_id: int):
     belonging to the specified bangumi, then immediately triggers
     the rename process for those torrents.
 
+    Both operations happen atomically under the rename lock to prevent
+    the background rename loop from picking up cleared torrents.
+
     Args:
         bangumi_id: The bangumi ID whose torrents should be re-renamed.
 
@@ -135,23 +137,16 @@ async def retrigger_rename(bangumi_id: int):
         APIResponse with count of renamed files.
     """
     def _sync():
-        # Step 1: Clear rename status
-        with Database() as db:
-            reset_count = db.torrent.clear_rename_status(bangumi_id)
-            db.commit()
-
-        # Step 2: Trigger immediate rename for this bangumi
         with Renamer() as renamer:
-            renamed_files = renamer.rename_bangumi(bangumi_id)
+            renamed_files = renamer.rename_bangumi(bangumi_id, clear_status=True)
+        return len(renamed_files)
 
-        return reset_count, len(renamed_files)
-
-    reset_count, renamed_count = await anyio.to_thread.run_sync(_sync)
+    renamed_count = await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,
         content={
-            "msg_en": f"Reset {reset_count} torrents, renamed {renamed_count} files",
-            "msg_zh": f"已重置 {reset_count} 个种子，重命名 {renamed_count} 个文件",
+            "msg_en": f"Re-rename completed, renamed {renamed_count} files",
+            "msg_zh": f"重新重命名完成，重命名了 {renamed_count} 个文件",
         },
     )
 

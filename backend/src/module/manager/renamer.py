@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 from datetime import datetime
 
 from module.conf import settings
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class Renamer(DownloadClient):
+    _rename_lock = threading.Lock()
+
     def __init__(self):
         super().__init__()
         self._parser = TitleParser()
@@ -216,6 +219,17 @@ class Renamer(DownloadClient):
                         logger.warning(f"[Renamer] {subtitle_path} rename failed")
 
     def rename(self) -> list[Notification]:
+        if not Renamer._rename_lock.acquire(blocking=False):
+            logger.info(
+                "[Renamer] Another rename process is running, skipping this cycle."
+            )
+            return []
+        try:
+            return self._do_rename()
+        finally:
+            Renamer._rename_lock.release()
+
+    def _do_rename(self) -> list[Notification]:
         logger.debug("[Renamer] Start rename process.")
         rename_method = settings.bangumi_manage.rename_method
         all_torrents = self.get_torrent_info()
@@ -267,7 +281,9 @@ class Renamer(DownloadClient):
         logger.debug("[Renamer] Rename process finished.")
         return renamed_info
 
-    def rename_bangumi(self, bangumi_id: int) -> list[Notification]:
+    def rename_bangumi(
+        self, bangumi_id: int, clear_status: bool = False
+    ) -> list[Notification]:
         """Rename and move files for a specific bangumi only.
 
         Uses the bangumi's database settings (official_title, season) for renaming
@@ -279,110 +295,114 @@ class Renamer(DownloadClient):
 
         Args:
             bangumi_id: The bangumi ID to rename files for.
+            clear_status: If True, clear rename status before renaming
+                (makes clear + rename atomic under the lock).
 
         Returns:
             List of notifications for renamed files.
         """
-        logger.info(f"[Renamer] Start rename process for bangumi {bangumi_id}.")
+        with Renamer._rename_lock:
+            if clear_status:
+                with Database() as db:
+                    reset_count = db.torrent.clear_rename_status(bangumi_id)
+                    db.commit()
+                logger.info(
+                    f"[Renamer] Cleared rename status for {reset_count} "
+                    f"torrents of bangumi {bangumi_id}"
+                )
 
-        # Get bangumi settings and torrent hashes from database
-        with Database() as db:
-            bangumi = db.bangumi.search_id(bangumi_id)
-            if not bangumi:
-                logger.warning(f"[Renamer] Bangumi {bangumi_id} not found in database")
+            logger.info(f"[Renamer] Start rename process for bangumi {bangumi_id}.")
+
+            # Get bangumi settings and torrent hashes from database
+            with Database() as db:
+                bangumi = db.bangumi.search_id(bangumi_id)
+                if not bangumi:
+                    logger.warning(f"[Renamer] Bangumi {bangumi_id} not found in database")
+                    return []
+
+                bangumi_torrents = db.torrent.search_by_bangumi_id(bangumi_id)
+                target_hashes = {t.hash.lower() for t in bangumi_torrents if t.hash}
+
+            if not target_hashes:
+                logger.warning(f"[Renamer] No torrents found for bangumi {bangumi_id}")
                 return []
 
-            bangumi_torrents = db.torrent.search_by_bangumi_id(bangumi_id)
-            target_hashes = {t.hash.lower() for t in bangumi_torrents if t.hash}
-
-        if not target_hashes:
-            logger.warning(f"[Renamer] No torrents found for bangumi {bangumi_id}")
-            return []
-
-        # Use bangumi's database settings (user-configured)
-        bangumi_name = bangumi.official_title
-        season = bangumi.season
-        # Calculate target save path based on database settings
-        target_save_path = self._gen_save_path(bangumi)
-        logger.debug(
-            f"[Renamer] Bangumi settings: name='{bangumi_name}', season={season}, "
-            f"target_path='{target_save_path}', torrents={len(target_hashes)}"
-        )
-
-        # Get all torrent info from downloader
-        rename_method = settings.bangumi_manage.rename_method
-        all_torrents = self.get_torrent_info()
-
-        # Filter to only this bangumi's torrents
-        torrents_info = [t for t in all_torrents if t.hash.lower() in target_hashes]
-        logger.debug(f"[Renamer] {len(torrents_info)} torrents matched from downloader")
-
-        # First pass: move files to correct season folder if needed
-        hashes_to_move = []
-        for info in torrents_info:
-            # Check if current path differs from target path (season changed)
-            if info.save_path != target_save_path:
-                logger.info(
-                    f"[Renamer] Season folder changed: '{info.save_path}' -> '{target_save_path}'"
-                )
-                hashes_to_move.append(info.hash)
-
-        if hashes_to_move:
-            logger.info(
-                f"[Renamer] Moving {len(hashes_to_move)} torrents to '{target_save_path}'"
+            # Use bangumi's database settings (user-configured)
+            bangumi_name = bangumi.official_title
+            season = bangumi.season
+            target_save_path = self._gen_save_path(bangumi)
+            logger.debug(
+                f"[Renamer] Bangumi settings: name='{bangumi_name}', season={season}, "
+                f"target_path='{target_save_path}', torrents={len(target_hashes)}"
             )
-            move_success = self.move_torrent(hashes_to_move, target_save_path)
-            if not move_success:
-                logger.error(
-                    f"[Renamer] Failed to move torrents to '{target_save_path}'"
-                )
-                # Continue with rename anyway - files may have been partially moved
-            else:
+
+            # Get all torrent info from downloader
+            rename_method = settings.bangumi_manage.rename_method
+            all_torrents = self.get_torrent_info()
+
+            # Filter to only this bangumi's torrents
+            torrents_info = [t for t in all_torrents if t.hash.lower() in target_hashes]
+            logger.debug(f"[Renamer] {len(torrents_info)} torrents matched from downloader")
+
+            # First pass: move files to correct season folder if needed
+            hashes_to_move = []
+            for info in torrents_info:
+                if info.save_path != target_save_path:
+                    logger.info(
+                        f"[Renamer] Season folder changed: '{info.save_path}' -> '{target_save_path}'"
+                    )
+                    hashes_to_move.append(info.hash)
+
+            if hashes_to_move:
                 logger.info(
-                    f"[Renamer] Successfully moved {len(hashes_to_move)} torrents"
+                    f"[Renamer] Moving {len(hashes_to_move)} torrents to '{target_save_path}'"
                 )
-                # Re-fetch torrent info after move to get updated file paths
-                all_torrents = self.get_torrent_info()
-                torrents_info = [
-                    t for t in all_torrents if t.hash.lower() in target_hashes
-                ]
+                move_success = self.move_torrent(hashes_to_move, target_save_path)
+                if not move_success:
+                    logger.error(
+                        f"[Renamer] Failed to move torrents to '{target_save_path}'"
+                    )
+                else:
+                    logger.info(
+                        f"[Renamer] Successfully moved {len(hashes_to_move)} torrents"
+                    )
+                    all_torrents = self.get_torrent_info()
+                    torrents_info = [
+                        t for t in all_torrents if t.hash.lower() in target_hashes
+                    ]
 
-        # Second pass: rename files
-        renamed_info: list[Notification] = []
-        for info in torrents_info:
-            media_list, subtitle_list = self.check_files(info)
-            kwargs = {
-                "torrent_name": info.name,
-                "bangumi_name": bangumi_name,
-                "method": rename_method,
-                "season": season,
-                "_hash": info.hash,
-            }
-            # Rename single media file
-            if len(media_list) == 1:
-                notify_info = self.rename_file(media_path=media_list[0], **kwargs)
-                if notify_info:
-                    renamed_info.append(notify_info)
-                    # Only mark as renamed if rename actually succeeded
+            # Second pass: rename files
+            renamed_info: list[Notification] = []
+            for info in torrents_info:
+                media_list, subtitle_list = self.check_files(info)
+                kwargs = {
+                    "torrent_name": info.name,
+                    "bangumi_name": bangumi_name,
+                    "method": rename_method,
+                    "season": season,
+                    "_hash": info.hash,
+                }
+                if len(media_list) == 1:
+                    notify_info = self.rename_file(media_path=media_list[0], **kwargs)
+                    if notify_info:
+                        renamed_info.append(notify_info)
+                        self._mark_torrent_renamed(info.hash, 1)
+                    if len(subtitle_list) > 0:
+                        self.rename_subtitles(subtitle_list=subtitle_list, **kwargs)
+                elif len(media_list) > 1:
+                    logger.debug("[Renamer] Start rename collection")
+                    self.rename_collection(media_list=media_list, **kwargs)
+                    if len(subtitle_list) > 0:
+                        self.rename_subtitles(subtitle_list=subtitle_list, **kwargs)
+                    self.set_category(info.hash, "BangumiCollection")
                     self._mark_torrent_renamed(info.hash, 1)
-                if len(subtitle_list) > 0:
-                    self.rename_subtitles(subtitle_list=subtitle_list, **kwargs)
-            # Rename collection
-            elif len(media_list) > 1:
-                logger.debug("[Renamer] Start rename collection")
-                self.rename_collection(media_list=media_list, **kwargs)
-                if len(subtitle_list) > 0:
-                    self.rename_subtitles(subtitle_list=subtitle_list, **kwargs)
-                self.set_category(info.hash, "BangumiCollection")
-                # Mark collection as renamed (assume success for batch operations)
-                self._mark_torrent_renamed(info.hash, 1)
-            else:
-                logger.warning(f"[Renamer] {info.name} has no media file")
+                else:
+                    logger.warning(f"[Renamer] {info.name} has no media file")
 
-        logger.info(
-            f"[Renamer] Rename process for bangumi {bangumi_id} finished. Renamed {len(renamed_info)} files."
-        )
-        return renamed_info
+            logger.info(
+                f"[Renamer] Rename process for bangumi {bangumi_id} finished. Renamed {len(renamed_info)} files."
+            )
+            return renamed_info
 
     def _mark_torrent_renamed(self, torrent_hash: str, file_count: int):
         """Update torrent record with rename status.
