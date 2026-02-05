@@ -3,7 +3,7 @@ import os
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -33,35 +33,37 @@ def create_app() -> FastAPI:
     # mount routers
     app.include_router(v1, prefix="/api")
 
+    # mount /posters static directory (if exists)
+    if os.path.isdir("data/posters"):
+        app.mount("/posters", StaticFiles(directory="data/posters"), name="posters")
+
+    if VERSION != "DEV_VERSION":
+        # production: mount frontend dist as catchall
+        if os.path.isdir("dist/assets"):
+            app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+        if os.path.isdir("dist/images"):
+            app.mount("/images", StaticFiles(directory="dist/images"), name="images")
+        if os.path.isdir("dist"):
+            templates = Jinja2Templates(directory="dist")
+
+            @app.get("/{path:path}")
+            def html(request: Request, path: str):
+                files = os.listdir("dist")
+                if path in files:
+                    return FileResponse(f"dist/{path}")
+                else:
+                    context = {"request": request}
+                    return templates.TemplateResponse("index.html", context)
+    else:
+        # dev mode: redirect / to /docs
+        @app.get("/", status_code=302, tags=["html"])
+        def index():
+            return RedirectResponse("/docs")
+
     return app
 
 
 app = create_app()
-
-
-@app.get("/posters/{path:path}", tags=["posters"])
-def posters(path: str):
-    return FileResponse(f"data/posters/{path}")
-
-
-if VERSION != "DEV_VERSION":
-    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
-    app.mount("/images", StaticFiles(directory="dist/images"), name="images")
-    # app.mount("/icons", StaticFiles(directory="dist/icons"), name="icons")
-    templates = Jinja2Templates(directory="dist")
-
-    @app.get("/{path:path}")
-    def html(request: Request, path: str):
-        files = os.listdir("dist")
-        if path in files:
-            return FileResponse(f"dist/{path}")
-        else:
-            context = {"request": request}
-            return templates.TemplateResponse("index.html", context)
-else:
-    @app.get("/", status_code=302, tags=["html"])
-    def index():
-        return RedirectResponse("/docs")
 
 
 if __name__ == "__main__":
