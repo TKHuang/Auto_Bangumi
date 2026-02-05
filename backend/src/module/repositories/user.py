@@ -19,6 +19,11 @@ class UserRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_all(self) -> list[User]:
+        stmt = select(User)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def create(self, data: dict) -> User:
         user = User(**data)
         self.session.add(user)

@@ -1,175 +1,154 @@
-"""RSS API endpoints - All RSS CRUD, analysis, subscribe, collect operations."""
 import logging
 
-from fastapi import APIRouter, Depends, Query
+import anyio
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.api.middleware.auth import get_current_user
-from module.database.engine import get_db_session
-from module.domain.models import Bangumi, RSSItem
-from module.repositories.bangumi import BangumiRepository
-from module.repositories.rss import RSSRepository
-from module.repositories.torrent import TorrentRepository
-from module.services.downloader.factory import create_downloader
-from module.services.rss_engine import (
-    RSSEngineService,
-    create_bangumi_from_torrent,
-    download_bangumi,
+from module.api.response import u_response
+from module.downloader import DownloadClient
+from module.manager import SeasonCollector, TorrentStatusManager
+from module.models import (
+    APIResponse,
+    Bangumi,
+    ResponseModel,
+    RSSItem,
+    RSSUpdate,
+    Torrent,
 )
+from module.models.bangumi import BangumiParsingError
+from module.rss import RSSAnalyser, RSSEngine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rss", tags=["rss"])
 
 
-# === GET /api/v1/rss ===
-@router.get("", response_model=list[RSSItem])
-async def get_rss(
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Get all RSS feeds."""
-    rss_repo = RSSRepository(session)
-    return await rss_repo.get_all()
+@router.get(
+    path="", response_model=list[RSSItem], dependencies=[Depends(get_current_user)]
+)
+async def get_rss():
+    def _sync():
+        with RSSEngine() as engine:
+            return engine.rss.search_all()
+    return await anyio.to_thread.run_sync(_sync)
 
 
-# === POST /api/v1/rss/add ===
-@router.post("/add")
+@router.post(
+    path="/add", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+)
 async def add_rss(
     rss: RSSItem,
     official_title: str | None = None,
     season: int | None = None,
     group_name: str | None = None,
     skip_bangumi: bool = False,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
 ):
-    """Add RSS feed and optionally create bangumi from first torrent.
-    
-    If skip_bangumi=True, only add RSS without parsing bangumi.
-    If skip_bangumi=False (default), parse bangumi from first torrent and add to database.
-    
-    Manual override params (official_title, season, group_name) used when parsing fails.
-    """
-    from module.conf import settings
-    from module.rss import RSSAnalyser
-    from module.models.bangumi import BangumiParsingError
-
-    rss_repo = RSSRepository(session)
-    bangumi_repo = BangumiRepository(session)
     analyser = RSSAnalyser()
 
-    try:
-        async with session.begin():
+    def _sync():
+        with RSSEngine() as engine:
             if skip_bangumi:
-                # Just add RSS, no parsing
-                rss_data = {
-                    "url": rss.url,
-                    "name": rss.name,
-                    "aggregate": rss.aggregate,
-                    "parser": rss.parser,
-                }
-                created_rss = await rss_repo.create(rss_data)
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "status": True,
-                        "msg_en": "RSS added successfully.",
-                        "msg_zh": "RSS 添加成功。",
-                        "rss_id": created_rss.id,
-                    },
-                )
-
-            if not rss.aggregate:
-                # Parse first torrent to get bangumi data
-                from module.rss.analyser import link_to_data
+                result = engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+                if not result.status:
+                    return result
                 
-                bangumi_data = await link_to_data(
-                    rss, official_title, season, group_name
-                )
+                all_rss = engine.rss.search_all()
+                rss_id = None
+                for rss_item in all_rss:
+                    if rss_item.url == rss.url:
+                        rss_id = rss_item.id
+                        break
+                
+                return {"status": True, "msg_en": "RSS added successfully.", "msg_zh": "RSS 添加成功。", "rss_id": rss_id}
+            
+            if not rss.aggregate:
+                data = analyser.link_to_data(rss, official_title, season, group_name)
+                if isinstance(data, ResponseModel) and not data.status:
+                    return data
 
-                if not isinstance(bangumi_data, Bangumi):
-                    # Return error response
-                    return JSONResponse(
-                        status_code=bangumi_data.status_code,
-                        content={
-                            "status": False,
-                            "msg_en": bangumi_data.msg_en,
-                            "msg_zh": bangumi_data.msg_zh,
-                        },
+                if isinstance(data, Bangumi) and not official_title:
+                    existing_by_title = engine.bangumi.find_by_official_title(
+                        data.official_title
                     )
-
-                # Check for duplicate official_title (only if not manually overridden)
-                if not official_title:
-                    existing = await bangumi_repo.get_by_composite_key(
-                        bangumi_data.official_title,
-                        bangumi_data.season,
-                        bangumi_data.group_name,
-                    )
-                    if existing:
-                        return JSONResponse(
+                    if existing_by_title:
+                        return ResponseModel(
+                            status=False,
                             status_code=409,
-                            content={
-                                "status": False,
-                                "status_code": 409,
-                                "msg_en": f"A bangumi with title '{bangumi_data.official_title}' already exists. Please use manual input to specify a different title.",
-                                "msg_zh": f"已存在标题为「{bangumi_data.official_title}」的番剧。请使用手动输入指定不同的标题。",
-                                "error_type": "duplicate_official_title",
-                                "existing_bangumi": {
-                                    "id": existing.id,
-                                    "official_title": existing.official_title,
-                                    "season": existing.season,
-                                    "group_name": existing.group_name,
-                                },
+                            msg_en=f"A bangumi with title '{data.official_title}' already exists. Please use manual input to specify a different title.",
+                            msg_zh=f"已存在标题为「{data.official_title}」的番剧。请使用手动输入指定不同的标题。",
+                            error_type="duplicate_official_title",
+                            existing_bangumi={
+                                "id": existing_by_title.id,
+                                "official_title": existing_by_title.official_title,
+                                "season": existing_by_title.season,
+                                "group_name": existing_by_title.group_name,
                             },
                         )
 
-                # Add RSS first
-                rss_data = {
-                    "url": rss.url,
-                    "name": rss.name,
-                    "aggregate": rss.aggregate,
-                    "parser": rss.parser,
-                }
-                created_rss = await rss_repo.create(rss_data)
+                if isinstance(data, Bangumi) and data.rss_link:
+                    rss_links = data.rss_link.split(",") if data.rss_link else []
+                    existing_by_rss = engine.bangumi.find_by_any_rss_link(rss_links)
+                    if existing_by_rss:
+                        return ResponseModel(
+                            status=False,
+                            status_code=409,
+                            msg_en=f"This RSS link is already subscribed in bangumi '{existing_by_rss.official_title}'.",
+                            msg_zh=f"此 RSS 链接已在番剧「{existing_by_rss.official_title}」中订阅。",
+                            error_type="duplicate_rss_link",
+                            existing_bangumi={
+                                "id": existing_by_rss.id,
+                                "official_title": existing_by_rss.official_title,
+                                "season": existing_by_rss.season,
+                                "group_name": existing_by_rss.group_name,
+                                "rss_link": existing_by_rss.rss_link,
+                            },
+                        )
 
-                # Add bangumi with rss_id
-                bangumi_data.rss_id = created_rss.id
-                await bangumi_repo.create(bangumi_data.__dict__)
+                result = engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
+                if not result.status:
+                    return result
 
-                # Download torrents immediately
-                downloader = create_downloader(settings)
-                try:
-                    await download_bangumi(session, downloader, bangumi_data.id)
-                except Exception as e:
-                    logger.warning(f"Failed to download bangumi torrents: {e}")
+                if isinstance(data, Bangumi):
+                    all_rss = engine.rss.search_all()
+                    for rss_item in all_rss:
+                        if rss_item.url == rss.url:
+                            data.rss_id = rss_item.id
+                            break
 
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "status": True,
-                        "msg_en": "RSS added successfully.",
-                        "msg_zh": "RSS 添加成功。",
-                    },
-                )
+                    engine.bangumi.add(data)
+                    engine.commit()
+
+                    download_result = engine.download_bangumi(data)
+
+                    if (
+                        isinstance(download_result, ResponseModel)
+                        and not download_result.status
+                        and download_result.status_code == 406
+                        and "filtered out" in download_result.msg_en.lower()
+                    ):
+                        data.pending_review = True
+                        data.global_filter_matches = data.filter
+                        engine.bangumi.update_pending_review(
+                            data.id, True, data.filter
+                        )
+                        engine.commit()
+                        logger.info(
+                            f"[RSS] Bangumi {data.official_title} set to pending review "
+                            f"(all torrents filtered by: {data.filter})"
+                        )
+
+                return result
             else:
-                # For aggregate RSS: just add RSS, no immediate parsing
-                rss_data = {
-                    "url": rss.url,
-                    "name": rss.name,
-                    "aggregate": rss.aggregate,
-                    "parser": rss.parser,
-                }
-                created_rss = await rss_repo.create(rss_data)
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "status": True,
-                        "msg_en": "RSS added successfully.",
-                        "msg_zh": "RSS 添加成功。",
-                    },
-                )
+                return engine.add_rss(rss.url, rss.name, rss.aggregate, rss.parser)
 
+    try:
+        result = await anyio.to_thread.run_sync(_sync)  # type: ignore
+        if isinstance(result, dict) and "rss_id" in result:
+            return JSONResponse(
+                status_code=200,
+                content=result,
+            )
+        return u_response(result)  # type: ignore[arg-type]
     except BangumiParsingError as e:
         return JSONResponse(
             status_code=422,
@@ -190,18 +169,32 @@ async def add_rss(
         )
 
 
-# === DELETE /api/v1/rss/delete/{rss_id} ===
-@router.delete("/delete/{rss_id}")
-async def delete_rss(
-    rss_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
+@router.post(
+    path="/enable/many",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def enable_many_rss(
+    rss_ids: list[int],
 ):
-    """Delete RSS feed."""
-    rss_repo = RSSRepository(session)
-    async with session.begin():
-        result = await rss_repo.delete(rss_id)
-    
+    def _sync():
+        with RSSEngine() as engine:
+            return engine.enable_list(rss_ids)
+    return u_response(await anyio.to_thread.run_sync(_sync))
+
+
+@router.delete(
+    path="/delete/{rss_id}",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def delete_rss(rss_id: int):
+    def _sync():
+        with RSSEngine() as engine:
+            result = engine.rss.delete(rss_id)
+            engine.commit()
+            return result
+    result = await anyio.to_thread.run_sync(_sync)
     if result:
         return JSONResponse(
             status_code=200,
@@ -214,258 +207,174 @@ async def delete_rss(
         )
 
 
-# === POST /api/v1/rss/delete/many ===
-@router.post("/delete/many")
+@router.post(
+    path="/delete/many",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
 async def delete_many_rss(
     rss_ids: list[int],
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
 ):
-    """Delete multiple RSS feeds."""
-    rss_repo = RSSRepository(session)
-    async with session.begin():
-        for rss_id in rss_ids:
-            await rss_repo.delete(rss_id)
-    
-    return JSONResponse(
-        status_code=200,
-        content={"msg_en": "Delete RSS successfully.", "msg_zh": "删除 RSS 成功。"},
-    )
+    def _sync():
+        with RSSEngine() as engine:
+            return engine.delete_list(rss_ids)
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
-# === PATCH /api/v1/rss/disable/{rss_id} ===
-@router.patch("/disable/{rss_id}")
-async def disable_rss(
-    rss_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Disable RSS feed."""
-    rss_repo = RSSRepository(session)
-    async with session.begin():
-        rss = await rss_repo.get_by_id(rss_id)
-        if not rss:
-            return JSONResponse(
-                status_code=404,
-                content={"msg_en": "RSS not found.", "msg_zh": "RSS 未找到。"},
-            )
-        await rss_repo.update(rss_id, {"enabled": False})
-    
-    return JSONResponse(
-        status_code=200,
-        content={"msg_en": "Disable RSS successfully.", "msg_zh": "禁用 RSS 成功。"},
-    )
+@router.patch(
+    path="/disable/{rss_id}",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def disable_rss(rss_id: int):
+    def _sync():
+        with RSSEngine() as engine:
+            result = engine.rss.disable(rss_id)
+            engine.commit()
+            return result
+    result = await anyio.to_thread.run_sync(_sync)
+    if result:
+        return JSONResponse(
+            status_code=200,
+            content={"msg_en": "Disable RSS successfully.", "msg_zh": "禁用 RSS 成功。"},
+        )
+    else:
+        return JSONResponse(
+            status_code=406,
+            content={"msg_en": "Disable RSS failed.", "msg_zh": "禁用 RSS 失败。"},
+        )
 
 
-# === POST /api/v1/rss/disable/many ===
-@router.post("/disable/many")
-async def disable_many_rss(
-    rss_ids: list[int],
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Disable multiple RSS feeds."""
-    rss_repo = RSSRepository(session)
-    async with session.begin():
-        for rss_id in rss_ids:
-            await rss_repo.update(rss_id, {"enabled": False})
-    
-    return JSONResponse(
-        status_code=200,
-        content={"msg_en": "Disable RSS successfully.", "msg_zh": "禁用 RSS 成功。"},
-    )
+@router.post(
+    path="/disable/many",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def disable_many_rss(rss_ids: list[int]):
+    def _sync():
+        with RSSEngine() as engine:
+            return engine.disable_list(rss_ids)
+    return u_response(await anyio.to_thread.run_sync(_sync))
 
 
-# === PATCH /api/v1/rss/update/{rss_id} ===
-@router.patch("/update/{rss_id}")
+@router.patch(
+    path="/update/{rss_id}",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
 async def update_rss(
-    rss_id: int,
-    data: dict,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
+    rss_id: int, data: RSSUpdate, current_user=Depends(get_current_user)
 ):
-    """Update RSS feed."""
-    rss_repo = RSSRepository(session)
-    async with session.begin():
-        rss = await rss_repo.get_by_id(rss_id)
-        if not rss:
-            return JSONResponse(
-                status_code=404,
-                content={"msg_en": "RSS not found.", "msg_zh": "RSS 未找到。"},
-            )
-        await rss_repo.update(rss_id, data)
-    
-    return JSONResponse(
-        status_code=200,
-        content={"msg_en": "Update RSS successfully.", "msg_zh": "更新 RSS 成功。"},
-    )
+    def _sync():
+        with RSSEngine() as engine:
+            result = engine.rss.update(rss_id, data)
+            engine.commit()
+            return result
+    result = await anyio.to_thread.run_sync(_sync)
+    if result:
+        return JSONResponse(
+            status_code=200,
+            content={"msg_en": "Update RSS successfully.", "msg_zh": "更新 RSS 成功。"},
+        )
+    else:
+        return JSONResponse(
+            status_code=406,
+            content={"msg_en": "Update RSS failed.", "msg_zh": "更新 RSS 失败。"},
+        )
 
 
-# === POST /api/v1/rss/enable/many ===
-@router.post("/enable/many")
-async def enable_many_rss(
-    rss_ids: list[int],
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Enable multiple RSS feeds."""
-    rss_repo = RSSRepository(session)
-    async with session.begin():
-        for rss_id in rss_ids:
-            await rss_repo.update(rss_id, {"enabled": True})
-    
-    return JSONResponse(
-        status_code=200,
-        content={"msg_en": "Enable RSS successfully.", "msg_zh": "启用 RSS 成功。"},
-    )
-
-
-# === GET /api/v1/rss/refresh/all ===
-@router.get("/refresh/all")
-async def refresh_all(
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Refresh all enabled RSS feeds."""
-    from module.conf import settings
-    
-    downloader = create_downloader(settings)
-    rss_service = RSSEngineService()
-    
-    await rss_service.refresh_all_rss(session, downloader)
-    
+@router.get(
+    path="/refresh/all",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def refresh_all():
+    def _sync():
+        with RSSEngine() as engine, DownloadClient() as client:
+            engine.refresh_rss(client)
+    await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Refresh all RSS successfully.", "msg_zh": "刷新 RSS 成功。"},
     )
 
 
-# === GET /api/v1/rss/refresh/{rss_id} ===
-@router.get("/refresh/{rss_id}")
-async def refresh_rss(
-    rss_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Refresh specific RSS feed."""
-    from module.conf import settings
-    
-    downloader = create_downloader(settings)
-    rss_service = RSSEngineService()
-    
-    await rss_service.refresh_rss(session, downloader, rss_id)
-    
+@router.get(
+    path="/refresh/{rss_id}",
+    response_model=APIResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def refresh_rss(rss_id: int):
+    def _sync():
+        with RSSEngine() as engine, DownloadClient() as client:
+            engine.refresh_rss(client, rss_id)
+    await anyio.to_thread.run_sync(_sync)
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Refresh RSS successfully.", "msg_zh": "刷新 RSS 成功。"},
     )
 
 
-# === GET /api/v1/rss/torrent?rss_id=N ===
-@router.get("/torrent")
+@router.get(
+    path="/torrent",
+    response_model=list[dict],  # type: ignore[type-arg]
+    dependencies=[Depends(get_current_user)],
+)
 async def get_torrent(
-    rss_id: int = Query(...),
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
+    rss_id: int,
 ):
-    """Get torrents for specific RSS feed with real-time status."""
-    from module.conf import settings
-    
-    torrent_repo = TorrentRepository(session)
-    downloader = create_downloader(settings)
-    
-    # Get torrents from database
-    torrents = await torrent_repo.get_by_rss(rss_id)
-    
-    # Get real-time status from downloader
-    result = []
-    for torrent in torrents:
-        torrent_info = await downloader.get_torrent_path(torrent.hash)
-        result.append({
-            "id": torrent.id,
-            "name": torrent.name,
-            "hash": torrent.hash,
-            "downloaded": torrent.downloaded,
-            "state": torrent.state.value if torrent.state else None,
-            "path": torrent_info,
-        })
-    
-    return result
+    def _sync():
+        with TorrentStatusManager() as manager:
+            return manager.get_rss_torrents_status(rss_id)
+    return await anyio.to_thread.run_sync(_sync)
 
 
-# === POST /api/v1/rss/recreate/{rss_id} ===
-@router.post("/recreate/{rss_id}")
+@router.post(
+    path="/recreate/{rss_id}",
+    response_model=list[Bangumi],
+    dependencies=[Depends(get_current_user)],
+)
 async def recreate_rss_rules(
     rss_id: int,
     official_title: str | None = None,
     season: int | None = None,
     group_name: str | None = None,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
 ):
-    """Parse torrents from RSS feed and return Bangumi rules for review.
-    
-    For aggregate RSS: Parse ALL torrents and return multiple Bangumi.
-    For non-aggregate RSS: Parse only first torrent.
-    """
-    from module.models.bangumi import BangumiParsingError
-    from module.rss import RSSAnalyser
+    def _sync():
+        with RSSEngine() as engine:
+            rss = engine.rss.search_id(rss_id)
+            if not rss:
+                return {"error": "not_found"}
 
-    rss_repo = RSSRepository(session)
-    rss = await rss_repo.get_by_id(rss_id)
-    
-    if not rss:
-        return JSONResponse(
-            status_code=404,
-            content={"msg_en": "RSS feed not found.", "msg_zh": "RSS订阅未找到。"},
-        )
+            analyser = RSSAnalyser()
 
-    analyser = RSSAnalyser()
+            if rss.aggregate:
+                logger.info(f"[RSS] Recreate aggregate RSS: {rss.name}")
+
+                torrents = analyser.get_rss_torrents(rss.url, full_parse=True, apply_filter=False)
+
+                if not torrents:
+                    return {"error": "no_torrents"}
+
+                bangumi_list = analyser.torrents_to_data(torrents, rss, full_parse=True)
+
+                if not bangumi_list:
+                    return {"error": "no_parse"}
+
+                logger.info(f"[RSS] Recreate found {len(bangumi_list)} bangumi rules")
+                return {"bangumi_list": bangumi_list}
+
+            else:
+                logger.info(f"[RSS] Recreate non-aggregate RSS: {rss.name}")
+                bangumi = analyser.link_to_data(rss, official_title, season, group_name)
+
+                if isinstance(bangumi, Bangumi):
+                    return {"bangumi_list": [bangumi]}
+                else:
+                    return {"error": "response_model", "data": bangumi}
 
     try:
-        if rss.aggregate:
-            # For aggregate RSS: Full parse all torrents
-            torrents = await analyser.get_rss_torrents(
-                rss.url, full_parse=True, apply_filter=False
-            )
-            
-            if not torrents:
-                return JSONResponse(
-                    status_code=406,
-                    content={
-                        "msg_en": "Cannot find any torrent in the RSS feed.",
-                        "msg_zh": "无法在 RSS 订阅中找到任何种子。",
-                    },
-                )
-            
-            bangumi_list = await analyser.torrents_to_data(
-                torrents, rss, full_parse=True
-            )
-            
-            if not bangumi_list:
-                return JSONResponse(
-                    status_code=406,
-                    content={
-                        "msg_en": "Cannot parse any torrent from the RSS feed.",
-                        "msg_zh": "无法解析 RSS 订阅中的任何种子。",
-                    },
-                )
-            
-            return bangumi_list
-        else:
-            # For non-aggregate RSS: Parse only FIRST torrent
-            from module.rss.analyser import link_to_data
-            
-            bangumi = await link_to_data(rss, official_title, season, group_name)
-            
-            if isinstance(bangumi, Bangumi):
-                return [bangumi]
-            else:
-                return JSONResponse(
-                    status_code=bangumi.status_code,
-                    content={"msg_en": bangumi.msg_en, "msg_zh": bangumi.msg_zh},
-                )
-    
+        result = await anyio.to_thread.run_sync(_sync)
     except BangumiParsingError as e:
         return JSONResponse(
             status_code=422,
@@ -488,315 +397,185 @@ async def recreate_rss_rules(
         logger.error(f"[RSS] Recreate rules failed: {e}")
         return JSONResponse(
             status_code=500,
-            content={
-                "msg_en": f"Failed to parse RSS feed: {str(e)}",
-                "msg_zh": f"解析 RSS 订阅失败：{str(e)}",
-            },
+            content={"msg_en": f"Failed to parse RSS feed: {str(e)}", "msg_zh": f"解析 RSS 订阅失败：{str(e)}"},
         )
 
-
-# === POST /api/v1/rss/analysis ===
-@router.post("/analysis")
-async def analysis(
-    rss: RSSItem,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Analyze RSS feed and return Bangumi data."""
-    from module.rss import RSSAnalyser
-    from module.rss.analyser import link_to_data
-
-    bangumi_data = await link_to_data(rss)
-    
-    if isinstance(bangumi_data, Bangumi):
-        return bangumi_data
-    else:
-        return JSONResponse(
-            status_code=bangumi_data.status_code,
-            content={"msg_en": bangumi_data.msg_en, "msg_zh": bangumi_data.msg_zh},
-        )
-
-
-# === POST /api/v1/rss/analysis/torrents ===
-@router.post("/analysis/torrents")
-async def analysis_torrents(
-    rss: RSSItem,
-    _filter: str | None = None,
-    title_raw: str | None = None,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Analyze torrents from RSS with optional filtering.
-    
-    Args:
-        rss: RSS item to fetch torrents from
-        _filter: Regex pattern to exclude torrents (mark as filtered=True)
-        title_raw: If provided, only include torrents that parse to this title_raw
-    """
-    from module.rss import RSSAnalyser
-
-    analyser = RSSAnalyser()
-    result = await analyser.analyse_torrents(rss, _filter, title_raw)
-    
-    return result
-
-
-# === POST /api/v1/rss/collect ===
-@router.post("/collect")
-async def download_collection(
-    data: Bangumi,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Collect/backfill all episodes for bangumi."""
-    from module.conf import settings
-
-    downloader = create_downloader(settings)
-    
-    async with session.begin():
-        result = await download_bangumi(session, downloader, data.id)
-    
-    if result.get("status"):
-        return JSONResponse(
-            status_code=200,
-            content={"msg_en": result["msg_en"], "msg_zh": result["msg_zh"]},
-        )
-    else:
-        return JSONResponse(
-            status_code=result.get("status_code", 500),
-            content={"msg_en": result["msg_en"], "msg_zh": result["msg_zh"]},
-        )
-
-
-# === POST /api/v1/rss/subscribe?file=bool ===
-@router.post("/subscribe")
-async def subscribe(
-    data: Bangumi,
-    rss: RSSItem,
-    file: bool = False,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Subscribe to bangumi and trigger download.
-    
-    Args:
-        data: Bangumi data to subscribe
-        rss: RSS item info (for parser)
-        file: Whether to delete files on error (default False)
-    """
-    from module.conf import settings
-    
-    downloader = create_downloader(settings)
-    bangumi_repo = BangumiRepository(session)
-    
-    try:
-        async with session.begin():
-            # Check for duplicate
-            existing = await bangumi_repo.get_by_composite_key(
-                data.official_title, data.season, data.group_name
-            )
-            if existing:
-                return JSONResponse(
-                    status_code=409,
-                    content={
-                        "status": False,
-                        "msg_en": "This bangumi is already subscribed.",
-                        "msg_zh": "该番剧已订阅。",
-                    },
-                )
-            
-            # Create bangumi
-            bangumi_data = data.__dict__
-            bangumi_data["rss_id"] = rss.id
-            created_bangumi = await bangumi_repo.create(bangumi_data)
-            
-            # Download torrents
-            await download_bangumi(session, downloader, created_bangumi.id)
-        
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": True,
-                "msg_en": "Subscribe successfully.",
-                "msg_zh": "订阅成功。",
-            },
-        )
-    
-    except ValueError as e:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "status": False,
-                "msg_en": str(e),
-                "msg_zh": f"订阅失败：{str(e)}",
-            },
-        )
-
-
-# === POST /api/v1/rss/subscribe/batch?file=bool ===
-@router.post("/subscribe/batch")
-async def subscribe_batch(
-    bangumi_list: list[Bangumi],
-    rss: RSSItem,
-    file: bool = False,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Batch subscribe to multiple bangumi.
-    
-    Args:
-        bangumi_list: List of bangumi to subscribe
-        rss: RSS item info (for parser)
-        file: Whether to delete files on error (default False)
-    """
-    from module.conf import settings
-    
-    downloader = create_downloader(settings)
-    bangumi_repo = BangumiRepository(session)
-    
-    try:
-        async with session.begin():
-            for bangumi_data in bangumi_list:
-                # Check for duplicate
-                existing = await bangumi_repo.get_by_composite_key(
-                    bangumi_data.official_title,
-                    bangumi_data.season,
-                    bangumi_data.group_name,
-                )
-                if existing:
-                    logger.warning(
-                        f"Skipping duplicate bangumi: {bangumi_data.official_title}"
-                    )
-                    continue
-                
-                # Create bangumi
-                data_dict = bangumi_data.__dict__
-                data_dict["rss_id"] = rss.id
-                created_bangumi = await bangumi_repo.create(data_dict)
-                
-                # Download torrents
-                await download_bangumi(session, downloader, created_bangumi.id)
-        
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": True,
-                "msg_en": "Batch subscribe successfully.",
-                "msg_zh": "批量订阅成功。",
-            },
-        )
-    
-    except Exception as e:
-        logger.error(f"Batch subscription failed: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": False,
-                "msg_en": f"Batch subscription failed: {str(e)}",
-                "msg_zh": f"批量订阅失败: {str(e)}",
-            },
-        )
-
-
-# === GET /api/v1/rss/{rss_id}/pending-count ===
-@router.get("/{rss_id}/pending-count")
-async def get_pending_count(
-    rss_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Get the count of pending review bangumi for specific RSS feed."""
-    bangumi_repo = BangumiRepository(session)
-    pending_list = await bangumi_repo.get_pending_review(rss_id)
-    
-    return {"pending_count": len(pending_list)}
-
-
-# === GET /api/v1/rss/{rss_id}/pending ===
-@router.get("/{rss_id}/pending")
-async def get_pending_bangumi(
-    rss_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Get pending review bangumi for any RSS feed.
-    
-    For non-aggregate RSS, typically returns 0 or 1 bangumi.
-    For aggregate RSS, may return multiple pending bangumi.
-    """
-    bangumi_repo = BangumiRepository(session)
-    pending_list = await bangumi_repo.get_pending_review(rss_id)
-    
-    return pending_list
-
-
-# === GET /api/v1/rss/aggregate/pending/{rss_id} ===
-@router.get("/aggregate/pending/{rss_id}")
-async def get_pending_bangumi_list(
-    rss_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: str = Depends(get_current_user),
-):
-    """Get all pending review bangumi for specific aggregate RSS feed.
-    
-    Returns list of pending bangumi with parsed global_filter_matches as arrays,
-    plus summary counts for pending and active bangumi.
-    
-    Returns 400 if the RSS is not an aggregate RSS feed.
-    """
-    rss_repo = RSSRepository(session)
-    bangumi_repo = BangumiRepository(session)
-    
-    # Check if RSS exists and is aggregate
-    rss = await rss_repo.get_by_id(rss_id)
-    if not rss:
+    if result.get("error") == "not_found":
         return JSONResponse(
             status_code=404,
-            content={"detail": "RSS feed not found"}
+            content={"msg_en": "RSS feed not found.", "msg_zh": "RSS订阅未找到。"},
         )
-    if not rss.aggregate:
+    elif result.get("error") == "no_torrents":
         return JSONResponse(
-            status_code=400,
-            content={"detail": "This endpoint only works for aggregate RSS feeds"}
+            status_code=406,
+            content={"msg_en": "Cannot find any torrent in the RSS feed.", "msg_zh": "无法在 RSS 订阅中找到任何种子。"},
         )
-    
-    # Get pending bangumi list
-    pending_list = await bangumi_repo.get_pending_review(rss_id)
-    
-    # Convert to dict and parse global_filter_matches as array
-    bangumi_data = []
-    for bangumi in pending_list:
-        data = {
-            "id": bangumi.id,
-            "rss_id": bangumi.rss_id,
-            "official_title": bangumi.official_title,
-            "year": bangumi.year,
-            "title_raw": bangumi.title_raw,
-            "season": bangumi.season,
-            "season_raw": bangumi.season_raw,
-            "group_name": bangumi.group_name,
-            "dpi": bangumi.dpi,
-            "source": bangumi.source,
-            "subtitle": bangumi.subtitle,
-            "filter": bangumi.filter,
-            "rss_link": bangumi.rss_link,
-            "poster_link": bangumi.poster_link,
-            "pending_review": bangumi.pending_review,
-            "global_filter_matches": (
-                [m.strip() for m in bangumi.global_filter_matches.split(",")]
-                if bangumi.global_filter_matches
-                else []
-            ),
-        }
-        bangumi_data.append(data)
-    
-    # Get counts
-    pending_count = len(pending_list)
-    active_bangumi = await bangumi_repo.get_by_rss(rss_id)
-    active_count = len([b for b in active_bangumi if not b.pending_review])
-    
-    return {
-        "pending_count": pending_count,
-        "active_count": active_count,
-        "bangumi": bangumi_data,
-    }
+    elif result.get("error") == "no_parse":
+        return JSONResponse(
+            status_code=406,
+            content={"msg_en": "Cannot parse any torrent from the RSS feed.", "msg_zh": "无法解析 RSS 订阅中的任何种子。"},
+        )
+    elif result.get("error") == "response_model":
+        response_data = result["data"]
+        return JSONResponse(  # type: ignore[attr-defined]
+            status_code=response_data.status_code,
+            content={"msg_en": response_data.msg_en, "msg_zh": response_data.msg_zh},
+        )
+    else:
+        return result["bangumi_list"]
+
+
+analyser = RSSAnalyser()
+
+
+@router.post(
+    "/analysis", response_model=Bangumi, dependencies=[Depends(get_current_user)]
+)
+async def analysis(rss: RSSItem):
+    def _sync():
+        return analyser.link_to_data(rss)
+    data = await anyio.to_thread.run_sync(_sync)
+    if isinstance(data, Bangumi):
+        return data
+    else:
+        return u_response(data)
+
+
+@router.post(
+    "/analysis/torrents", response_model=list[dict], dependencies=[Depends(get_current_user)]  # type: ignore[type-arg]
+)
+async def analysis_torrents(rss: RSSItem, _filter: str | None = None, title_raw: str | None = None):
+    def _sync():
+        return analyser.analyse_torrents(rss, _filter or "", title_raw or "")
+    return await anyio.to_thread.run_sync(_sync)
+
+
+@router.post(
+    "/collect", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+)
+async def download_collection(data: Bangumi):
+    def _sync():
+        with SeasonCollector() as collector:
+            return collector.collect_season(data, data.rss_link)
+    return u_response(await anyio.to_thread.run_sync(_sync))
+
+
+@router.post(
+    "/subscribe", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+)
+async def subscribe(data: Bangumi, rss: RSSItem, file: bool = False):
+    def _sync():
+        with SeasonCollector() as collector:
+            try:
+                return collector.subscribe_season(data, parser=rss.parser, delete_files=file)
+            except ValueError as e:
+                error_msg = str(e)
+                return ResponseModel(
+                    status=False,
+                    status_code=409,
+                    msg_en=error_msg,
+                    msg_zh=f"该番剧已从其他 RSS 源订阅。请先删除现有订阅。({error_msg})",
+                )
+    return u_response(await anyio.to_thread.run_sync(_sync))
+
+
+@router.post(
+    "/subscribe/batch", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+)
+async def subscribe_batch(bangumi_list: list[Bangumi], rss: RSSItem, file: bool = False):
+    def _sync():
+        with SeasonCollector() as collector:
+            try:
+                return collector.subscribe_batch(bangumi_list, rss.id, parser=rss.parser, delete_files=file)
+            except Exception as e:
+                logger.error(f"Batch subscription failed: {e}")
+                return ResponseModel(
+                    status=False,
+                    status_code=500,
+                    msg_en=f"Batch subscription failed: {str(e)}",
+                    msg_zh=f"批量订阅失败: {str(e)}",
+                )
+    return u_response(await anyio.to_thread.run_sync(_sync))
+
+
+@router.get(
+    path="/{rss_id}/pending-count",
+    response_model=dict,
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_count(rss_id: int):
+    def _sync():
+        with RSSEngine() as engine:
+            return {"pending_count": engine.bangumi.count_pending_by_rss_id(rss_id)}
+    return await anyio.to_thread.run_sync(_sync)
+
+
+@router.get(
+    path="/{rss_id}/pending",
+    response_model=list[Bangumi],
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_bangumi(rss_id: int):
+    def _sync():
+        with RSSEngine() as engine:
+            return engine.bangumi.get_pending_by_rss_id(rss_id)
+    return await anyio.to_thread.run_sync(_sync)
+
+
+@router.get(
+    path="/aggregate/pending/{rss_id}",
+    response_model=dict,
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_bangumi_list(rss_id: int):
+    def _sync():
+        with RSSEngine() as engine:
+            rss = engine.rss.search_id(rss_id)
+            if not rss:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": "RSS feed not found"}
+                )
+            if not rss.aggregate:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "This endpoint only works for aggregate RSS feeds"}
+                )
+
+            pending_list = engine.bangumi.get_pending_by_rss_id(rss_id)
+
+            bangumi_data = []
+            for bangumi in pending_list:
+                data = {
+                    "id": bangumi.id,
+                    "rss_id": bangumi.rss_id,
+                    "official_title": bangumi.official_title,
+                    "year": bangumi.year,
+                    "title_raw": bangumi.title_raw,
+                    "season": bangumi.season,
+                    "season_raw": bangumi.season_raw,
+                    "group_name": bangumi.group_name,
+                    "dpi": bangumi.dpi,
+                    "source": bangumi.source,
+                    "subtitle": bangumi.subtitle,
+                    "filter": bangumi.filter,
+                    "rss_link": bangumi.rss_link,
+                    "poster_link": bangumi.poster_link,
+                    "pending_review": bangumi.pending_review,
+                    "global_filter_matches": (
+                        [m.strip() for m in bangumi.global_filter_matches.split(",")]
+                        if bangumi.global_filter_matches
+                        else []
+                    ),
+                }
+                bangumi_data.append(data)
+
+            pending_count = len(pending_list)
+            active_count = engine.bangumi.count_active_by_rss_id(rss_id)
+
+            return {
+                "pending_count": pending_count,
+                "active_count": active_count,
+                "bangumi": bangumi_data,
+            }
+    return await anyio.to_thread.run_sync(_sync)
