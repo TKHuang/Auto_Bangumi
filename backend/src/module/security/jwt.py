@@ -77,3 +77,18 @@ def decode_access_token(token: str) -> dict[str, int | str]:
         raise
     except Exception as e:
         raise JWTError(f"Token decode error: {str(e)}")
+
+
+def verify_token(token: str) -> dict[str, int | str] | None:
+    """Verify a JWT token (legacy compatibility).
+
+    Args:
+        token: JWT token string to verify
+
+    Returns:
+        Token payload if valid, None if invalid or expired
+    """
+    try:
+        return decode_access_token(token)
+    except JWTError:
+        return None

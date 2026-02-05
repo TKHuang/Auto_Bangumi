@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from module.models import ResponseModel
 from module.models.user import User, UserLogin, UserUpdate
-from module.security.jwt import get_password_hash, verify_password
+from module.security.password import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class UserDatabase:
         if update_user.username:
             result.username = update_user.username
         if update_user.password:
-            result.password = get_password_hash(update_user.password)
+            result.password = hash_password(update_user.password)
         self.session.add(result)
         return result
 
@@ -94,5 +94,5 @@ class UserDatabase:
         if len(result) != 0:
             return
         # Add default user
-        user = User(username="admin", password=get_password_hash("adminadmin"))
+        user = User(username="admin", password=hash_password("adminadmin"))
         self.session.add(user)

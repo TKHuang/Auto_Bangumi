@@ -7,6 +7,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from module.domain.models.base import Base
+
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -22,18 +24,15 @@ async def async_engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield engine
     await engine.dispose()
 
 
 @pytest.fixture
 async def async_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
-    async with async_engine.begin() as conn:
-        pass
-
-    async_session_local = AsyncSession(
-        async_engine, expire_on_commit=False, class_=AsyncSession
-    )
+    async_session_local = AsyncSession(async_engine, expire_on_commit=False)
     yield async_session_local
     await async_session_local.close()
 
