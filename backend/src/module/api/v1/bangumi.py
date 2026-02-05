@@ -1,25 +1,18 @@
 import anyio
+from typing import Any
+
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
-from module.api.middleware.auth import get_current_user
-from module.manager import Renamer, TorrentManager, TorrentStatusManager
-from module.models import APIResponse, Bangumi, BangumiUpdate
-from module.rss import RSSEngine
+from ...api.middleware.auth import get_current_user
+from ...manager.renamer import Renamer
+from ...manager.torrent import TorrentManager
+from ...manager.torrent_status import TorrentStatusManager
+from ...models.bangumi import Bangumi, BangumiUpdate
+from ...models.response import APIResponse
+from ...rss.engine import RSSEngine
 
 router = APIRouter(prefix="/bangumi", tags=["bangumi"])
-
-
-def str_to_list(data: Bangumi):
-    """Convert comma-separated filter and rss_link strings to lists.
-    
-    IMPORTANT: Frontend expects filter and rss_link as ARRAYS,
-    but database stores them as comma-separated STRINGS.
-    This function converts DB format to API format.
-    """
-    data.filter = data.filter.split(",")
-    data.rss_link = data.rss_link.split(",")
-    return data
 
 
 @router.get(
@@ -225,7 +218,7 @@ async def refresh_poster_by_id(bangumi_id: int):
 
 @router.get(
     "/torrent/{bangumi_id}",
-    response_model=list[dict],
+    response_model=list[dict[str, Any]],
     dependencies=[Depends(get_current_user)],
 )
 async def get_torrent_status(bangumi_id: int):
@@ -294,6 +287,15 @@ async def activate_pending_bangumi(
             content={
                 "msg_en": message,
                 "msg_zh": "该番剧不在待审核状态",
+            },
+        )
+
+    if bangumi is None:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "msg_en": "Internal error: bangumi not found after activation",
+                "msg_zh": "内部错误：激活后未找到番剧",
             },
         )
 
