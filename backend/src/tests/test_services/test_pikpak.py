@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ...module.services.downloader.pikpak import PikPakDownloader
+from module.services.downloader.pikpak import PikPakDownloader
 
 
 @pytest.fixture

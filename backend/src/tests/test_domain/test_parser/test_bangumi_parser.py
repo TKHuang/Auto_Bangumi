@@ -384,6 +384,11 @@ class TestParseMethod:
 class TestResolutionExtraction:
     """Tests for resolution extraction functionality."""
 
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
+
     # Standard P-format resolutions (6 test cases)
     @pytest.mark.parametrize(
         ("input_str", "expected"),
