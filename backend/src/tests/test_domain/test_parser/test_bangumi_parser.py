@@ -557,6 +557,11 @@ class TestResolutionExtraction:
 class TestSubtitleDetection:
     """Tests for subtitle language detection functionality."""
 
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
+
     # --- Single Language Tests - Simplified Chinese (CHS) ---
 
     @pytest.mark.parametrize(
@@ -839,6 +844,11 @@ class TestSubtitleDetection:
 
 class TestSeasonExtraction:
     """Tests for season number extraction functionality."""
+
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
 
     # S-format tests (S01, S02, etc.)
     @pytest.mark.parametrize(
@@ -1398,6 +1408,11 @@ class TestEpisodeEdgeCases:
     Failing tests should be documented in tasks/parser-bugs-discovered.md.
     """
 
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
+
     # --- Episode 0 tests ---
 
     @pytest.mark.parametrize(
@@ -1715,6 +1730,11 @@ class TestTitleEdgeCases:
     Failing tests should be documented in tasks/parser-bugs-discovered.md.
     """
 
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
+
     # --- Year in title tests (numbers that aren't episodes) ---
 
     @pytest.mark.parametrize(
@@ -1996,12 +2016,12 @@ class TestSeasonBracketEdgeCases:
     These tests cover uncommon but valid season and bracket formats:
     - Season 0 (S00E01 style)
     - Two-digit seasons (S15)
-    - Cour distinction (S02 Cour 2)
-    - Empty first bracket ([] Title)
-    - Deeply nested brackets ([Group [[Nested]]])
-
-    Failing tests should be documented in tasks/parser-bugs-discovered.md.
     """
+
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
 
     # --- Season 0 tests ---
 
@@ -2224,6 +2244,11 @@ class TestSeasonBracketEdgeCases:
 
 class TestCodecDetection:
     """Tests for video and audio codec detection functionality."""
+
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
 
     # --- Video Codec Tests - HEVC variants ---
 
@@ -2590,6 +2615,11 @@ class TestCodecDetection:
 
 class TestSourceDetection:
     """Tests for source/rip type detection functionality."""
+
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        """Create a parser instance for tests."""
+        return BangumiParser()
 
     # --- WEB-DL variants ---
 

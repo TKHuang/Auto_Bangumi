@@ -49,3 +49,9 @@ def search_provider_config():
     config_path = Path(__file__).parent / "fixtures" / "search_provider.json"
     with open(config_path) as f:
         return json.load(f)
+
+
+@pytest.fixture
+def fixtures_dir():
+    """Return the path to the test fixtures directory."""
+    return Path(__file__).parent / "fixtures"
