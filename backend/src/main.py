@@ -51,11 +51,11 @@ async def lifespan(app: FastAPI):
         user_repo = UserRepository(session)
         existing_users = await user_repo.get_all()
         if not existing_users:
-            async with session.begin():
-                await user_repo.create({
-                    "username": "admin",
-                    "password": hash_password("adminadmin"),
-                })
+            await user_repo.create({
+                "username": "admin",
+                "password": hash_password("adminadmin"),
+            })
+            await session.commit()
             logger.info("Default user created (admin/adminadmin)")
         else:
             logger.info("Users exist, skipping default user creation")
