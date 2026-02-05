@@ -1,83 +1,79 @@
-import logging
+"""JWT token creation and validation using HS256 algorithm."""
+
 import os
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
-
-logger = logging.getLogger(__name__)
-
-
-def _generate_key():
-    """Generate a new random JWT secret key."""
-    import secrets
-
-    return secrets.token_urlsafe(32)
 
 
 @lru_cache(maxsize=1)
 def _get_secret_key() -> str:
-    """Get JWT secret key from environment or generate a temporary one.
+    """Get JWT secret key from environment or settings.
 
     Set JWT_SECRET_KEY environment variable for persistent tokens across restarts.
     """
     key = os.getenv("JWT_SECRET_KEY")
     if key:
-        logger.debug("[Security] Using JWT_SECRET_KEY from environment.")
         return key
-    logger.warning(
-        "[Security] JWT_SECRET_KEY not set. Tokens will be invalidated on restart. "
-        "Set JWT_SECRET_KEY environment variable for persistent sessions."
-    )
-    return _generate_key()
+    import secrets
+
+    return secrets.token_urlsafe(32)
 
 
-app_pwd_key = _get_secret_key()
-app_pwd_algorithm = "HS256"
-
-# Hashing 密码
-app_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = _get_secret_key()
+ALGORITHM = "HS256"
 
 
-# 创建 JWT Token
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
+def create_access_token(
+    username: str, expires_delta: timedelta | None = None
+) -> str:
+    """Create a JWT access token for a user.
+
+    Args:
+        username: Username to encode in the token's 'sub' claim
+        expires_delta: Token expiration duration (default: 24 hours)
+
+    Returns:
+        Encoded JWT token string
+    """
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=1440)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, app_pwd_key, algorithm=app_pwd_algorithm)
+        expire = datetime.now(timezone.utc) + timedelta(hours=24)
+
+    to_encode = {
+        "sub": username,
+        "exp": expire,
+    }
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-# 解码 Token
-def decode_token(token: str):
+def decode_access_token(token: str) -> dict[str, int | str]:
+    """Decode and validate a JWT access token.
+
+    Args:
+        token: JWT token string to decode
+
+    Returns:
+        Token payload dictionary containing 'sub' (username) and 'exp' (expiration)
+
+    Raises:
+        JWTError: If token is invalid, expired, or missing required claims
+    """
     try:
-        payload = jwt.decode(token, app_pwd_key, algorithms=[app_pwd_algorithm])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
         if username is None:
-            return None
+            raise JWTError("Token missing username (sub)")
+
+        exp = payload.get("exp")
+        if exp is None:
+            raise JWTError("Token missing expiration (exp)")
+
         return payload
     except JWTError:
-        return None
-
-
-def verify_token(token: str):
-    token_data = decode_token(token)
-    if token_data is None:
-        return None
-    expires = token_data.get("exp")
-    if datetime.now(timezone.utc) >= datetime.fromtimestamp(expires, tz=timezone.utc):
-        raise JWTError("Token expired")
-    return token_data
-
-
-# 密码加密&验证
-def verify_password(plain_password, hashed_password):
-    return app_pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return app_pwd_context.hash(password)
+        raise
+    except Exception as e:
+        raise JWTError(f"Token decode error: {str(e)}")
