@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 
 from .v1.auth import router as auth_router
+from .v1.program import router as program_router
 from .bangumi import router as bangumi_router
 from .config import router as config_router
 from .log import router as log_router
-from .program import router as program_router
 from .rss import router as rss_router
 from .search import router as search_router
 
