@@ -67,8 +67,10 @@ class TestOpenAIParser:
             "source": "AVC",
         }
 
-        with mock.patch("module.parser.analyser.OpenAIParser.parse") as mocker:
-            mocker.return_value = json.dumps(expected)
+        with mock.patch("module.domain.parser.analyser.openai.openai.ChatCompletion.create") as mocker:
+            mocker.return_value = {
+                "choices": [{"message": {"content": json.dumps(expected)}}]
+            }
 
             result = self.parser.parse(text=text, asdict=False)
             assert json.loads(result) == expected

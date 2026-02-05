@@ -298,8 +298,8 @@ class PikPakDownloader:
                     "https://user.mypikpak.com/",
                     timeout=5,
                 )
-            # Any response (even 404) means server is reachable
-            logger.debug(f"PikPak API reachable (status: {response.status_code})")
+                # Any response (even 404) means server is reachable
+                logger.debug(f"PikPak API reachable (status: {response.status_code})")
             return True
         except httpx.HTTPError as e:
             logger.error(f"PikPak API not reachable: {e}")

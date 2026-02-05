@@ -212,15 +212,16 @@ class TestPikPakDownloaderAuth:
         """Test check_host returns False when API is unreachable."""
         import httpx
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("module.services.downloader.pikpak.httpx.AsyncClient") as mock_client_class:
+            # Create a mock that raises an exception when get() is called
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(
                 side_effect=httpx.ConnectError("Connection refused")
             )
-            mock_client_class.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
-            mock_client_class.return_value.__aexit__ = AsyncMock()
+            # Make the mock work as an async context manager
+            mock_client_class.return_value = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value.__aexit__.return_value = None
 
             result = await pikpak_downloader.check_host()
 

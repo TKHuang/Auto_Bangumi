@@ -63,13 +63,14 @@ class TestSearch:
         bangumi.group_name = "SubGroup"
         bangumi.poster_link = "https://example.com/poster.jpg"
         bangumi.rss_link = "https://example.com/rss/123"
-        bangumi.dict.return_value = {
+        # Make dict() return current rss_link value
+        bangumi.dict.side_effect = lambda: {
             "official_title": "Test Bangumi",
             "title_raw": "Test Bangumi",
             "season": 1,
             "group_name": "SubGroup",
             "poster_link": "https://example.com/poster.jpg",
-            "rss_link": "https://example.com/rss/123",
+            "rss_link": bangumi.rss_link,
         }
         return bangumi
 
@@ -111,8 +112,10 @@ class TestSearch:
         self, mock_request_content, mock_parser, sample_torrent, sample_rss_item
     ):
         """search respects limit parameter."""
-        # Create 10 torrents
-        torrents = [sample_torrent for _ in range(10)]
+        # Create 10 unique torrents
+        torrents = [MagicMock(name=f"torrent_{i}") for i in range(10)]
+        for torrent in torrents:
+            torrent.name = f"[SubGroup] Test Bangumi {id(torrent)} - 01 [1080p].mkv"
         mock_request_content.get_torrents.return_value = torrents
 
         # Create unique bangumi for each torrent
@@ -138,7 +141,14 @@ class TestSearch:
         with patch("module.services.search.RequestContent", return_value=mock_request_content):
             with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
                 with patch("module.services.search.search_url") as mock_search_url:
-                    mock_search_url.return_value = sample_rss_item
+                    # Return different URLs based on keywords to avoid deduplication
+                    def search_url_side_effect(provider, keywords):
+                        rss = MagicMock()
+                        # Use keywords to generate unique URL
+                        keyword_str = "_".join(str(k) for k in keywords) if keywords else "default"
+                        rss.url = f"https://example.com/rss/{keyword_str}"
+                        return rss
+                    mock_search_url.side_effect = search_url_side_effect
 
                     results = []
                     async for result in search(["test"], provider="mikan", limit=3):
