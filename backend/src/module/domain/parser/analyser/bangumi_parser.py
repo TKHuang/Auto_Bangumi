@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from module.models.parsed import EpisodeType, ParsedBangumi, SubtitleType
+from module.domain.value_objects import EpisodeType, ParsedBangumi, SubtitleType
 
 
 @dataclass

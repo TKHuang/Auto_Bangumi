@@ -1,8 +1,7 @@
 import logging
 from pathlib import Path
 
-from module.models import EpisodeFile, SubtitleFile
-from module.models.parsed import SubtitleType
+from module.domain.value_objects import EpisodeFile, SubtitleFile, SubtitleType
 from module.domain.parser.analyser.bangumi_parser import BangumiParser
 
 logger = logging.getLogger(__name__)

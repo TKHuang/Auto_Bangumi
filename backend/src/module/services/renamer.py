@@ -14,7 +14,7 @@ from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.parser.title_parser import TitleParser
 from module.domain.state_machine.torrent_state import TorrentStateMachine
-from module.models.torrent import EpisodeFile, SubtitleFile
+from module.domain.value_objects import EpisodeFile, SubtitleFile
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.torrent import TorrentRepository
 

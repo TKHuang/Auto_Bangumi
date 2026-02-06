@@ -1,8 +1,13 @@
-from dataclasses import dataclass
 from typing import Optional
 
-from pydantic import BaseModel
 from sqlmodel import Field, SQLModel
+
+from module.domain.value_objects import (
+    BangumiParsingError,
+    Episode,
+    Notification,
+    SeasonInfo,
+)
 
 
 class Bangumi(SQLModel, table=True):
@@ -54,62 +59,3 @@ class BangumiUpdate(SQLModel):
     rule_name: Optional[str] = Field(alias="rule_name", title="番剧规则名")
     save_path: Optional[str] = Field(alias="save_path", title="番剧保存路径")
     deleted: bool = Field(False, alias="deleted", title="是否已删除")
-
-
-class Notification(BaseModel):
-    official_title: str = Field(..., alias="official_title", title="番剧名")
-    season: int = Field(..., alias="season", title="番剧季度")
-    episode: Optional[int] = Field(None, alias="episode", title="番剧集数")
-    is_movie: bool = Field(False, alias="is_movie", title="是否为剧场版")
-    poster_path: Optional[str] = Field(None, alias="poster_path", title="番剧海报路径")
-
-
-@dataclass
-class Episode:
-    title_en: Optional[str]
-    title_zh: Optional[str]
-    title_jp: Optional[str]
-    season: int
-    season_raw: str
-    episode: int
-    sub: str
-    group: str
-    resolution: str
-    source: str
-
-
-@dataclass
-class SeasonInfo(dict):
-    official_title: str
-    title_raw: str
-    season: int
-    season_raw: str
-    group: str
-    filter: list | None
-    offset: int | None
-    dpi: str
-    source: str
-    subtitle: str
-    added: bool
-    eps_collect: bool
-
-
-class BangumiParsingError(Exception):
-    """Exception raised when automatic bangumi parsing fails to extract title information.
-    
-    This exception is raised when the raw parser returns an Episode with all title fields empty,
-    allowing callers to distinguish this specific failure from other errors.
-    """
-    
-    def __init__(
-        self,
-        raw_title: str,
-        partial_data: dict,
-        msg_en: str,
-        msg_zh: str,
-    ) -> None:
-        self.raw_title = raw_title
-        self.partial_data = partial_data
-        self.msg_en = msg_en
-        self.msg_zh = msg_zh
-        super().__init__(msg_en)

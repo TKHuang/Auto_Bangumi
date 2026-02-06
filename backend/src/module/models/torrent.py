@@ -1,10 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
 from sqlmodel import Field, SQLModel
 
-from module.models.parsed import EpisodeType
+from module.domain.value_objects import EpisodeFile, SubtitleFile
 
 
 class Torrent(SQLModel, table=True):
@@ -23,28 +22,3 @@ class Torrent(SQLModel, table=True):
 
 class TorrentUpdate(SQLModel):
     downloaded: bool = Field(False, alias="downloaded")
-
-
-class EpisodeFile(BaseModel):
-    media_path: str = Field(...)
-    group: str | None = Field(None)
-    title: str = Field(...)
-    season: int = Field(...)
-    episode: float | int | None = Field(None)
-    version: int | None = Field(None)
-    suffix: str = Field(..., regex=r"(?i)\.(mkv|mp4|avi|wmv|webm|flv|mov|ts|m2ts)$")
-    is_movie: bool = Field(False)
-    episode_type: EpisodeType | None = Field(None)
-
-
-class SubtitleFile(BaseModel):
-    media_path: str = Field(...)
-    group: str | None = Field(None)
-    title: str = Field(...)
-    season: int = Field(...)
-    episode: float | int | None = Field(None)
-    version: int | None = Field(None)
-    language: str = Field(..., regex=r"(zh|zh-tw)")
-    suffix: str = Field(..., regex=r"(?i)\.(ass|ssa|srt|sub|vtt)$")
-    is_movie: bool = Field(False)
-    episode_type: EpisodeType | None = Field(None)

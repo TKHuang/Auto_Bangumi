@@ -1,7 +1,6 @@
 import logging
 
-from module.models import Episode
-from module.models.bangumi import BangumiParsingError
+from module.domain.value_objects import BangumiParsingError, Episode
 from module.domain.parser.analyser.bangumi_parser import BangumiParser
 
 logger = logging.getLogger(__name__)

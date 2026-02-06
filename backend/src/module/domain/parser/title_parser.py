@@ -2,7 +2,7 @@ import logging
 
 from module.conf import settings
 from module.models import Bangumi
-from module.models.bangumi import BangumiParsingError, Episode
+from module.domain.value_objects import BangumiParsingError, Episode
 from module.domain.parser.analyser import (
     MikanParserResult,
     OpenAIParser,
