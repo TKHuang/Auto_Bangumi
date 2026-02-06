@@ -22,6 +22,23 @@ from module.services.downloader.interface import DownloaderProtocol
 logger = logging.getLogger(__name__)
 
 
+def _extract_mikan_bangumi_id(url: str) -> str | None:
+    if not url:
+        return None
+    match = re.search(r"bangumiId=(\d+)", url)
+    return match.group(1) if match else None
+
+
+def _is_cross_season(source_rss_url: str, bangumi_rss_link: str) -> bool:
+    """True when source RSS and bangumi RSS are both Mikan season feeds
+    with different bangumiIds (i.e. different seasons of the same show)."""
+    source_id = _extract_mikan_bangumi_id(source_rss_url)
+    target_id = _extract_mikan_bangumi_id(
+        bangumi_rss_link.split(",")[0] if bangumi_rss_link else ""
+    )
+    return bool(source_id and target_id and source_id != target_id)
+
+
 class RSSEngine:
     """RSS Engine for feed processing and torrent management."""
 
@@ -126,6 +143,11 @@ class RSSEngine:
                         torrent, bangumi_repo
                     )
                     if matched_bangumi:
+                        if _is_cross_season(rss_item.url, matched_bangumi.rss_link or ""):
+                            logger.debug(
+                                f"[Engine] Skip {torrent.name} - cross-season RSS mismatch"
+                            )
+                            continue
                         matched_torrents.append(torrent)
                     else:
                         logger.debug(

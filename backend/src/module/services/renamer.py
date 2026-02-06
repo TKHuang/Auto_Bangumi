@@ -125,7 +125,7 @@ class RenamerService:
             return []
 
         unrenamed_hashes = {t.hash.lower() for t in unrenamed_torrents if t.hash}
-        all_torrent_info = await downloader.torrents_info()
+        all_torrent_info = await downloader.torrents_info(status_filter="completed")
         torrents_to_rename = [
             t for t in all_torrent_info if t.hash.lower() in unrenamed_hashes
         ]
@@ -287,7 +287,7 @@ class RenamerService:
             return []
 
         target_hashes = {t.hash.lower() for t in bangumi_torrents if t.hash}
-        all_torrent_info = await downloader.torrents_info()
+        all_torrent_info = await downloader.torrents_info(status_filter="completed")
         torrents_to_process = [
             t for t in all_torrent_info if t.hash.lower() in target_hashes
         ]
@@ -321,7 +321,7 @@ class RenamerService:
                 logger.info(
                     f"[Renamer] Successfully moved {len(hashes_to_move)} torrents"
                 )
-                all_torrent_info = await downloader.torrents_info()
+                all_torrent_info = await downloader.torrents_info(status_filter="completed")
                 torrents_to_process = [
                     t for t in all_torrent_info if t.hash.lower() in target_hashes
                 ]
