@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from module.conf import VERSION
-from module.security.api import get_current_user
+from module.api.middleware.auth import get_current_user
 
 if TYPE_CHECKING:
     from module.scheduler import AsyncScheduler
@@ -103,6 +103,12 @@ async def stop():
                 "msg_zh": "停止程序失败。",
             },
         )
+
+
+@router.get("/health")
+async def health():
+    """Unauthenticated health check for Docker healthcheck."""
+    return {"status": "ok"}
 
 
 @router.get("/status", dependencies=[Depends(get_current_user)])

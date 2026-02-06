@@ -89,19 +89,21 @@ class BangumiDatabase:
         self.session.add(bangumi)
         logger.debug(f"[Database] Update bangumi {bangumi_id} save_path to {save_path}.")
 
-    def delete_one(self, _id: int):
-        # First, delete all torrents associated with this bangumi
+    def delete_one(self, _id: int) -> bool:
         from module.models import Torrent
 
         torrent_delete_stmt = delete(Torrent).where(Torrent.bangumi_id == _id)
         self.session.exec(torrent_delete_stmt)
         logger.debug(f"[Database] Deleted torrents for bangumi id: {_id}.")
 
-        # Then delete the bangumi itself
-        statement = select(Bangumi).where(Bangumi.id == _id)
-        bangumi = self.session.exec(statement).first()
-        self.session.delete(bangumi)
-        logger.debug(f"[Database] Delete bangumi id: {_id}.")
+        bangumi_delete_stmt = delete(Bangumi).where(Bangumi.id == _id)
+        result = self.session.exec(bangumi_delete_stmt)
+        deleted = result.rowcount > 0
+        if deleted:
+            logger.debug(f"[Database] Delete bangumi id: {_id}.")
+        else:
+            logger.debug(f"[Database] Bangumi id: {_id} already deleted (idempotent).")
+        return deleted
 
     def delete_many(self, ids: list[int]) -> int:
         """Delete multiple bangumi by IDs in a single transaction.
@@ -129,8 +131,10 @@ class BangumiDatabase:
         return len(ids)
 
     def delete_all(self):
-        statement = delete(Bangumi)
-        self.session.exec(statement)
+        from module.models import Torrent
+
+        self.session.exec(delete(Torrent))
+        self.session.exec(delete(Bangumi))
 
     def search_all(self) -> list[Bangumi]:
         statement = select(Bangumi).where(Bangumi.pending_review == false())
@@ -274,26 +278,26 @@ class BangumiDatabase:
         return self.session.exec(statement).all()
 
     def delete_all_by_rss_id(self, rss_id: int) -> int:
-        """Delete ALL bangumi associated with an RSS feed (active AND pending).
+        from module.models import Torrent
 
-        Used during RSS recreation to clear all existing bangumi from the RSS
-        before inserting new ones, preventing orphaned entries when RSS content changes.
+        bangumi_ids_stmt = select(Bangumi.id).where(
+            and_(
+                Bangumi.rss_id == rss_id,
+                Bangumi.deleted == false(),
+            )
+        )
+        bangumi_ids = [row for row in self.session.exec(bangumi_ids_stmt).all()]
 
-        Args:
-            rss_id: The RSS item ID.
-
-        Returns:
-            Number of bangumi deleted.
-        """
-        bangumi_list = self.get_all_by_rss_id(rss_id)
-
-        if not bangumi_list:
+        if not bangumi_ids:
             return 0
 
-        count = 0
-        for bangumi in bangumi_list:
-            self.delete_one(bangumi.id)
-            count += 1
+        self.session.exec(
+            delete(Torrent).where(col(Torrent.bangumi_id).in_(bangumi_ids))
+        )
+        result = self.session.exec(
+            delete(Bangumi).where(col(Bangumi.id).in_(bangumi_ids))
+        )
+        count = result.rowcount
 
         logger.info(
             f"[Database] Deleted {count} bangumi records for RSS ID {rss_id} during recreation"

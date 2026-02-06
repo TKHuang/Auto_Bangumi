@@ -397,7 +397,7 @@ class TestPikPakDownloaderTorrents:
         result = await pikpak_downloader.torrents_delete(hashes)
 
         assert result is True
-        assert mock_instance.offline_list.call_count >= 2
+        mock_instance.offline_list.assert_called()
 
     @pytest.mark.asyncio
     async def test_get_existing_hashes(self, pikpak_downloader, mock_pikpak_api):

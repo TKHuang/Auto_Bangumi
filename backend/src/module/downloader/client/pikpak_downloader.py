@@ -41,6 +41,17 @@ API_TIMEOUT_SECONDS = 60
 # Maximum folder recursion depth to prevent infinite loops from circular references
 MAX_FOLDER_DEPTH = 20
 
+# Cache TTL for offline task list (seconds). Avoids redundant API calls
+# within the same logical operation (e.g., rename calls torrents_info 3x).
+TASK_CACHE_TTL = 60
+
+ALL_PHASES = [
+    "PHASE_TYPE_RUNNING",
+    "PHASE_TYPE_ERROR",
+    "PHASE_TYPE_COMPLETE",
+    "PHASE_TYPE_PENDING",
+]
+
 # PikPak phase type to qBittorrent-compatible state mapping
 PHASE_STATE_MAP = {
     "PHASE_TYPE_PENDING": "stalledDL",
@@ -108,11 +119,10 @@ class PikPakDownloader:
         self._password = password
         self._client = PikPakApi(username=username, password=password)
 
-        # Thread safety lock for async operations
         self._lock = threading.Lock()
-
-        # Token expiration tracking (0 = not authenticated)
         self._token_expires_at: int = 0
+        self._task_cache: list[dict] | None = None
+        self._task_cache_time: float = 0
 
         # Create persistent blocking portal for async operations.
         # This keeps a single event loop alive, allowing httpx connection pooling
@@ -277,6 +287,23 @@ class PikPakDownloader:
             self._portal.call(self._client.login)
             self._save_token()
 
+    def _get_all_tasks_cached(self) -> list[dict]:
+        now = time.time()
+        if self._task_cache is not None and (now - self._task_cache_time) < TASK_CACHE_TTL:
+            logger.debug(f"Using cached offline task list ({len(self._task_cache)} tasks)")
+            return self._task_cache
+
+        result = self._run_async(self._client.offline_list(phase=ALL_PHASES))
+        tasks = result.get("tasks", [])
+        self._task_cache = tasks
+        self._task_cache_time = time.time()
+        logger.debug(f"Refreshed offline task cache: {len(tasks)} tasks")
+        return tasks
+
+    def _invalidate_task_cache(self):
+        self._task_cache = None
+        self._task_cache_time = 0
+
     @pikpak_retry(max_retries=3, initial_delay=10.0)
     def auth(self) -> bool:
         """Authenticate with PikPak API.
@@ -378,12 +405,20 @@ class PikPakDownloader:
         Returns:
             Folder ID of the leaf folder, or None if creation fails.
         """
-        # Ensure path starts with / for path_to_id
         if not path.startswith("/"):
             path = f"/{path}"
 
         logger.debug(f"Getting or creating folder: {path}")
-        path_ids = self._run_async(self._client.path_to_id(path, create=True))
+        try:
+            path_ids = self._run_async(self._client.path_to_id(path, create=True))
+        except Exception as e:
+            if "cannot be repeated" in str(e):
+                logger.debug(f"Folder already exists (concurrent create): {path}")
+                path_ids = self._run_async(
+                    self._client.path_to_id(path, create=False)
+                )
+            else:
+                raise
 
         if path_ids:
             folder_id = path_ids[-1].get("id")
@@ -459,19 +494,21 @@ class PikPakDownloader:
         if hashes_to_track:
             self._delete_existing_tasks_for_redownload(hashes_to_track)
 
+        active_hashes = self._get_active_task_hashes()
+
         # Start all downloads
         for url in urls:
+            url_hash = self._extract_hash(url)
+            if url_hash and url_hash.lower() in active_hashes:
+                logger.info(f"[PikPak] Skipping duplicate — active task exists for hash {url_hash[:16]}...")
+                continue
             logger.info(f"Adding download to PikPak: {url[:80]}...")
             result = self._run_async(
                 self._client.offline_download(file_url=url, parent_id=folder_id)
             )
             logger.debug(f"Download added, result: {result}")
 
-        # NOTE: pikpak_cloud_path is now set by the caller (engine.py, collector.py)
-        # to avoid database lock conflicts. The caller has the torrent objects and
-        # an active session, so it can update them directly after this method returns.
-        # The save_path used here is available via bangumi.save_path in the caller.
-
+        self._invalidate_task_cache()
         return True
 
     def _delete_existing_tasks_for_redownload(self, hashes: list[str]) -> None:
@@ -490,17 +527,11 @@ class PikPakDownloader:
         hash_set = set(hashes)
 
         try:
-            # Get all offline tasks
-            result = self._run_async(
-                self._client.offline_list(
-                    phase=[
-                        "PHASE_TYPE_ERROR",
-                        "PHASE_TYPE_COMPLETE",
-                    ]
-                )
-            )
-
-            tasks = result.get("tasks", [])
+            all_tasks = self._get_all_tasks_cached()
+            tasks = [
+                t for t in all_tasks
+                if t.get("phase", "") in ("PHASE_TYPE_ERROR", "PHASE_TYPE_COMPLETE")
+            ]
             tasks_to_delete: list[str] = []
 
             for task in tasks:
@@ -543,7 +574,6 @@ class PikPakDownloader:
                                         f"{task_hash[:16]}..."
                                     )
 
-            # Delete tasks in batch
             if tasks_to_delete:
                 logger.info(
                     f"Deleting {len(tasks_to_delete)} existing tasks for redownload"
@@ -553,10 +583,10 @@ class PikPakDownloader:
                         task_ids=tasks_to_delete, delete_files=False
                     )
                 )
+                self._invalidate_task_cache()
 
         except Exception as e:
             logger.debug(f"Error checking/deleting existing tasks: {e}")
-            # Continue with download attempt even if cleanup fails
 
     @pikpak_retry(max_retries=3, initial_delay=5.0)
     def torrents_info(
@@ -578,26 +608,17 @@ class PikPakDownloader:
         Returns:
             List of TorrentInfo objects with hash, name, state, progress, save_path, files.
         """
-        # Determine which phases to query based on status_filter
         if status_filter == "completed":
-            phases = ["PHASE_TYPE_COMPLETE"]
+            phases = {"PHASE_TYPE_COMPLETE"}
         elif status_filter == "downloading":
-            phases = ["PHASE_TYPE_RUNNING", "PHASE_TYPE_PENDING"]
+            phases = {"PHASE_TYPE_RUNNING", "PHASE_TYPE_PENDING"}
         elif status_filter == "error":
-            phases = ["PHASE_TYPE_ERROR"]
+            phases = {"PHASE_TYPE_ERROR"}
         else:
-            # "all" or None - get all tasks
-            phases = [
-                "PHASE_TYPE_RUNNING",
-                "PHASE_TYPE_ERROR",
-                "PHASE_TYPE_COMPLETE",
-                "PHASE_TYPE_PENDING",
-            ]
+            phases = None
 
-        logger.debug(f"Fetching PikPak offline tasks with phases: {phases}")
-        result = self._run_async(self._client.offline_list(phase=phases))
-
-        tasks = result.get("tasks", [])
+        all_tasks = self._get_all_tasks_cached()
+        tasks = [t for t in all_tasks if phases is None or t.get("phase", "") in phases]
         torrents: list[TorrentInfo] = []
 
         for task in tasks:
@@ -654,8 +675,13 @@ class PikPakDownloader:
                         )
                         continue  # Skip this task entirely - don't add to result list
 
-                    # Not renamed yet - list files for processing
-                    files = self._list_files_in_folder(save_path)
+                    # Each PikPak task downloads exactly one file — use task's
+                    # file_name instead of listing the entire shared folder
+                    task_file_name = task.get("file_name", "")
+                    if task_file_name:
+                        files = [TorrentFile(name=task_file_name)]
+                    else:
+                        files = self._list_files_in_folder(save_path)
                     logger.debug(f"Task {task.get('name')}: found {len(files)} files")
                     # If no files found, file was deleted from PikPak storage
                     if not files:
@@ -1241,19 +1267,7 @@ class PikPakDownloader:
             logger.warning(f"Could not verify deletion for {normalized_hash}")
 
     def _find_offline_task_id(self, normalized_hash: str) -> str | None:
-        """Find the offline task ID for a given torrent hash."""
-        result = self._run_async(
-            self._client.offline_list(
-                phase=[
-                    "PHASE_TYPE_RUNNING",
-                    "PHASE_TYPE_ERROR",
-                    "PHASE_TYPE_COMPLETE",
-                    "PHASE_TYPE_PENDING",
-                ]
-            )
-        )
-
-        tasks = result.get("tasks", [])
+        tasks = self._get_all_tasks_cached()
         for task in tasks:
             file_url = task.get("file_url", "") or task.get("params", {}).get(
                 "url", ""
@@ -1291,6 +1305,7 @@ class PikPakDownloader:
                 logger.debug(f"Delete tasks response: {response.text}")
         
         self._run_async(_do_delete())
+        self._invalidate_task_cache()
 
     @pikpak_retry(max_retries=3, initial_delay=5.0)
     def move_torrent(self, hashes: list[str], new_location: str) -> bool:
@@ -1451,23 +1466,10 @@ class PikPakDownloader:
             Set of lowercase 40-character hex torrent hashes.
         """
         try:
-            # Fetch all offline tasks regardless of status
-            result = self._run_async(
-                self._client.offline_list(
-                    phase=[
-                        "PHASE_TYPE_RUNNING",
-                        "PHASE_TYPE_ERROR",
-                        "PHASE_TYPE_COMPLETE",
-                        "PHASE_TYPE_PENDING",
-                    ]
-                )
-            )
-
-            tasks = result.get("tasks", [])
+            tasks = self._get_all_tasks_cached()
             hashes: set = set()
 
             for task in tasks:
-                # Extract hash from the magnet URL in the task
                 file_url = task.get("file_url", "") or task.get("params", {}).get(
                     "url", ""
                 )

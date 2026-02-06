@@ -4,4 +4,5 @@ from .engine import (
     create_tables,
     engine,
     get_db_session,
+    sync_engine,
 )

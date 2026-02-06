@@ -111,6 +111,11 @@ class RSSEngine:
         logger.debug(f"[Engine] Processing {len(rss_items)} RSS items")
 
         for rss_item in rss_items:
+            # Fix: Skip if recreating (concurrency gate)
+            if rss_item.last_status == "Recreating":
+                logger.debug(f"[Engine] Skipping RSS {rss_item.name} - recreation in progress")
+                continue
+
             try:
                 new_torrents = await RSSEngine.parse_rss_feed(rss_item.url)
 
@@ -128,36 +133,11 @@ class RSSEngine:
                         )
 
                 if matched_torrents:
-                    existing_hashes = []
-                    for torrent in matched_torrents:
-                        if torrent.hash and torrent.bangumi_id:
-                            existing_hashes.append(torrent.hash)
-
-                    if existing_hashes:
-                        for torrent in matched_torrents:
-                            if torrent.hash and torrent.bangumi_id:
-                                new_hashes = await torrent_repo.check_new_by_hash(
-                                    [torrent.hash], torrent.bangumi_id
-                                )
-                                if torrent.hash not in new_hashes:
-                                    matched_torrents.remove(torrent)
-                                    logger.debug(
-                                        f"[Engine] Skip duplicate torrent {torrent.name}"
-                                    )
-
-                if matched_torrents:
-                    for torrent in matched_torrents:
-                        await torrent_repo.create({
-                            "name": torrent.name,
-                            "url": torrent.url,
-                            "homepage": torrent.homepage,
-                            "hash": torrent.hash,
-                            "bangumi_id": torrent.bangumi_id,
-                            "rss_id": torrent.rss_id,
-                            "downloaded": False,
-                        })
-
-                    await session.flush()
+                    # Fix: Use idempotent bulk insert
+                    inserted_count = await torrent_repo.add_all_or_ignore(matched_torrents)
+                    logger.debug(f"[Engine] Inserted {inserted_count} new torrents")
+                    
+                    # We don't need to flush here as add_all_or_ignore executes immediately
 
                     for torrent in matched_torrents:
                         matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
@@ -174,6 +154,7 @@ class RSSEngine:
                                 logger.debug(
                                     f"[Engine] Added torrent {torrent.name} to downloader"
                                 )
+                                # Fetch by hash to get ID and update status
                                 db_torrent = await torrent_repo.get_by_hash(torrent.hash)
                                 if db_torrent:
                                     await torrent_repo.mark_downloaded(db_torrent.id)
@@ -390,16 +371,8 @@ class RSSEngine:
                 "count": 0,
             }
 
-        for torrent in new_torrents:
-            await torrent_repo.create({
-                "name": torrent.name,
-                "url": torrent.url,
-                "homepage": torrent.homepage,
-                "hash": torrent.hash,
-                "bangumi_id": torrent.bangumi_id,
-                "rss_id": torrent.rss_id,
-                "downloaded": False,
-            })
+        inserted_count = await torrent_repo.add_all_or_ignore(new_torrents)
+        logger.debug(f"[Engine] download_bangumi: inserted {inserted_count}/{len(new_torrents)} torrents")
 
         await session.flush()
 

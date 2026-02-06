@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import MetaData, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -37,11 +38,13 @@ class TimestampMixin:
 
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
+        server_default=sa.text("(strftime('%Y-%m-%d %H:%M:%f', 'now'))"),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        server_default=sa.text("(strftime('%Y-%m-%d %H:%M:%f', 'now'))"),
         nullable=False,
     )
 
@@ -64,7 +67,7 @@ class VersionMixin:
             raise OptimisticLockError("Bangumi was modified by another transaction")
     """
 
-    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    version: Mapped[int] = mapped_column(default=1, server_default=sa.text("1"), nullable=False)
 
 
 # Event listener to auto-increment version on update

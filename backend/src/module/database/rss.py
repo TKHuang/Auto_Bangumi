@@ -72,6 +72,14 @@ class RSSDatabase:
             select(RSSItem).where(and_(RSSItem.aggregate, RSSItem.enabled))
         ).all()
 
+    def set_status(self, _id: int, status: str) -> bool:
+        db_data = self.session.get(RSSItem, _id)
+        if not db_data:
+            return False
+        db_data.last_status = status
+        self.session.add(db_data)
+        return True
+
     def delete(self, _id: int) -> bool:
         """Delete RSS and cascade delete all associated Bangumi rules and torrents."""
         try:

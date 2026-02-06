@@ -60,9 +60,18 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Users exist, skipping default user creation")
     
+    from module.database.combine import Database
+    db = Database()
+    db.create_table()
+    db.close()
+    logger.info("Legacy database migrations applied")
+
     scheduler = AsyncScheduler()
     await scheduler.start()
     logger.info("Scheduler started")
+
+    from module.api.v1.program import set_scheduler
+    set_scheduler(scheduler)
     
     yield
     
@@ -92,8 +101,8 @@ def create_app() -> FastAPI:
     app.include_router(rss.router, prefix="/api/v1")
     app.include_router(search.router, prefix="/api/v1")
     
-    if os.path.isdir("data/posters"):
-        app.mount("/posters", StaticFiles(directory="data/posters"), name="posters")
+    os.makedirs("data/posters", exist_ok=True)
+    app.mount("/posters", StaticFiles(directory="data/posters"), name="posters")
 
     if VERSION != "DEV_VERSION":
         if os.path.isdir("dist/assets"):

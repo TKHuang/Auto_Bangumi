@@ -73,9 +73,8 @@ class SeasonCollector(DownloadClient):
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
                 engine.commit()
-                # Sync torrents that exist in qB but not in DB
                 if already_in_qb_torrents:
-                    engine.torrent.add_all(already_in_qb_torrents)
+                    engine.torrent.add_all_or_ignore(already_in_qb_torrents)
                     engine.commit()
                     logger.info(
                         f"[Collector] Synced {len(already_in_qb_torrents)} existing torrents to database "
@@ -88,22 +87,17 @@ class SeasonCollector(DownloadClient):
                     msg_zh=f"{bangumi.official_title} 的所有剧集已在下载客户端中。",
                 )
 
-            # Add torrents to database BEFORE calling add_torrent
-            # This is required for PikPak to store pikpak_cloud_path
             all_torrents_to_add = new_torrents + already_in_qb_torrents
-            engine.torrent.add_all(all_torrents_to_add)
+            engine.torrent.add_all_or_ignore(all_torrents_to_add)
             engine.commit()
 
             if self.add_torrent(new_torrents, bangumi):
                 logger.info(
                     f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
                 )
-                # Mark torrents as downloaded and set pikpak_cloud_path
-                # (pikpak_cloud_path is set here to avoid DB lock conflicts)
                 for torrent in new_torrents:
-                    torrent.downloaded = True
-                    torrent.pikpak_cloud_path = bangumi.save_path
-                    engine.torrent.update(torrent)
+                    if torrent.hash and bangumi.id is not None:
+                        engine.torrent.mark_downloaded(torrent.hash, bangumi.id, bangumi.save_path)
                 bangumi.eps_collect = True
                 if engine.bangumi.update(bangumi):
                     engine.bangumi.add(bangumi)
@@ -200,9 +194,10 @@ class SeasonCollector(DownloadClient):
                         f"from another RSS source (ID: {existing_active.rss_id}). Delete the existing subscription first."
                     )
 
-                # For single bangumi (non-aggregate RSS): Delete existing and insert new
-                # This is safe for single bangumi - only affects this one RSS item
                 if data.rss_id:
+                    engine.rss.set_status(data.rss_id, "Recreating")
+                    engine.commit()
+
                     existing_bangumi = engine.bangumi.get_all_by_rss_id(data.rss_id)
                     if existing_bangumi:
                         logger.info(
@@ -252,11 +247,20 @@ class SeasonCollector(DownloadClient):
                         f"(all torrents filtered by: {data.filter})"
                     )
                 
+                if data.rss_id:
+                    engine.rss.set_status(data.rss_id, "Success")
+                    engine.commit()
+
                 return result
 
             except Exception as e:
-                # Rollback all database changes if any operation fails
                 engine.rollback()
+                if data.rss_id:
+                    try:
+                        engine.rss.set_status(data.rss_id, "Error")
+                        engine.commit()
+                    except Exception:
+                        pass
                 logger.error(
                     f"[Collector] Failed to subscribe bangumi {data.official_title}: {e}. "
                     f"All changes rolled back."
@@ -294,6 +298,9 @@ class SeasonCollector(DownloadClient):
         
         with RSSEngine() as engine:
             try:
+                engine.rss.set_status(rss_id, "Recreating")
+                engine.commit()
+
                 existing_bangumi = engine.bangumi.get_all_by_rss_id(rss_id)
                 if existing_bangumi:
                     logger.info(
@@ -365,6 +372,9 @@ class SeasonCollector(DownloadClient):
                         except Exception as e:
                             logger.error(f"[Collector] Failed to download torrents for {data.official_title}: {e}")
                 
+                engine.rss.set_status(rss_id, "Success")
+                engine.commit()
+
                 if success_count == len(bangumi_list):
                     return ResponseModel(
                         status=True,
@@ -389,6 +399,11 @@ class SeasonCollector(DownloadClient):
                     
             except Exception as e:
                 engine.rollback()
+                try:
+                    engine.rss.set_status(rss_id, "Error")
+                    engine.commit()
+                except Exception:
+                    pass
                 logger.error(f"[Collector] Batch subscription failed: {e}. All changes rolled back.")
                 raise
 

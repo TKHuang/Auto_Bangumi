@@ -6,7 +6,7 @@ from sqlmodel import Session, SQLModel
 from module.models import Bangumi, User
 
 from .bangumi import BangumiDatabase
-from .engine import engine as e
+from .engine import sync_engine as e
 from .rss import RSSDatabase
 from .torrent import TorrentDatabase
 from .user import UserDatabase
@@ -24,7 +24,6 @@ class Database(Session):
         self.user = UserDatabase(self)
 
     def create_table(self):
-        SQLModel.metadata.create_all(self.engine)
         # Migration for new columns in rssitem
         cursor = self.execute(text("PRAGMA table_info(rssitem)"))
         columns = [row[1] for row in cursor.fetchall()]
@@ -71,8 +70,12 @@ class Database(Session):
             self.execute(text("ALTER TABLE torrent ADD COLUMN renamed_file_count INTEGER"))
             self.commit()
         
-        # Migration for group_name: update NULL/empty values to "Unknown"
-        # This ensures composite key (title_raw, season, group_name) works correctly
+        self.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_torrent_hash_bangumi "
+            "ON torrent (hash, bangumi_id) WHERE hash IS NOT NULL"
+        ))
+        self.commit()
+
         result = self.execute(
             text("UPDATE bangumi SET group_name = 'Unknown' WHERE group_name IS NULL OR group_name = ''")
         )

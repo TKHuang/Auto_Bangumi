@@ -1,5 +1,7 @@
 import logging
 
+from sqlalchemy import update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from module.models import Torrent
@@ -18,6 +20,31 @@ class TorrentDatabase:
     def add_all(self, datas: list[Torrent]):
         self.session.add_all(datas)
         logger.debug(f"Insert {len(datas)} torrents in database.")
+
+    def add_all_or_ignore(self, datas: list[Torrent]) -> int:
+        if not datas:
+            return 0
+        inserted = 0
+        for data in datas:
+            stmt = sqlite_insert(Torrent).values(
+                bangumi_id=data.bangumi_id,
+                rss_id=data.rss_id,
+                name=data.name,
+                url=data.url,
+                homepage=data.homepage,
+                downloaded=data.downloaded,
+                hash=data.hash,
+                renamed_at=data.renamed_at,
+                renamed_file_count=data.renamed_file_count,
+                pikpak_cloud_path=data.pikpak_cloud_path,
+            ).on_conflict_do_nothing(
+                index_elements=["hash", "bangumi_id"],
+            )
+            result = self.session.execute(stmt)
+            if result.rowcount > 0:
+                inserted += 1
+        logger.debug(f"Insert-or-ignore {inserted}/{len(datas)} torrents in database.")
+        return inserted
 
     def update(self, data: Torrent):
         self.session.add(data)
@@ -143,3 +170,18 @@ class TorrentDatabase:
         statement = select(Torrent).where(Torrent.renamed_at.is_(None))
         torrents = self.session.exec(statement).all()
         return {t.hash.lower() for t in torrents if t.hash}
+
+    def mark_downloaded(self, hash: str, bangumi_id: int, save_path: str | None = None) -> int:
+        # Direct SQL UPDATE — bypasses ORM to avoid StaleDataError after add_all_or_ignore
+        values: dict = {"downloaded": True}
+        if save_path is not None:
+            values["pikpak_cloud_path"] = save_path
+        stmt = (
+            update(Torrent)
+            .where(Torrent.hash == hash, Torrent.bangumi_id == bangumi_id)
+            .values(**values)
+        )
+        result = self.session.execute(stmt)
+        rows = result.rowcount  # type: ignore[union-attr]
+        logger.debug(f"[Database] mark_downloaded hash={hash[:12]}... bangumi_id={bangumi_id} save_path={save_path} -> {rows} row(s)")
+        return rows

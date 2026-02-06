@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import and_, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.torrent import Torrent, TorrentState
@@ -22,6 +23,34 @@ class TorrentRepository:
         await self.session.flush()
         await self.session.refresh(torrent)
         return torrent
+
+    async def add_all_or_ignore(self, torrents: list[Torrent]) -> int:
+        if not torrents:
+            return 0
+        
+        values = []
+        for t in torrents:
+            downloaded = getattr(t, "downloaded", None)
+            state = getattr(t, "state", None)
+            val = {
+                "bangumi_id": t.bangumi_id,
+                "rss_id": t.rss_id,
+                "name": t.name or "",
+                "url": t.url or "",
+                "homepage": getattr(t, "homepage", None),
+                "downloaded": downloaded if downloaded is not None else False,
+                "hash": t.hash,
+                "state": state if state is not None else TorrentState.PENDING,
+                "pikpak_cloud_path": getattr(t, "pikpak_cloud_path", None),
+            }
+            values.append(val)
+
+        stmt = sqlite_insert(Torrent).values(values)
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["hash", "bangumi_id"]
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount
 
     async def get_by_bangumi(self, bangumi_id: int) -> list[Torrent]:
         stmt = select(Torrent).where(Torrent.bangumi_id == bangumi_id)

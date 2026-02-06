@@ -38,6 +38,8 @@ dependencies = [
     "aiosqlite>=0.20",
     "apscheduler>=4.0.0a6",
     "httpx>=0.28",
+    "requests>=2.31",
+    "PySocks>=1.7",
     "pikpakapi>=0.1",
     "qbittorrent-api>=2024.12",
     "python-jose[cryptography]>=3.3",
@@ -45,12 +47,16 @@ dependencies = [
     "feedparser>=6.0",
     "beautifulsoup4>=4.12",
     "lxml>=5.3",
+    "defusedxml>=0.7",
     "python-multipart>=0.0.20",
     "sse-starlette>=2.0",
     "structlog>=24.0",
     "python-statemachine>=2.0",
     "Pillow>=11.0",
     "python-dotenv>=1.0",
+    "Jinja2>=3.1",
+    "semver>=3.0",
+    "openai>=0.28",
 ]
 
 [project.optional-dependencies]
