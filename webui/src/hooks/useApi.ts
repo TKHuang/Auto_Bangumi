@@ -38,7 +38,8 @@ export function useApi<
       onSuccess?.(res);
 
       if (showMessage && 'msg_en' in res) {
-        message.success(returnUserLangMsg(res));
+        const msg = returnUserLangMsg(res);
+        if (msg) message.success(msg);
       }
     } catch (err) {
       onError?.(err);
