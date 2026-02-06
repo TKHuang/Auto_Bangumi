@@ -1,8 +1,10 @@
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from module.conf import settings
-from module.database import Database
 from module.models import Notification
+from module.repositories.bangumi import BangumiRepository
 
 from .plugin import (
     BarkNotification,
@@ -35,16 +37,17 @@ class PostNotification:
         )
 
     @staticmethod
-    def _get_poster(notify: Notification):
-        with Database() as db:
-            poster_path = db.bangumi.match_poster(notify.official_title)
+    async def _get_poster(session: AsyncSession, notify: Notification):
+        bangumi_repo = BangumiRepository(session)
+        poster_path = await bangumi_repo.match_poster(notify.official_title)
         notify.poster_path = poster_path
 
-    def send_msg(self, notify: Notification) -> bool:
-        self._get_poster(notify)
+    async def send_msg(self, session: AsyncSession, notify: Notification) -> bool:
+        await self._get_poster(session, notify)
         try:
             self.notifier.post_msg(notify)
             logger.debug(f"Send notification: {notify.official_title}")
+            return True
         except Exception as e:
             logger.warning(f"Failed to send notification: {e}")
             return False

@@ -1,9 +1,11 @@
 from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf import VERSION
-from module.database import Database
+from module.database.engine import get_db_session
 from module.models.user import User, UserUpdate
+from module.repositories.user import UserRepository
 
 from .jwt import verify_token
 
@@ -37,22 +39,29 @@ async def get_token_data(token: str = Depends(oauth2_scheme)):
     return payload
 
 
-def update_user_info(user_data: UserUpdate, current_user):
+async def update_user_info(
+    user_data: UserUpdate,
+    current_user: str,
+    session: AsyncSession = Depends(get_db_session),
+):
     try:
-        with Database() as db:
-            db.user.update_user(current_user, user_data)
-            db.commit()
+        user_repo = UserRepository(session)
+        await user_repo.update_user(current_user, user_data)
+        await session.commit()
         return True
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-def auth_user(user: User):
-    with Database() as db:
-        resp = db.user.auth_user(user)
-        if resp.status:
-            active_user.append(user.username)
-        return resp
+async def auth_user(
+    user: User,
+    session: AsyncSession = Depends(get_db_session),
+):
+    user_repo = UserRepository(session)
+    resp = await user_repo.auth_user(user)
+    if resp.status:
+        active_user.append(user.username)
+    return resp
 
 
 UNAUTHORIZED = HTTPException(
