@@ -708,6 +708,16 @@ class PikPakDownloader:
         logger.warning(f"Could not find path for torrent hash: {hash}")
         return None
 
+    async def _get_task_file_id(self, torrent_hash: str) -> str | None:
+        """Get the PikPak file_id from the offline task matching this torrent hash."""
+        tasks = await self._get_all_tasks_cached()
+        for task in tasks:
+            file_url = task.get("file_url", "") or task.get("params", {}).get("url", "")
+            task_hash = self._extract_hash(file_url)
+            if task_hash and task_hash.lower() == torrent_hash.lower():
+                return task.get("file_id")
+        return None
+
     async def _find_file_id_by_path(self, cloud_path: str) -> str | None:
         """Find a file ID by its full cloud path.
 
@@ -1092,13 +1102,20 @@ class PikPakDownloader:
 
         logger.info(f"Renaming file in PikPak: {full_old_path} -> {full_new_path}")
 
-        # Find the file ID for the old path
         file_id = await self._find_file_id_by_path(full_old_path)
         if not file_id:
-            logger.warning(f"File not found for rename: {full_old_path}")
-            return False
+            target_file_id = await self._find_file_id_by_path(full_new_path)
+            if target_file_id:
+                logger.debug(f"File already has target name: {full_new_path}")
+                return True
+            # Re-rename: file was previously renamed, use PikPak task's file_id
+            file_id = await self._get_task_file_id(hash)
+            if file_id:
+                logger.info(f"Re-rename via task file_id for hash {hash[:16]}...")
+            else:
+                logger.warning(f"File not found for rename: {full_old_path}")
+                return False
 
-        # Check if file needs to be moved to a different folder
         old_parent = os.path.dirname(full_old_path)
         new_parent = os.path.dirname(full_new_path)
         new_filename = os.path.basename(new_path)
