@@ -465,3 +465,594 @@ class TestBangumiRepository:
         for bangumi in all_bangumi:
             assert bangumi.added is False
             assert bangumi.eps_collect is False
+
+    async def test_find_by_official_title_returns_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+        
+        async with async_session.begin():
+            found = await repo.find_by_official_title("Test Anime")
+        
+        assert found is not None
+        assert found.official_title == "Test Anime"
+
+    async def test_find_by_official_title_returns_none_when_deleted(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            await repo.soft_delete(bangumi.id)
+        
+        async with async_session.begin():
+            found = await repo.find_by_official_title("Test Anime")
+        
+        assert found is None
+
+    async def test_find_by_any_rss_link_returns_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_link": "https://example.com/rss/anime1",
+            })
+        
+        async with async_session.begin():
+            found = await repo.find_by_any_rss_link(["https://example.com/rss/anime1"])
+        
+        assert found is not None
+        assert found.official_title == "Test Anime"
+
+    async def test_find_by_any_rss_link_returns_first_match(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Anime 1",
+                "title_raw": "Anime 1",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_link": "https://example.com/rss/anime1",
+            })
+            await repo.create({
+                "official_title": "Anime 2",
+                "title_raw": "Anime 2",
+                "season": 1,
+                "group_name": "Group2",
+                "rss_link": "https://example.com/rss/anime2",
+            })
+        
+        async with async_session.begin():
+            found = await repo.find_by_any_rss_link([
+                "https://example.com/rss/anime1",
+                "https://example.com/rss/anime2"
+            ])
+        
+        assert found is not None
+        assert found.official_title == "Anime 1"
+
+    async def test_find_by_any_rss_link_skips_empty_links(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_link": "https://example.com/rss/anime1",
+            })
+        
+        async with async_session.begin():
+            found = await repo.find_by_any_rss_link(["", "https://example.com/rss/anime1"])
+        
+        assert found is not None
+        assert found.official_title == "Test Anime"
+
+    async def test_match_poster_returns_poster_link(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "poster_link": "https://example.com/poster.jpg",
+            })
+        
+        async with async_session.begin():
+            poster = await repo.match_poster("[Group] Test Anime - 01")
+        
+        assert poster == "https://example.com/poster.jpg"
+
+    async def test_match_poster_returns_empty_when_not_found(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            poster = await repo.match_poster("Non-existent Anime")
+        
+        assert poster == ""
+
+    async def test_match_torrent_returns_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "[Group] Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+        
+        async with async_session.begin():
+            found = await repo.match_torrent("[Group] Test Anime - 01 [1080p]")
+        
+        assert found is not None
+        assert found.official_title == "Test Anime"
+
+    async def test_match_torrent_excludes_deleted(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "[Group] Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            await repo.soft_delete(bangumi.id)
+        
+        async with async_session.begin():
+            found = await repo.match_torrent("[Group] Test Anime - 01 [1080p]")
+        
+        assert found is None
+
+    async def test_match_torrent_excludes_pending_review(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "[Group] Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "pending_review": True,
+            })
+        
+        async with async_session.begin():
+            found = await repo.match_torrent("[Group] Test Anime - 01 [1080p]")
+        
+        assert found is None
+
+    async def test_count_pending_by_rss_id_returns_count(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Pending 1",
+                "title_raw": "Pending 1",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_id": 1,
+                "pending_review": True,
+            })
+            await repo.create({
+                "official_title": "Pending 2",
+                "title_raw": "Pending 2",
+                "season": 1,
+                "group_name": "Group2",
+                "rss_id": 1,
+                "pending_review": True,
+            })
+            await repo.create({
+                "official_title": "Active",
+                "title_raw": "Active",
+                "season": 1,
+                "group_name": "Group3",
+                "rss_id": 1,
+                "pending_review": False,
+            })
+        
+        async with async_session.begin():
+            count = await repo.count_pending_by_rss_id(1)
+        
+        assert count == 2
+
+    async def test_count_active_by_rss_id_returns_count(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Active 1",
+                "title_raw": "Active 1",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_id": 1,
+                "pending_review": False,
+            })
+            await repo.create({
+                "official_title": "Active 2",
+                "title_raw": "Active 2",
+                "season": 1,
+                "group_name": "Group2",
+                "rss_id": 1,
+                "pending_review": False,
+            })
+            await repo.create({
+                "official_title": "Pending",
+                "title_raw": "Pending",
+                "season": 1,
+                "group_name": "Group3",
+                "rss_id": 1,
+                "pending_review": True,
+            })
+        
+        async with async_session.begin():
+            count = await repo.count_active_by_rss_id(1)
+        
+        assert count == 2
+
+    async def test_activate_pending_activates_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "pending_review": True,
+                "global_filter_matches": "some_filter",
+            })
+            success, message = await repo.activate_pending(bangumi.id)
+        
+        assert success is True
+        assert message == "Bangumi activated successfully"
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(bangumi.id)
+        
+        assert found.pending_review is False
+        assert found.global_filter_matches is None
+
+    async def test_activate_pending_with_filter_value(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "pending_review": True,
+                "filter": "old_filter",
+            })
+            success, message = await repo.activate_pending(bangumi.id, filter_value="new_filter")
+        
+        assert success is True
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(bangumi.id)
+        
+        assert found.filter == "new_filter"
+
+    async def test_activate_pending_returns_false_when_not_found(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            success, message = await repo.activate_pending(99999)
+        
+        assert success is False
+        assert message == "Bangumi not found"
+
+    async def test_activate_pending_returns_false_when_not_pending(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "pending_review": False,
+            })
+            success, message = await repo.activate_pending(bangumi.id)
+        
+        assert success is False
+        assert message == "Bangumi is not pending review"
+
+    async def test_update_pending_review_sets_pending_true(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "pending_review": False,
+            })
+            success = await repo.update_pending_review(
+                bangumi.id, 
+                pending=True, 
+                global_filter_matches="test_filter"
+            )
+        
+        assert success is True
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(bangumi.id)
+        
+        assert found.pending_review is True
+        assert found.global_filter_matches == "test_filter"
+
+    async def test_update_pending_review_sets_pending_false(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+                "pending_review": True,
+                "global_filter_matches": "test_filter",
+            })
+            success = await repo.update_pending_review(bangumi.id, pending=False)
+        
+        assert success is True
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(bangumi.id)
+        
+        assert found.pending_review is False
+        assert found.global_filter_matches is None
+
+    async def test_update_pending_review_returns_false_when_not_found(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            success = await repo.update_pending_review(99999, pending=True)
+        
+        assert success is False
+
+    async def test_delete_one_deletes_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            result = await repo.delete_one(bangumi.id)
+        
+        assert result is True
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(bangumi.id)
+        
+        assert found is None
+
+    async def test_delete_one_returns_false_when_not_found(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            result = await repo.delete_one(99999)
+        
+        assert result is False
+
+    async def test_delete_many_deletes_multiple_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            b1 = await repo.create({
+                "official_title": "Anime 1",
+                "title_raw": "Anime 1",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            b2 = await repo.create({
+                "official_title": "Anime 2",
+                "title_raw": "Anime 2",
+                "season": 1,
+                "group_name": "Group2",
+            })
+            await repo.create({
+                "official_title": "Anime 3",
+                "title_raw": "Anime 3",
+                "season": 1,
+                "group_name": "Group3",
+            })
+            count = await repo.delete_many([b1.id, b2.id])
+        
+        assert count == 2
+        
+        async with async_session.begin():
+            all_bangumi = await repo.get_all(include_deleted=True)
+        
+        assert len(all_bangumi) == 1
+        assert all_bangumi[0].official_title == "Anime 3"
+
+    async def test_delete_many_returns_zero_for_empty_list(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            count = await repo.delete_many([])
+        
+        assert count == 0
+
+    async def test_disable_many_soft_deletes_multiple_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            b1 = await repo.create({
+                "official_title": "Anime 1",
+                "title_raw": "Anime 1",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            b2 = await repo.create({
+                "official_title": "Anime 2",
+                "title_raw": "Anime 2",
+                "season": 1,
+                "group_name": "Group2",
+            })
+            count = await repo.disable_many([b1.id, b2.id])
+        
+        assert count == 2
+        
+        async with async_session.begin():
+            all_bangumi = await repo.get_all(include_deleted=True)
+        
+        assert len(all_bangumi) == 2
+        assert all(b.deleted is True for b in all_bangumi)
+
+    async def test_disable_many_returns_zero_for_empty_list(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            count = await repo.disable_many([])
+        
+        assert count == 0
+
+    async def test_delete_all_deletes_all_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Anime 1",
+                "title_raw": "Anime 1",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            await repo.create({
+                "official_title": "Anime 2",
+                "title_raw": "Anime 2",
+                "season": 1,
+                "group_name": "Group2",
+            })
+            await repo.delete_all()
+        
+        async with async_session.begin():
+            all_bangumi = await repo.get_all(include_deleted=True)
+        
+        assert len(all_bangumi) == 0
+
+    async def test_backfill_rss_id_updates_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            b1 = await repo.create({
+                "official_title": "Anime 1",
+                "title_raw": "Anime 1",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_link": "https://example.com/rss/feed1",
+            })
+            b2 = await repo.create({
+                "official_title": "Anime 2",
+                "title_raw": "Anime 2",
+                "season": 1,
+                "group_name": "Group2",
+                "rss_link": "https://example.com/rss/feed1",
+            })
+            await repo.create({
+                "official_title": "Anime 3",
+                "title_raw": "Anime 3",
+                "season": 1,
+                "group_name": "Group3",
+                "rss_link": "https://other.com/rss/feed2",
+            })
+            count = await repo.backfill_rss_id(1, "https://example.com/rss/feed1")
+        
+        assert count == 2
+        
+        async with async_session.begin():
+            found1 = await repo.get_by_id(b1.id)
+            found2 = await repo.get_by_id(b2.id)
+        
+        assert found1.rss_id == 1
+        assert found2.rss_id == 1
+
+    async def test_backfill_rss_id_skips_already_set(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "official_title": "Anime 1",
+                "title_raw": "Anime 1",
+                "season": 1,
+                "group_name": "Group1",
+                "rss_link": "https://example.com/rss/feed1",
+                "rss_id": 2,
+            })
+            count = await repo.backfill_rss_id(1, "https://example.com/rss/feed1")
+        
+        assert count == 0
+
+    async def test_update_simple_updates_bangumi(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            success = await repo.update_simple(bangumi.id, {"official_title": "Updated Anime"})
+        
+        assert success is True
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(bangumi.id)
+        
+        assert found.official_title == "Updated Anime"
+
+    async def test_update_simple_returns_false_when_not_found(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            success = await repo.update_simple(99999, {"official_title": "Updated"})
+        
+        assert success is False
+
+    async def test_update_simple_ignores_id_and_version(self, async_session):
+        repo = BangumiRepository(async_session)
+        
+        async with async_session.begin():
+            bangumi = await repo.create({
+                "official_title": "Test Anime",
+                "title_raw": "Test Anime",
+                "season": 1,
+                "group_name": "Group1",
+            })
+            original_id = bangumi.id
+            await repo.update_simple(
+                bangumi.id, 
+                {"id": 99999, "version": 99999, "official_title": "Updated"}
+            )
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(original_id)
+        
+        assert found.id == original_id
+        assert found.official_title == "Updated"

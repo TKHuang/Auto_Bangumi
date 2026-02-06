@@ -50,3 +50,4 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
     save_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     pending_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    global_filter_matches: Mapped[Optional[str]] = mapped_column(String, nullable=True)

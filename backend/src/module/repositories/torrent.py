@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,4 +141,57 @@ class TorrentRepository:
             raise ValueError(f"Torrent with id {id} not found")
         
         torrent.downloaded = True
+        await self.session.flush()
+
+    async def get_by_id(self, id: int) -> Optional[Torrent]:
+        return await self.session.get(Torrent, id)
+
+    async def get_all(self) -> list[Torrent]:
+        stmt = select(Torrent)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_bangumi_with_homepage(self, bangumi_id: int) -> Optional[Torrent]:
+        stmt = select(Torrent).where(
+            and_(
+                Torrent.bangumi_id == bangumi_id,
+                Torrent.homepage.is_not(None),
+                Torrent.homepage != "",
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
+    async def get_unrenamed_hashes(self) -> set[str]:
+        stmt = select(Torrent).where(Torrent.renamed_at.is_(None))
+        result = await self.session.execute(stmt)
+        torrents = result.scalars().all()
+        return {t.hash.lower() for t in torrents if t.hash}
+
+    async def mark_downloaded_by_hash(self, hash: str, bangumi_id: int, save_path: Optional[str] = None) -> int:
+        values: dict = {"downloaded": True}
+        if save_path is not None:
+            values["pikpak_cloud_path"] = save_path
+        stmt = (
+            update(Torrent)
+            .where(Torrent.hash == hash, Torrent.bangumi_id == bangumi_id)
+            .values(**values)
+        )
+        result = await self.session.execute(stmt)
+        await self.session.flush()
+        return result.rowcount
+
+    async def delete_by_bangumi(self, bangumi_id: int) -> None:
+        stmt = delete(Torrent).where(Torrent.bangumi_id == bangumi_id)
+        await self.session.execute(stmt)
+        await self.session.flush()
+
+    async def delete_by_rss(self, rss_id: int) -> None:
+        stmt = delete(Torrent).where(Torrent.rss_id == rss_id)
+        await self.session.execute(stmt)
+        await self.session.flush()
+
+    async def delete_all(self) -> None:
+        stmt = delete(Torrent)
+        await self.session.execute(stmt)
         await self.session.flush()

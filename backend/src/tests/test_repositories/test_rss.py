@@ -150,3 +150,184 @@ class TestRSSRepository:
             found = await repo.get_by_id(rss.id)
         
         assert found is None
+
+    async def test_get_by_url_returns_rss(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        data = {
+            "name": "Test RSS",
+            "url": "https://mikanani.me/RSS/Unique",
+        }
+        
+        async with async_session.begin():
+            await repo.create(data)
+        
+        async with async_session.begin():
+            found = await repo.get_by_url("https://mikanani.me/RSS/Unique")
+        
+        assert found is not None
+        assert found.url == "https://mikanani.me/RSS/Unique"
+
+    async def test_get_by_url_returns_none_when_not_found(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            found = await repo.get_by_url("https://nonexistent.com/rss")
+        
+        assert found is None
+
+    async def test_enable_sets_enabled_to_true(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        data = {
+            "name": "Test RSS",
+            "url": "https://example.com/rss1",
+            "enabled": False,
+        }
+        
+        async with async_session.begin():
+            rss = await repo.create(data)
+            result = await repo.enable(rss.id)
+        
+        async with async_session.begin():
+            updated = await repo.get_by_id(rss.id)
+        
+        assert result is True
+        assert updated.enabled is True
+
+    async def test_enable_returns_false_when_rss_not_found(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            result = await repo.enable(99999)
+        
+        assert result is False
+
+    async def test_disable_sets_enabled_to_false(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        data = {
+            "name": "Test RSS",
+            "url": "https://example.com/rss1",
+            "enabled": True,
+        }
+        
+        async with async_session.begin():
+            rss = await repo.create(data)
+            result = await repo.disable(rss.id)
+        
+        async with async_session.begin():
+            updated = await repo.get_by_id(rss.id)
+        
+        assert result is True
+        assert updated.enabled is False
+
+    async def test_disable_returns_false_when_rss_not_found(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            result = await repo.disable(99999)
+        
+        assert result is False
+
+    async def test_get_aggregate_returns_only_enabled_aggregate_rss(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Enabled Aggregate",
+                "url": "https://example.com/aggregate1",
+                "enabled": True,
+                "aggregate": True,
+            })
+            await repo.create({
+                "name": "Disabled Aggregate",
+                "url": "https://example.com/aggregate2",
+                "enabled": False,
+                "aggregate": True,
+            })
+            await repo.create({
+                "name": "Enabled Non-Aggregate",
+                "url": "https://example.com/normal",
+                "enabled": True,
+                "aggregate": False,
+            })
+        
+        async with async_session.begin():
+            aggregates = await repo.get_aggregate()
+        
+        assert len(aggregates) == 1
+        assert aggregates[0].name == "Enabled Aggregate"
+
+    async def test_cascade_delete_removes_rss_and_related_data(self, async_session):
+        from module.domain.models.bangumi import Bangumi
+        from module.domain.models.torrent import Torrent
+        
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            rss = await repo.create({
+                "name": "Test RSS",
+                "url": "https://example.com/rss1",
+            })
+            
+            bangumi = Bangumi(
+                official_title="Test Bangumi",
+                title_raw="[Group] Test Bangumi",
+                season=1,
+                group_name="Group",
+                rss_id=rss.id,
+                rss_link=rss.url,
+            )
+            async_session.add(bangumi)
+            await async_session.flush()
+            
+            torrent = Torrent(
+                name="Test Torrent",
+                bangumi_id=bangumi.id,
+                rss_id=rss.id,
+            )
+            async_session.add(torrent)
+            await async_session.flush()
+            
+            result = await repo.cascade_delete(rss.id)
+        
+        assert result is True
+        
+        async with async_session.begin():
+            found_rss = await repo.get_by_id(rss.id)
+            assert found_rss is None
+
+    async def test_cascade_delete_returns_false_when_rss_not_found(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            result = await repo.cascade_delete(99999)
+        
+        assert result is False
+
+    async def test_set_status_updates_last_status(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        data = {
+            "name": "Test RSS",
+            "url": "https://example.com/rss1",
+        }
+        
+        async with async_session.begin():
+            rss = await repo.create(data)
+            result = await repo.set_status(rss.id, "processing")
+        
+        async with async_session.begin():
+            updated = await repo.get_by_id(rss.id)
+        
+        assert result is True
+        assert updated.last_status == "processing"
+
+    async def test_set_status_returns_false_when_rss_not_found(self, async_session):
+        repo = RSSRepository(async_session)
+        
+        async with async_session.begin():
+            result = await repo.set_status(99999, "processing")
+        
+        assert result is False

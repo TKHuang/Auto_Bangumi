@@ -4,7 +4,7 @@ from module.domain.models import Torrent, TorrentState
 from module.repositories.torrent import TorrentRepository
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 class TestTorrentRepository:
     async def test_create_torrent_success(self, async_session):
         repo = TorrentRepository(async_session)
@@ -197,6 +197,7 @@ class TestTorrentRepository:
                 "url": "https://example.com/t1",
                 "hash": "hash1",
                 "state": TorrentState.COMPLETED,
+                "downloaded": True,
                 "renamed_at": None,
             })
             t2 = await repo.create({
@@ -204,6 +205,7 @@ class TestTorrentRepository:
                 "url": "https://example.com/t2",
                 "hash": "hash2",
                 "state": TorrentState.COMPLETED,
+                "downloaded": True,
             })
             await repo.mark_renamed(t2.id, 1)
         
@@ -337,3 +339,320 @@ class TestTorrentRepository:
         
         assert t2_unchanged.renamed_at is not None
         assert t2_unchanged.renamed_file_count == 3
+
+    async def test_get_by_id_returns_torrent(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            torrent = await repo.create({
+                "name": "Test Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+            })
+            torrent_id = torrent.id
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(torrent_id)
+        
+        assert found is not None
+        assert found.id == torrent_id
+        assert found.name == "Test Torrent"
+
+    async def test_get_by_id_returns_none_for_nonexistent(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            found = await repo.get_by_id(99999)
+        
+        assert found is None
+
+    async def test_get_all_returns_all_torrents(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Torrent 1",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "Torrent 2",
+                "url": "https://example.com/t2",
+                "hash": "hash2",
+                "bangumi_id": 2,
+            })
+            await repo.create({
+                "name": "Torrent 3",
+                "url": "https://example.com/t3",
+                "hash": "hash3",
+                "bangumi_id": 1,
+            })
+        
+        async with async_session.begin():
+            all_torrents = await repo.get_all()
+        
+        assert len(all_torrents) == 3
+
+    async def test_get_by_bangumi_with_homepage_returns_torrent_with_homepage(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "No Homepage",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+                "homepage": None,
+            })
+            await repo.create({
+                "name": "Empty Homepage",
+                "url": "https://example.com/t2",
+                "hash": "hash2",
+                "bangumi_id": 1,
+                "homepage": "",
+            })
+            await repo.create({
+                "name": "With Homepage",
+                "url": "https://example.com/t3",
+                "hash": "hash3",
+                "bangumi_id": 1,
+                "homepage": "https://mikan.me/Home/Episode/123",
+            })
+        
+        async with async_session.begin():
+            found = await repo.get_by_bangumi_with_homepage(1)
+        
+        assert found is not None
+        assert found.name == "With Homepage"
+        assert found.homepage == "https://mikan.me/Home/Episode/123"
+
+    async def test_get_by_bangumi_with_homepage_returns_none_if_no_homepage(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "No Homepage",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+                "homepage": None,
+            })
+        
+        async with async_session.begin():
+            found = await repo.get_by_bangumi_with_homepage(1)
+        
+        assert found is None
+
+    async def test_get_unrenamed_hashes_returns_set_of_hashes(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            t1 = await repo.create({
+                "name": "Unrenamed 1",
+                "url": "https://example.com/t1",
+                "hash": "HASH1",
+                "bangumi_id": 1,
+                "renamed_at": None,
+            })
+            await repo.create({
+                "name": "Unrenamed 2",
+                "url": "https://example.com/t2",
+                "hash": "HASH2",
+                "bangumi_id": 1,
+                "renamed_at": None,
+            })
+            t3 = await repo.create({
+                "name": "Renamed",
+                "url": "https://example.com/t3",
+                "hash": "HASH3",
+                "bangumi_id": 1,
+            })
+            await repo.mark_renamed(t3.id, 1)
+        
+        async with async_session.begin():
+            hashes = await repo.get_unrenamed_hashes()
+        
+        assert len(hashes) == 2
+        assert "hash1" in hashes
+        assert "hash2" in hashes
+        assert "hash3" not in hashes
+
+    async def test_get_unrenamed_hashes_excludes_null_hashes(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "No Hash",
+                "url": "https://example.com/t1",
+                "hash": None,
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "Has Hash",
+                "url": "https://example.com/t2",
+                "hash": "hash1",
+                "bangumi_id": 1,
+            })
+        
+        async with async_session.begin():
+            hashes = await repo.get_unrenamed_hashes()
+        
+        assert len(hashes) == 1
+        assert "hash1" in hashes
+
+    async def test_mark_downloaded_by_hash_marks_torrent_downloaded(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Test Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+                "downloaded": False,
+            })
+            rowcount = await repo.mark_downloaded_by_hash("hash1", 1)
+        
+        async with async_session.begin():
+            torrent = await repo.get_by_hash("hash1")
+        
+        assert rowcount == 1
+        assert torrent.downloaded is True
+
+    async def test_mark_downloaded_by_hash_with_save_path(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Test Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+                "downloaded": False,
+            })
+            rowcount = await repo.mark_downloaded_by_hash("hash1", 1, "/cloud/path")
+        
+        async with async_session.begin():
+            torrent = await repo.get_by_hash("hash1")
+        
+        assert rowcount == 1
+        assert torrent.downloaded is True
+        assert torrent.pikpak_cloud_path == "/cloud/path"
+
+    async def test_mark_downloaded_by_hash_respects_bangumi_id(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Bangumi 1",
+                "url": "https://example.com/t1",
+                "hash": "shared_hash",
+                "bangumi_id": 1,
+                "downloaded": False,
+            })
+            await repo.create({
+                "name": "Bangumi 2",
+                "url": "https://example.com/t2",
+                "hash": "shared_hash",
+                "bangumi_id": 2,
+                "downloaded": False,
+            })
+            rowcount = await repo.mark_downloaded_by_hash("shared_hash", 1)
+        
+        async with async_session.begin():
+            t1 = await repo.get_by_bangumi(1)
+            t2 = await repo.get_by_bangumi(2)
+        
+        assert rowcount == 1
+        assert t1[0].downloaded is True
+        assert t2[0].downloaded is False
+
+    async def test_delete_by_bangumi_deletes_torrents(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Bangumi 1 Torrent 1",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "Bangumi 1 Torrent 2",
+                "url": "https://example.com/t2",
+                "hash": "hash2",
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "Bangumi 2 Torrent",
+                "url": "https://example.com/t3",
+                "hash": "hash3",
+                "bangumi_id": 2,
+            })
+            
+            await repo.delete_by_bangumi(1)
+        
+        async with async_session.begin():
+            bangumi1_torrents = await repo.get_by_bangumi(1)
+            bangumi2_torrents = await repo.get_by_bangumi(2)
+        
+        assert len(bangumi1_torrents) == 0
+        assert len(bangumi2_torrents) == 1
+
+    async def test_delete_by_rss_deletes_torrents(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "RSS 1 Torrent 1",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "rss_id": 1,
+            })
+            await repo.create({
+                "name": "RSS 1 Torrent 2",
+                "url": "https://example.com/t2",
+                "hash": "hash2",
+                "rss_id": 1,
+            })
+            await repo.create({
+                "name": "RSS 2 Torrent",
+                "url": "https://example.com/t3",
+                "hash": "hash3",
+                "rss_id": 2,
+            })
+            
+            await repo.delete_by_rss(1)
+        
+        async with async_session.begin():
+            rss1_torrents = await repo.get_by_rss(1)
+            rss2_torrents = await repo.get_by_rss(2)
+        
+        assert len(rss1_torrents) == 0
+        assert len(rss2_torrents) == 1
+
+    async def test_delete_all_removes_all_torrents(self, async_session):
+        repo = TorrentRepository(async_session)
+        
+        async with async_session.begin():
+            await repo.create({
+                "name": "Torrent 1",
+                "url": "https://example.com/t1",
+                "hash": "hash1",
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "Torrent 2",
+                "url": "https://example.com/t2",
+                "hash": "hash2",
+                "bangumi_id": 2,
+            })
+            
+            await repo.delete_all()
+        
+        async with async_session.begin():
+            all_torrents = await repo.get_all()
+        
+        assert len(all_torrents) == 0

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.rss import RSSItem
@@ -67,3 +67,78 @@ class RSSRepository:
         
         await self.session.delete(rss)
         await self.session.flush()
+
+    async def get_by_url(self, url: str) -> Optional[RSSItem]:
+        stmt = select(RSSItem).where(RSSItem.url == url)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def enable(self, id: int) -> bool:
+        rss = await self.get_by_id(id)
+        if not rss:
+            return False
+        rss.enabled = True
+        await self.session.flush()
+        return True
+
+    async def disable(self, id: int) -> bool:
+        rss = await self.get_by_id(id)
+        if not rss:
+            return False
+        rss.enabled = False
+        await self.session.flush()
+        return True
+
+    async def get_aggregate(self) -> list[RSSItem]:
+        stmt = select(RSSItem).where(
+            and_(RSSItem.aggregate == True, RSSItem.enabled == True)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def cascade_delete(self, id: int) -> bool:
+        from module.domain.models.bangumi import Bangumi
+        from module.domain.models.torrent import Torrent
+        
+        rss = await self.get_by_id(id)
+        if not rss:
+            return False
+        
+        await self.session.execute(
+            delete(Torrent).where(Torrent.rss_id == id)
+        )
+        
+        stmt = select(Bangumi).where(Bangumi.rss_id == id)
+        result = await self.session.execute(stmt)
+        bangumi_list = list(result.scalars().all())
+        
+        fallback_stmt = select(Bangumi).where(
+            and_(
+                Bangumi.rss_id.is_(None),
+                func.instr(Bangumi.rss_link, rss.url) > 0,
+            )
+        )
+        fallback_result = await self.session.execute(fallback_stmt)
+        bangumi_list.extend(fallback_result.scalars().all())
+        
+        for bangumi in bangumi_list:
+            await self.session.execute(
+                delete(Torrent).where(Torrent.bangumi_id == bangumi.id)
+            )
+            await self.session.execute(
+                delete(Bangumi).where(Bangumi.id == bangumi.id)
+            )
+        
+        await self.session.execute(
+            delete(RSSItem).where(RSSItem.id == id)
+        )
+        await self.session.flush()
+        return True
+
+    async def set_status(self, id: int, status: str) -> bool:
+        rss = await self.get_by_id(id)
+        if not rss:
+            return False
+        rss.last_status = status
+        await self.session.flush()
+        return True
