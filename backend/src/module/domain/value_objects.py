@@ -227,3 +227,14 @@ class APIResponse(BaseModel):
     status: bool = Field(..., example=True)
     msg_en: str = Field(..., example="Success")
     msg_zh: str = Field(..., example="成功")
+
+
+# ==================== Path Utilities ====================
+
+
+def gen_save_path(base_path: str, official_title: str, season: int, year: Optional[str] = None) -> str:
+    """Generate save path: <base>/<title[ (year)]>/Season <n>."""
+    from pathlib import PurePosixPath
+
+    folder = f"{official_title} ({year})" if year else official_title
+    return str(PurePosixPath(base_path) / folder / f"Season {season}")

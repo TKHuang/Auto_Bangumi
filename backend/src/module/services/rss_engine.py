@@ -13,6 +13,7 @@ from module.domain.models.bangumi import Bangumi
 from module.domain.models.rss import RSSItem
 from module.domain.models.torrent import Torrent
 from module.domain.parser.title_parser import TitleParser
+from module.domain.value_objects import gen_save_path
 from module.network.request_contents import RequestContent
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
@@ -187,7 +188,9 @@ class RSSEngine:
                                     f"[Engine] Added torrent {torrent.name} to downloader"
                                 )
                                 if db_torrent:
-                                    await torrent_repo.mark_downloaded(db_torrent.id)
+                                    await torrent_repo.mark_downloaded_by_hash(
+                                        db_torrent.hash, matched_bangumi.id, matched_bangumi.save_path
+                                    )
 
                 await rss_repo.update_status(rss_item.id, "Success", None)
 
@@ -273,6 +276,9 @@ class RSSEngine:
         bangumi_data.rss_link = rss.url
         bangumi_data.rss_id = rss.id
 
+        save_path = gen_save_path(
+            settings.downloader.path, bangumi_data.official_title, bangumi_data.season,
+        )
         created_bangumi = await bangumi_repo.create({
             "official_title": bangumi_data.official_title,
             "title_raw": bangumi_data.title_raw,
@@ -291,6 +297,7 @@ class RSSEngine:
             "added": False,
             "deleted": False,
             "pending_review": False,
+            "save_path": save_path,
         })
 
         await session.flush()
@@ -305,7 +312,9 @@ class RSSEngine:
             torrent_files=None,
         )
 
-        await torrent_repo.mark_downloaded(torrent.id)
+        await torrent_repo.mark_downloaded_by_hash(
+            torrent.hash, created_bangumi.id, created_bangumi.save_path
+        )
 
         await session.commit()
 
@@ -416,7 +425,9 @@ class RSSEngine:
         for torrent in new_torrents:
             db_torrent = await torrent_repo.get_by_hash(torrent.hash)
             if db_torrent:
-                await torrent_repo.mark_downloaded(db_torrent.id)
+                await torrent_repo.mark_downloaded_by_hash(
+                    db_torrent.hash, bangumi.id, bangumi.save_path
+                )
 
         await session.commit()
 

@@ -335,7 +335,7 @@ class TestTorrentRepository:
         
         assert t1_cleared.renamed_at is None
         assert t1_cleared.renamed_file_count is None
-        assert t1_cleared.pikpak_cloud_path is None
+        assert t1_cleared.pikpak_cloud_path == "/path1"
         
         assert t2_unchanged.renamed_at is not None
         assert t2_unchanged.renamed_file_count == 3

@@ -122,15 +122,17 @@ class TorrentRepository:
         
         return new_hashes
 
-    async def clear_rename_status(self, bangumi_id: int) -> None:
+    async def clear_rename_status(self, bangumi_id: int, new_cloud_path: Optional[str] = None) -> None:
+        values: dict = {
+            "renamed_at": None,
+            "renamed_file_count": None,
+        }
+        if new_cloud_path is not None:
+            values["pikpak_cloud_path"] = new_cloud_path
         stmt = (
             update(Torrent)
             .where(Torrent.bangumi_id == bangumi_id)
-            .values(
-                renamed_at=None,
-                renamed_file_count=None,
-                pikpak_cloud_path=None,
-            )
+            .values(**values)
         )
         await self.session.execute(stmt)
         await self.session.flush()

@@ -9,6 +9,7 @@ from module.api.response import u_response
 from module.conf import settings
 from module.database.engine import get_db_session
 from module.domain.models.bangumi import Bangumi as DomainBangumi
+from module.domain.value_objects import gen_save_path
 from module.models import (
     APIResponse,
     Bangumi,
@@ -121,6 +122,10 @@ async def add_rss(
             await session.flush()
 
             if isinstance(data, Bangumi):
+                save_path = gen_save_path(
+                    settings.downloader.path, data.official_title, data.season,
+                    getattr(data, "year", None),
+                )
                 created = await bangumi_repo.create({
                     "official_title": data.official_title,
                     "title_raw": data.title_raw,
@@ -140,6 +145,7 @@ async def add_rss(
                     "deleted": False,
                     "pending_review": False,
                     "year": data.year,
+                    "save_path": save_path,
                 })
                 await session.commit()
 

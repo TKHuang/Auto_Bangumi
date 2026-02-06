@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import re
-from pathlib import Path as PurePath
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -12,6 +11,7 @@ from module.api.middleware.auth import get_current_user
 from module.conf import settings
 from module.database.engine import get_db_session
 from module.domain.parser.title_parser import TitleParser
+from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
 from module.models.response import APIResponse
 from module.repositories.bangumi import BangumiRepository
@@ -27,8 +27,7 @@ router = APIRouter(prefix="/bangumi", tags=["bangumi"])
 
 
 def _gen_save_path(data) -> str:
-    folder = f"{data.official_title} ({data.year})" if getattr(data, "year", None) else data.official_title
-    return str(PurePath(settings.downloader.path) / folder / f"Season {data.season}")
+    return gen_save_path(settings.downloader.path, data.official_title, data.season, getattr(data, "year", None))
 
 
 async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
@@ -119,7 +118,7 @@ async def update_rule(
     await bangumi_repo.update_simple(bangumi_id, update_dict)
 
     if rename_fields_changed:
-        await torrent_repo.clear_rename_status(bangumi_id)
+        await torrent_repo.clear_rename_status(bangumi_id, new_cloud_path=path)
         logger.info(f"[API] Cleared rename status (season/title changed for bangumi {bangumi_id})")
 
     await session.commit()

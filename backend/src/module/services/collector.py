@@ -6,10 +6,11 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent
-from module.domain.value_objects import ResponseModel
+from module.domain.value_objects import ResponseModel, gen_save_path
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
@@ -315,6 +316,10 @@ class SeasonCollectorService:
                     await bangumi_repo.delete_many(bangumi_ids)
 
             # Add Bangumi to database
+            save_path = gen_save_path(
+                settings.downloader.path, data.official_title, data.season,
+                getattr(data, "year", None),
+            )
             created_bangumi = await bangumi_repo.create({
                 "official_title": data.official_title,
                 "title_raw": data.title_raw,
@@ -333,6 +338,7 @@ class SeasonCollectorService:
                 "added": True,
                 "deleted": False,
                 "pending_review": False,
+                "save_path": save_path,
             })
 
             # Commit the transaction
@@ -471,7 +477,10 @@ class SeasonCollectorService:
                     data.eps_collect = True
                     data.rss_id = rss_id
 
-                    # Add bangumi to database
+                    save_path = gen_save_path(
+                        settings.downloader.path, data.official_title, data.season,
+                        getattr(data, "year", None),
+                    )
                     await bangumi_repo.create({
                         "official_title": data.official_title,
                         "title_raw": data.title_raw,
@@ -490,6 +499,7 @@ class SeasonCollectorService:
                         "added": True,
                         "deleted": False,
                         "pending_review": False,
+                        "save_path": save_path,
                     })
                     success_count += 1
                     logger.debug(f"[Collector] Batch insert: {data.official_title}")

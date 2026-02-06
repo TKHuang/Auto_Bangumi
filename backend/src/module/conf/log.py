@@ -30,7 +30,9 @@ def setup_logger(level: int = logging.INFO, reset: bool = False):
         ],
     )
     
-    # Suppress noisy HTTP client debug logs
+    # Suppress noisy third-party debug logs
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("hpack").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
