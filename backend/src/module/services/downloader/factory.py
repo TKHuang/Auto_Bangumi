@@ -7,14 +7,19 @@ from typing import TYPE_CHECKING
 from .interface import DownloaderProtocol
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from module.conf import Config
 
 
-def create_downloader(config: Config) -> DownloaderProtocol:
+def create_downloader(
+    config: Config, session: AsyncSession | None = None
+) -> DownloaderProtocol:
     """Create a downloader instance based on configuration.
 
     Args:
         config: Application configuration containing downloader settings.
+        session: Optional async database session (required for PikPak).
 
     Returns:
         A downloader instance implementing DownloaderProtocol.
@@ -39,6 +44,7 @@ def create_downloader(config: Config) -> DownloaderProtocol:
         return PikPakDownloader(
             username=config.downloader.username,
             password=config.downloader.password,
+            session=session,
         )
     else:
         raise ValueError(

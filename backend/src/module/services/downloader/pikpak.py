@@ -12,14 +12,17 @@ import logging
 import os
 import re
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from pikpakapi import PikPakApi
 
 from ...conf import settings
-from ...database.combine import Database
+from ...repositories.torrent import TorrentRepository
 from .interface import TorrentFile, TorrentInfo
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +115,9 @@ class PikPakDownloader:
 
     supports_torrent_files: bool = False
 
-    def __init__(self, username: str, password: str):
+    def __init__(
+        self, username: str, password: str, session: AsyncSession | None = None
+    ):
         """Initialize PikPak client with credentials.
 
         Attempts to load an existing token from file. If valid, uses it directly.
@@ -122,10 +127,12 @@ class PikPakDownloader:
         Args:
             username: PikPak account email/username.
             password: PikPak account password.
+            session: Optional async database session for repository access.
         """
         self._username = username
         self._password = password
         self._client = PikPakApi(username=username, password=password)
+        self.session = session
 
         self._token_expires_at: int = 0
         self._task_cache: list[dict] | None = None
@@ -436,10 +443,10 @@ class PikPakDownloader:
                             )
                     elif phase == "PHASE_TYPE_COMPLETE":
                         # Check if files still exist for this task
-                        with Database() as db:
-                            torrent_record = db.torrent.search_by_hash(
-                                task_hash.lower()
-                            )
+                        save_path = None
+                        if self.session:
+                            repo = TorrentRepository(self.session)
+                            torrent_record = await repo.get_by_hash(task_hash.lower())
                             save_path = (
                                 torrent_record.pikpak_cloud_path
                                 if torrent_record
@@ -603,8 +610,10 @@ class PikPakDownloader:
 
             # Get save path from database
             torrent_hash_lower = torrent_hash.lower() if torrent_hash else ""
-            with Database() as db:
-                torrent_record = db.torrent.search_by_hash(torrent_hash_lower)
+            torrent_record = None
+            if self.session:
+                repo = TorrentRepository(self.session)
+                torrent_record = await repo.get_by_hash(torrent_hash_lower)
 
             if torrent_record:
                 save_path = torrent_record.pikpak_cloud_path
@@ -687,8 +696,9 @@ class PikPakDownloader:
         normalized_hash = hash.lower()
 
         # Check database for cloud path
-        with Database() as db:
-            torrent_record = db.torrent.search_by_hash(normalized_hash)
+        if self.session:
+            repo = TorrentRepository(self.session)
+            torrent_record = await repo.get_by_hash(normalized_hash)
             if torrent_record and torrent_record.pikpak_cloud_path:
                 logger.debug(
                     f"Found path for hash {normalized_hash}: {torrent_record.pikpak_cloud_path}"
@@ -1414,16 +1424,16 @@ class PikPakDownloader:
             )
             logger.debug(f"Move result: {result}")
 
-            with Database() as db:
+            if self.session:
+                repo = TorrentRepository(self.session)
                 for h in hashes_to_update:
-                    torrent_record = db.torrent.search_by_hash(h)
+                    torrent_record = await repo.get_by_hash(h)
                     if torrent_record:
                         torrent_record.pikpak_cloud_path = full_path
-                        db.torrent.update(torrent_record)
                         logger.debug(
                             f"Updated path for {torrent_record.name}: {full_path}"
                         )
-                db.commit()
+                await self.session.flush()
 
             logger.info(f"Successfully moved files to: {full_path}")
 

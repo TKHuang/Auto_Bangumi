@@ -48,8 +48,8 @@ async def rename_job() -> None:
                 rename_method = settings.bangumi_manage.rename_method
                 renamer = RenamerService(session, rename_method=rename_method)
 
-                # Create downloader client
-                downloader = create_downloader(settings)
+                # Create downloader client with session
+                downloader = create_downloader(settings, session=session)
 
                 # Rename all completed torrents
                 await renamer.rename_all(downloader)

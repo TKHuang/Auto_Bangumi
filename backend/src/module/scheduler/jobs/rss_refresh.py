@@ -32,8 +32,8 @@ async def rss_refresh_job() -> None:
         session: AsyncSession = await async_session_gen.__anext__()
 
         try:
-            # Create downloader client
-            downloader = create_downloader(settings)
+            # Create downloader client with session
+            downloader = create_downloader(settings, session=session)
 
             # Refresh all RSS feeds
             await RSSEngine.refresh_all_rss(session, downloader)

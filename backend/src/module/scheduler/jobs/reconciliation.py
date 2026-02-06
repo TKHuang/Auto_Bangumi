@@ -51,7 +51,7 @@ async def reconciliation_job() -> None:
             session: AsyncSession = await async_session_gen.__anext__()
 
             try:
-                downloader = create_downloader(settings)
+                downloader = create_downloader(settings, session=session)
                 repo = TorrentRepository(session)
 
                 states_to_check = [
