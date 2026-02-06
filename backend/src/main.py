@@ -40,6 +40,55 @@ uvicorn_logging_config = {
 scheduler: AsyncScheduler | None = None
 
 
+def _run_migrations(connection):
+    from sqlalchemy import text
+
+    cursor = connection.execute(text("PRAGMA table_info(rssitem)"))
+    rss_columns = [row[1] for row in cursor.fetchall()]
+    if "last_update" not in rss_columns:
+        connection.execute(text("ALTER TABLE rssitem ADD COLUMN last_update TEXT"))
+        connection.execute(text("ALTER TABLE rssitem ADD COLUMN last_status TEXT"))
+        connection.execute(text("ALTER TABLE rssitem ADD COLUMN last_error TEXT"))
+
+    cursor = connection.execute(text("PRAGMA table_info(bangumi)"))
+    bangumi_columns = [row[1] for row in cursor.fetchall()]
+
+    if "rss_id" not in bangumi_columns:
+        logger.info("[Migration] Adding rss_id column to bangumi table")
+        connection.execute(text("ALTER TABLE bangumi ADD COLUMN rss_id INTEGER REFERENCES rssitem(id)"))
+
+    if "pending_review" not in bangumi_columns:
+        logger.info("[Migration] Adding pending_review column to bangumi table")
+        connection.execute(text("ALTER TABLE bangumi ADD COLUMN pending_review INTEGER DEFAULT 0"))
+
+    if "global_filter_matches" not in bangumi_columns:
+        logger.info("[Migration] Adding global_filter_matches column to bangumi table")
+        connection.execute(text("ALTER TABLE bangumi ADD COLUMN global_filter_matches TEXT"))
+
+    cursor = connection.execute(text("PRAGMA table_info(torrent)"))
+    torrent_columns = [row[1] for row in cursor.fetchall()]
+    if "hash" not in torrent_columns:
+        connection.execute(text("ALTER TABLE torrent ADD COLUMN hash TEXT"))
+
+    if "renamed_at" not in torrent_columns:
+        logger.info("[Migration] Adding renamed_at column to torrent table")
+        connection.execute(text("ALTER TABLE torrent ADD COLUMN renamed_at TEXT"))
+    if "renamed_file_count" not in torrent_columns:
+        logger.info("[Migration] Adding renamed_file_count column to torrent table")
+        connection.execute(text("ALTER TABLE torrent ADD COLUMN renamed_file_count INTEGER"))
+
+    connection.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_torrent_hash_bangumi "
+        "ON torrent (hash, bangumi_id) WHERE hash IS NOT NULL"
+    ))
+
+    result = connection.execute(
+        text("UPDATE bangumi SET group_name = 'Unknown' WHERE group_name IS NULL OR group_name = ''")
+    )
+    if result.rowcount > 0:
+        logger.info(f"[Migration] Updated {result.rowcount} bangumi records with NULL/empty group_name to 'Unknown'")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global scheduler
@@ -64,12 +113,9 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Users exist, skipping default user creation")
 
-    from module.database.combine import Database
-
-    db = Database()
-    db.create_table()
-    db.close()
-    logger.info("Legacy database migrations applied")
+    async with engine.begin() as conn:
+        await conn.run_sync(_run_migrations)
+    logger.info("Database migrations applied")
 
     scheduler = AsyncScheduler()
     await scheduler.start()
