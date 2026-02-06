@@ -639,8 +639,9 @@ class PikPakDownloader:
                     # Each PikPak task downloads exactly one file — use task's
                     # file_name instead of listing the entire shared folder
                     task_file_name = task.get("file_name", "")
+                    task_file_size = int(task.get("file_size", 0) or 0)
                     if task_file_name:
-                        files = [TorrentFile(name=task_file_name)]
+                        files = [TorrentFile(name=task_file_name, size=task_file_size, path=task_file_name)]
                     else:
                         files = await self._list_files_in_folder(save_path)
                     logger.debug(f"Task {task.get('name')}: found {len(files)} files")
