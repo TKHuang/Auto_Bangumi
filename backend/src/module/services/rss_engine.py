@@ -165,7 +165,6 @@ class RSSEngine:
                         continue
 
                     for torrent in matched_torrents:
-                        # Skip torrents already downloaded (existed in DB before this cycle)
                         db_torrent = await torrent_repo.get_by_hash(torrent.hash)
                         if db_torrent and db_torrent.downloaded:
                             logger.debug(
@@ -177,10 +176,13 @@ class RSSEngine:
                             torrent, bangumi_repo
                         )
                         if matched_bangumi:
+                            save_path = matched_bangumi.save_path or gen_save_path(
+                                settings.downloader.path, matched_bangumi.official_title, matched_bangumi.season,
+                            )
                             urls = [torrent.url]
                             success = await downloader.add_torrents(
                                 urls=urls,
-                                save_path=matched_bangumi.save_path or "",
+                                save_path=save_path,
                                 torrent_files=None,
                             )
                             if success:
@@ -189,7 +191,7 @@ class RSSEngine:
                                 )
                                 if db_torrent:
                                     await torrent_repo.mark_downloaded_by_hash(
-                                        db_torrent.hash, matched_bangumi.id, matched_bangumi.save_path
+                                        db_torrent.hash, matched_bangumi.id, save_path
                                     )
 
                 await rss_repo.update_status(rss_item.id, "Success", None)
@@ -415,10 +417,13 @@ class RSSEngine:
 
         await session.flush()
 
+        save_path = bangumi.save_path or gen_save_path(
+            settings.downloader.path, bangumi.official_title, bangumi.season,
+        )
         urls = [t.url for t in new_torrents]
         await downloader.add_torrents(
             urls=urls,
-            save_path=bangumi.save_path or "",
+            save_path=save_path,
             torrent_files=None,
         )
 
@@ -426,7 +431,7 @@ class RSSEngine:
             db_torrent = await torrent_repo.get_by_hash(torrent.hash)
             if db_torrent:
                 await torrent_repo.mark_downloaded_by_hash(
-                    db_torrent.hash, bangumi.id, bangumi.save_path
+                    db_torrent.hash, bangumi.id, save_path
                 )
 
         await session.commit()

@@ -160,11 +160,13 @@ class SeasonCollectorService:
         await torrent_repo.add_all_or_ignore(all_torrents_to_add)
         await session.flush()
 
-        # Add new torrents to downloader
+        save_path = bangumi.save_path or gen_save_path(
+            settings.downloader.path, bangumi.official_title, bangumi.season,
+        )
         urls = [t.url for t in new_torrents]
         success = await downloader.add_torrents(
             urls=urls,
-            save_path=bangumi.save_path or "",
+            save_path=save_path,
             torrent_files=None,
         )
 
@@ -172,11 +174,10 @@ class SeasonCollectorService:
             logger.info(
                 f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
             )
-            # Mark torrents as downloaded
             for torrent in new_torrents:
                 if torrent.hash and bangumi.id is not None:
                     await torrent_repo.mark_downloaded_by_hash(
-                        torrent.hash, bangumi.id, bangumi.save_path
+                        torrent.hash, bangumi.id, save_path
                     )
 
             bangumi.eps_collect = True
