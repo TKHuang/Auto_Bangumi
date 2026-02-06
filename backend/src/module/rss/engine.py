@@ -361,7 +361,10 @@ class RSSEngine(Database):
 
             with DownloadClient() as client:
                 save_path_before = bangumi.save_path
-                client.add_torrent(new_torrents, bangumi)
+                try:
+                    client.add_torrent(new_torrents, bangumi)
+                except Exception as e:
+                    logger.warning(f"[Engine] Partial download failure for {bangumi.official_title}: {e}")
                 if not save_path_before and bangumi.save_path:
                     self.bangumi.update_save_path(bangumi.id, bangumi.save_path)
                 for torrent in new_torrents:

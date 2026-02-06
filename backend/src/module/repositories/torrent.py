@@ -70,7 +70,7 @@ class TorrentRepository:
     async def get_unrenamed(self) -> list[Torrent]:
         stmt = select(Torrent).where(
             and_(
-                Torrent.state == TorrentState.COMPLETED,
+                Torrent.downloaded == True,
                 Torrent.renamed_at.is_(None),
             )
         )

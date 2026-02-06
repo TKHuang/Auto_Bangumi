@@ -158,8 +158,8 @@ class RenamerService:
                 )
                 continue
 
-            sm = TorrentStateMachine.from_str(db_torrent.state.value)
             try:
+                sm = TorrentStateMachine.from_str(db_torrent.state.value)
                 sm.start_rename()
                 db_torrent.state = TorrentState.RENAMING
                 await self.session.flush()
@@ -172,10 +172,10 @@ class RenamerService:
                     },
                 )
             except Exception as e:
-                logger.error(
-                    f"[Renamer] Failed to transition torrent {db_torrent.id} to RENAMING: {e}"
+                logger.debug(
+                    f"[Renamer] State transition skipped for torrent {db_torrent.id} "
+                    f"(state={db_torrent.state}): {e}"
                 )
-                continue
 
             media_files, subtitle_files = self._classify_files(torrent_info.files)
 
@@ -222,7 +222,11 @@ class RenamerService:
                 )
 
             if success:
-                sm.finish_rename()
+                try:
+                    sm = TorrentStateMachine.from_str(TorrentState.RENAMING.value)
+                    sm.finish_rename()
+                except Exception:
+                    pass
                 db_torrent.state = TorrentState.RENAMED
                 db_torrent.renamed_at = datetime.now(timezone.utc)
                 db_torrent.renamed_file_count = file_count
@@ -240,10 +244,8 @@ class RenamerService:
                     f"[Renamer] Successfully renamed torrent {db_torrent.id} with {file_count} files"
                 )
             else:
-                db_torrent.state = TorrentState.COMPLETED
-                await self.session.flush()
                 logger.warning(
-                    f"[Renamer] Failed to rename torrent {db_torrent.id}, restored to COMPLETED"
+                    f"[Renamer] Failed to rename torrent {db_torrent.id}"
                 )
 
         await self.session.commit()

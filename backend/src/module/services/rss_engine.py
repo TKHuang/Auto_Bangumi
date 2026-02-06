@@ -136,10 +136,20 @@ class RSSEngine:
                     # Fix: Use idempotent bulk insert
                     inserted_count = await torrent_repo.add_all_or_ignore(matched_torrents)
                     logger.debug(f"[Engine] Inserted {inserted_count} new torrents")
-                    
-                    # We don't need to flush here as add_all_or_ignore executes immediately
+
+                    if inserted_count == 0:
+                        logger.debug("[Engine] No new torrents to download, skipping")
+                        continue
 
                     for torrent in matched_torrents:
+                        # Skip torrents already downloaded (existed in DB before this cycle)
+                        db_torrent = await torrent_repo.get_by_hash(torrent.hash)
+                        if db_torrent and db_torrent.downloaded:
+                            logger.debug(
+                                f"[Engine] Skip already-downloaded torrent: {torrent.name}"
+                            )
+                            continue
+
                         matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
                             torrent, bangumi_repo
                         )
@@ -154,8 +164,6 @@ class RSSEngine:
                                 logger.debug(
                                     f"[Engine] Added torrent {torrent.name} to downloader"
                                 )
-                                # Fetch by hash to get ID and update status
-                                db_torrent = await torrent_repo.get_by_hash(torrent.hash)
                                 if db_torrent:
                                     await torrent_repo.mark_downloaded(db_torrent.id)
 

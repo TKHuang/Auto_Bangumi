@@ -54,7 +54,8 @@ class Torrent(Base, TimestampMixin, VersionMixin):
     homepage: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     hash: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     state: Mapped[TorrentState] = mapped_column(
-        Enum(TorrentState), nullable=False, default=TorrentState.PENDING,
+        Enum(TorrentState, values_callable=lambda e: [x.value for x in e]),
+        nullable=False, default=TorrentState.PENDING,
         server_default=TorrentState.PENDING.value,
     )
     downloaded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

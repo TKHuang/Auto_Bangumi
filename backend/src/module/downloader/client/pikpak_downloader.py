@@ -496,20 +496,61 @@ class PikPakDownloader:
 
         active_hashes = self._get_active_task_hashes()
 
-        # Start all downloads
+        # Start all downloads — catch per-URL errors so one bad torrent
+        # doesn't prevent marking the rest as downloaded.
+        failed_urls: list[str] = []
         for url in urls:
             url_hash = self._extract_hash(url)
             if url_hash and url_hash.lower() in active_hashes:
                 logger.info(f"[PikPak] Skipping duplicate — active task exists for hash {url_hash[:16]}...")
                 continue
             logger.info(f"Adding download to PikPak: {url[:80]}...")
-            result = self._run_async(
-                self._client.offline_download(file_url=url, parent_id=folder_id)
-            )
-            logger.debug(f"Download added, result: {result}")
+            try:
+                result = self._run_async(
+                    self._client.offline_download(file_url=url, parent_id=folder_id)
+                )
+                logger.debug(f"Download added, result: {result}")
+            except Exception as e:
+                logger.error(f"[PikPak] Failed to add download {url[:80]}...: {e}")
+                failed_urls.append(url)
 
         self._invalidate_task_cache()
+
+        if failed_urls:
+            if len(failed_urls) == len(urls):
+                raise RuntimeError(
+                    f"All {len(urls)} downloads failed. Last error from PikPak API."
+                )
+            logger.warning(
+                f"[PikPak] {len(failed_urls)}/{len(urls)} downloads failed, "
+                f"{len(urls) - len(failed_urls)} succeeded"
+            )
         return True
+
+    def _get_active_task_hashes(self) -> set[str]:
+        """Get hashes of currently active (running/pending) offline tasks.
+
+        Used to skip duplicate downloads when a task is already in progress.
+
+        Returns:
+            Set of lowercase 40-char hex hashes for active tasks.
+        """
+        active_phases = {"PHASE_TYPE_RUNNING", "PHASE_TYPE_PENDING"}
+        active_hashes: set[str] = set()
+        try:
+            all_tasks = self._get_all_tasks_cached()
+            for task in all_tasks:
+                if task.get("phase", "") not in active_phases:
+                    continue
+                file_url = task.get("file_url", "") or task.get("params", {}).get(
+                    "url", ""
+                )
+                task_hash = self._extract_hash(file_url)
+                if task_hash:
+                    active_hashes.add(task_hash.lower())
+        except Exception as e:
+            logger.debug(f"Error fetching active task hashes: {e}")
+        return active_hashes
 
     def _delete_existing_tasks_for_redownload(self, hashes: list[str]) -> None:
         """Delete existing offline tasks with error status to allow redownload.

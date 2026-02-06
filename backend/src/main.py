@@ -17,6 +17,8 @@ from module.domain.models.base import Base
 from module.domain.models.user import User
 from module.repositories.user import UserRepository
 from module.scheduler.engine import AsyncScheduler
+from module.scheduler.jobs.rename import rename_job
+from module.scheduler.jobs.rss_refresh import rss_refresh_job
 from module.security.password import hash_password
 
 setup_logger(reset=True)
@@ -42,25 +44,28 @@ scheduler: AsyncScheduler | None = None
 async def lifespan(app: FastAPI):
     global scheduler
     logger.info("Starting application...")
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
-    
+
     async with AsyncSessionLocal() as session:
         user_repo = UserRepository(session)
         existing_users = await user_repo.get_all()
         if not existing_users:
-            await user_repo.create({
-                "username": "admin",
-                "password": hash_password("adminadmin"),
-            })
+            await user_repo.create(
+                {
+                    "username": "admin",
+                    "password": hash_password("adminadmin"),
+                }
+            )
             await session.commit()
             logger.info("Default user created (admin/adminadmin)")
         else:
             logger.info("Users exist, skipping default user creation")
-    
+
     from module.database.combine import Database
+
     db = Database()
     db.create_table()
     db.close()
@@ -70,11 +75,29 @@ async def lifespan(app: FastAPI):
     await scheduler.start()
     logger.info("Scheduler started")
 
+    await scheduler.add_schedule(
+        rename_job,
+        trigger="interval",
+        id="rename",
+        seconds=settings.program.rename_time,
+    )
+    await scheduler.add_schedule(
+        rss_refresh_job,
+        trigger="interval",
+        id="rss_refresh",
+        seconds=settings.program.rss_time,
+    )
+    logger.info(
+        f"Scheduled jobs: rename ({settings.program.rename_time}s), "
+        f"rss_refresh ({settings.program.rss_time}s)"
+    )
+
     from module.api.v1.program import set_scheduler
+
     set_scheduler(scheduler)
-    
+
     yield
-    
+
     if scheduler:
         await scheduler.stop()
         logger.info("Scheduler stopped")
@@ -83,7 +106,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan, title="Auto Bangumi", version=VERSION)
-    
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -91,7 +114,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(bangumi.router, prefix="/api/v1")
     app.include_router(check.router, prefix="/api/v1")
@@ -100,7 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(program.router, prefix="/api/v1")
     app.include_router(rss.router, prefix="/api/v1")
     app.include_router(search.router, prefix="/api/v1")
-    
+
     os.makedirs("data/posters", exist_ok=True)
     app.mount("/posters", StaticFiles(directory="data/posters"), name="posters")
 
@@ -121,6 +144,7 @@ def create_app() -> FastAPI:
                     context = {"request": request}
                     return templates.TemplateResponse("index.html", context)
     else:
+
         @app.get("/", status_code=302, tags=["html"])
         def index():
             return RedirectResponse("/docs")
