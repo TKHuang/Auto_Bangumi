@@ -13,7 +13,7 @@ from module.domain.models.bangumi import Bangumi
 from module.domain.models.rss import RSSItem
 from module.domain.models.torrent import Torrent
 from module.domain.parser.title_parser import TitleParser
-from module.domain.value_objects import gen_save_path
+from module.domain.value_objects import BangumiParsingError, gen_save_path
 from module.network.request_contents import RequestContent
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
@@ -104,6 +104,118 @@ class RSSEngine:
         return None
 
     @staticmethod
+    def _torrent_excluded_by_filter(torrent_name: str, bangumi_filter: str) -> bool:
+        if not bangumi_filter:
+            return False
+        pattern = bangumi_filter.replace(",", "|")
+        return bool(re.search(pattern, torrent_name, re.IGNORECASE))
+
+    @staticmethod
+    async def _auto_create_bangumi(
+        torrent: Torrent,
+        rss_item,
+        bangumi_repo: BangumiRepository,
+        session: AsyncSession,
+        auto_created_keys: set[tuple[str, int, str]],
+        newly_created_ids: set[int],
+    ) -> Optional[Bangumi]:
+        try:
+            parser = TitleParser()
+            bangumi_data = parser.raw_parser(torrent.name)
+        except BangumiParsingError:
+            logger.debug(f"[Engine] Cannot parse title for auto-create: {torrent.name}")
+            return None
+
+        if not bangumi_data:
+            logger.debug(f"[Engine] Cannot parse title for auto-create: {torrent.name}")
+            return None
+
+        group_name = bangumi_data.group_name or "Unknown"
+        composite_key = (bangumi_data.official_title, bangumi_data.season, group_name)
+
+        if composite_key in auto_created_keys:
+            existing = await bangumi_repo.get_by_composite_key(*composite_key)
+            if existing:
+                if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
+                    logger.debug(
+                        f"[Engine] Torrent {torrent.name} excluded by filter: {existing.filter}"
+                    )
+                    return None
+                torrent.bangumi_id = existing.id
+                return existing
+            return None
+
+        existing = await bangumi_repo.get_by_composite_key(*composite_key)
+        if existing:
+            auto_created_keys.add(composite_key)
+            if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
+                logger.debug(
+                    f"[Engine] Torrent {torrent.name} excluded by filter: {existing.filter}"
+                )
+                return None
+            return existing
+
+        if torrent.homepage and rss_item.parser == "mikan":
+            try:
+                result = await asyncio.to_thread(parser.mikan_parser_with_rss, torrent.homepage)
+                if result.poster_link:
+                    bangumi_data.poster_link = result.poster_link
+                if result.official_title:
+                    bangumi_data.official_title = re.sub(r"[/:.\\]", " ", result.official_title)
+                if result.season_rss_link:
+                    bangumi_data.rss_link = result.season_rss_link
+            except Exception as e:
+                logger.debug(f"[Engine] Mikan enrichment failed for {torrent.name}: {e}")
+
+        save_path = gen_save_path(
+            settings.downloader.path, bangumi_data.official_title, bangumi_data.season,
+        )
+        bangumi_filter = bangumi_data.filter or ""
+
+        try:
+            created = await bangumi_repo.create({
+                "official_title": bangumi_data.official_title,
+                "title_raw": bangumi_data.title_raw,
+                "season": bangumi_data.season,
+                "season_raw": bangumi_data.season_raw,
+                "group_name": group_name,
+                "dpi": bangumi_data.dpi,
+                "source": bangumi_data.source,
+                "subtitle": bangumi_data.subtitle,
+                "rss_link": bangumi_data.rss_link or rss_item.url,
+                "rss_id": rss_item.id,
+                "poster_link": bangumi_data.poster_link or "",
+                "filter": bangumi_filter,
+                "eps_collect": bangumi_data.eps_collect,
+                "offset": bangumi_data.offset,
+                "added": True,
+                "deleted": False,
+                "pending_review": False,
+                "save_path": save_path,
+            })
+            auto_created_keys.add(composite_key)
+            newly_created_ids.add(created.id)
+            logger.info(
+                f"[Engine] Auto-created bangumi from aggregate RSS: {created.official_title} "
+                f"S{created.season} [{group_name}]"
+            )
+            if RSSEngine._torrent_excluded_by_filter(torrent.name, bangumi_filter):
+                logger.debug(
+                    f"[Engine] Torrent {torrent.name} excluded by filter: {bangumi_filter}"
+                )
+                return None
+            return created
+        except ValueError:
+            auto_created_keys.add(composite_key)
+            logger.debug(
+                f"[Engine] Bangumi already exists (race): {bangumi_data.official_title}"
+            )
+            found = await bangumi_repo.get_by_composite_key(*composite_key)
+            if found and RSSEngine._torrent_excluded_by_filter(torrent.name, found.filter):
+                return None
+            return found
+
+    @staticmethod
     async def refresh_rss(
         session: AsyncSession,
         downloader: DownloaderProtocol,
@@ -138,6 +250,9 @@ class RSSEngine:
                 new_torrents = await RSSEngine.parse_rss_feed(rss_item.url)
 
                 matched_torrents = []
+                auto_created_keys: set[tuple[str, int, str]] = set()
+                newly_created_ids: set[int] = set()
+
                 for torrent in new_torrents:
                     torrent.rss_id = rss_item.id
                     matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
@@ -150,49 +265,80 @@ class RSSEngine:
                             )
                             continue
                         matched_torrents.append(torrent)
+                    elif rss_item.aggregate:
+                        created = await RSSEngine._auto_create_bangumi(
+                            torrent, rss_item, bangumi_repo, session,
+                            auto_created_keys, newly_created_ids,
+                        )
+                        if created:
+                            torrent.bangumi_id = created.id
+                            matched_torrents.append(torrent)
                     else:
                         logger.debug(
                             f"[Engine] Skip torrent {torrent.name} - no matching bangumi"
                         )
 
+                for bangumi_id in newly_created_ids:
+                    try:
+                        result = await RSSEngine.download_bangumi(
+                            session, downloader, bangumi_id
+                        )
+                        if isinstance(result, dict) and result.get("count", 0) > 0:
+                            logger.info(
+                                f"[Engine] Backfilled {result['count']} episodes for bangumi {bangumi_id}"
+                            )
+                        elif (
+                            isinstance(result, dict)
+                            and not result.get("status")
+                            and result.get("count") == 0
+                            and "filtered out" in result.get("message", "").lower()
+                        ):
+                            bangumi = await bangumi_repo.get_by_id(bangumi_id)
+                            if bangumi:
+                                await bangumi_repo.update_pending_review(
+                                    bangumi_id, True, bangumi.filter
+                                )
+                                logger.info(
+                                    f"[Engine] Bangumi {bangumi.official_title} set to pending review "
+                                    f"(all torrents filtered by: {bangumi.filter})"
+                                )
+                    except Exception as e:
+                        logger.error(f"[Engine] Episode backfill failed for bangumi {bangumi_id}: {e}")
+
                 if matched_torrents:
-                    # Fix: Use idempotent bulk insert
                     inserted_count = await torrent_repo.add_all_or_ignore(matched_torrents)
                     logger.debug(f"[Engine] Inserted {inserted_count} new torrents")
 
-                    if inserted_count == 0:
-                        logger.debug("[Engine] No new torrents to download, skipping")
-                        continue
-
-                    for torrent in matched_torrents:
-                        db_torrent = await torrent_repo.get_by_hash(torrent.hash)
-                        if db_torrent and db_torrent.downloaded:
-                            logger.debug(
-                                f"[Engine] Skip already-downloaded torrent: {torrent.name}"
-                            )
-                            continue
-
-                        matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
-                            torrent, bangumi_repo
-                        )
-                        if matched_bangumi:
-                            save_path = matched_bangumi.save_path or gen_save_path(
-                                settings.downloader.path, matched_bangumi.official_title, matched_bangumi.season,
-                            )
-                            urls = [torrent.url]
-                            success = await downloader.add_torrents(
-                                urls=urls,
-                                save_path=save_path,
-                                torrent_files=None,
-                            )
-                            if success:
+                    if inserted_count > 0:
+                        for torrent in matched_torrents:
+                            db_torrent = await torrent_repo.get_by_hash(torrent.hash)
+                            if db_torrent and db_torrent.downloaded:
                                 logger.debug(
-                                    f"[Engine] Added torrent {torrent.name} to downloader"
+                                    f"[Engine] Skip already-downloaded torrent: {torrent.name}"
                                 )
-                                if db_torrent:
-                                    await torrent_repo.mark_downloaded_by_hash(
-                                        db_torrent.hash, matched_bangumi.id, save_path
+                                continue
+
+                            matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
+                                torrent, bangumi_repo
+                            )
+                            if matched_bangumi:
+                                save_path = matched_bangumi.save_path or gen_save_path(
+                                    settings.downloader.path, matched_bangumi.official_title, matched_bangumi.season,
+                                )
+                                urls = [torrent.url]
+                                success = await downloader.add_torrents(
+                                    urls=urls,
+                                    save_path=save_path,
+                                    torrent_files=None,
+                                )
+                                if success:
+                                    logger.debug(
+                                        f"[Engine] Added torrent {torrent.name} to downloader"
                                     )
+                                    if db_torrent:
+                                        await torrent_repo.mark_downloaded_by_hash(
+                                            db_torrent.hash, matched_bangumi.id, save_path
+                                        )
 
                 await rss_repo.update_status(rss_item.id, "Success", None)
 

@@ -21,4 +21,11 @@ exec rclone mount "pikpak:${PIKPAK_PATH}" /media/pikpak \
     --vfs-write-back 5s \
     --allow-other \
     --allow-non-empty \
+    --exclude ".DS_Store" \
+    --exclude "._**" \
+    --disable-http2 \
+    --transfers 2 \
+    --checkers 4 \
+    --multi-thread-streams 2 \
+    --disable-http-keep-alives \
     --log-level INFO
