@@ -244,18 +244,18 @@ class PikPakDownloader:
             # No refresh token, need full re-auth
             logger.info("No refresh token available, performing full authentication")
             await self._client.login()
-            self._save_token()
+            await asyncio.to_thread(self._save_token)
             return
 
         try:
             logger.info("PikPak token expiring soon, refreshing...")
             await self._client.refresh_access_token()
-            self._save_token()
+            await asyncio.to_thread(self._save_token)
             logger.info("PikPak token refreshed successfully")
         except Exception as e:
             logger.warning(f"Token refresh failed ({e}), attempting full re-auth")
             await self._client.login()
-            self._save_token()
+            await asyncio.to_thread(self._save_token)
 
     async def _get_all_tasks_cached(self) -> list[dict]:
         import time as _time
@@ -304,7 +304,7 @@ class PikPakDownloader:
         else:
             logger.info(f"Authenticating PikPak user: {self._username}")
             await self._client.login()
-            self._save_token()
+            await asyncio.to_thread(self._save_token)
             logger.info("PikPak authentication successful")
 
         return True
