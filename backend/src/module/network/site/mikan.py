@@ -14,5 +14,4 @@ def rss_parser(soup):
     return torrent_titles, torrent_urls, torrent_homepage
 
 
-def mikan_title(soup):
-    return soup.find("title").text
+

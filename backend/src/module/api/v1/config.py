@@ -1,5 +1,5 @@
 """Config API endpoints."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from module.api.middleware.auth import get_current_user

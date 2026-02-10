@@ -9,7 +9,6 @@ from .value_objects import (
     Notification,
     ParsedBangumi,
     ResponseModel,
-    SeasonInfo,
     SubtitleFile,
     SubtitleType,
 )

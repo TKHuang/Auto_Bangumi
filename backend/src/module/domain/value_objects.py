@@ -172,22 +172,6 @@ class Episode:
     source: str
 
 
-@dataclass
-class SeasonInfo(dict):
-    official_title: str
-    title_raw: str
-    season: int
-    season_raw: str
-    group: str
-    filter: list | None
-    offset: int | None
-    dpi: str
-    source: str
-    subtitle: str
-    added: bool
-    eps_collect: bool
-
-
 class BangumiParsingError(Exception):
     """Exception raised when automatic bangumi parsing fails to extract title information.
     

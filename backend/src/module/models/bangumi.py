@@ -6,7 +6,6 @@ from module.domain.value_objects import (
     BangumiParsingError,
     Episode,
     Notification,
-    SeasonInfo,
 )
 
 
