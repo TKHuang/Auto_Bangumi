@@ -46,24 +46,14 @@ class TestApplicationSmoke:
                 token = login_data["access_token"]
                 client.cookies.set("token", token)
                 
-                with patch("module.api.v1.bangumi.TorrentManager") as mock_manager:
-                    mock_instance = MagicMock()
-                    mock_manager.return_value.__enter__.return_value = mock_instance
-                    mock_instance.bangumi.search_all.return_value = []
-                    
-                    bangumi_response = client.get("/api/v1/bangumi/get/all")
-                    assert bangumi_response.status_code == 200
-                    assert bangumi_response.json() == []
-                
-                with patch("module.api.v1.bangumi.TorrentStatusManager") as mock_manager:
-                    mock_instance = MagicMock()
-                    mock_manager.return_value.__enter__.return_value = mock_instance
-                    mock_instance.get_bangumi_torrents_status.return_value = []
-                    
-                    status_response = client.get("/api/v1/bangumi/torrent/1")
-                    assert status_response.status_code == 200
-                    assert isinstance(status_response.json(), list)
-                
+                bangumi_response = client.get("/api/v1/bangumi/get/all")
+                assert bangumi_response.status_code == 200
+                assert bangumi_response.json() == []
+
+                status_response = client.get("/api/v1/bangumi/torrent/1")
+                assert status_response.status_code == 200
+                assert isinstance(status_response.json(), list)
+
                 config_response = client.get("/api/v1/config/get")
                 assert config_response.status_code == 200
                 config_data = config_response.json()
@@ -156,13 +146,8 @@ class TestDatabaseIntegration:
                 token = response.json()["access_token"]
                 cookies = {"token": token}
                 
-                with patch("module.api.v1.bangumi.TorrentManager") as mock_manager:
-                    mock_instance = MagicMock()
-                    mock_manager.return_value.__enter__.return_value = mock_instance
-                    mock_instance.bangumi.search_all.return_value = []
-                    
-                    bangumi_response = client.get(
-                        "/api/v1/bangumi/get/all",
-                        cookies=cookies,
-                    )
-                    assert bangumi_response.status_code == 200
+                bangumi_response = client.get(
+                    "/api/v1/bangumi/get/all",
+                    cookies=cookies,
+                )
+                assert bangumi_response.status_code == 200

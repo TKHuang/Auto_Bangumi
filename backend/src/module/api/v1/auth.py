@@ -1,4 +1,5 @@
 """Auth API endpoints."""
+import os
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -49,25 +50,25 @@ async def login(
             "expire": expire_timestamp,
         },
     )
+    _set_auth_cookie(response, token)
+    return response
+
+
+def _set_auth_cookie(response: JSONResponse, token: str) -> None:
     response.set_cookie(
         key="token",
         value=token,
         httponly=True,
         max_age=86400,
         samesite="lax",
+        secure=os.getenv("AB_SECURE_COOKIES", "").lower() in ("1", "true", "yes"),
     )
-    return response
 
 
 @router.get("/refresh_token")
 async def refresh_token(
     current_user: str = Depends(get_current_user),
 ):
-    """Refresh JWT token.
-    
-    Requires valid token in cookie.
-    Returns new access_token, token_type, and expire timestamp.
-    """
     token = create_access_token(
         username=current_user,
         expires_delta=timedelta(days=1),
@@ -83,13 +84,7 @@ async def refresh_token(
             "expire": expire_timestamp,
         },
     )
-    response.set_cookie(
-        key="token",
-        value=token,
-        httponly=True,
-        max_age=86400,
-        samesite="lax",
-    )
+    _set_auth_cookie(response, token)
     return response
 
 
@@ -97,10 +92,6 @@ async def refresh_token(
 async def logout(
     current_user: str = Depends(get_current_user),
 ):
-    """Logout and clear authentication cookie.
-    
-    Requires valid token in cookie.
-    """
     response = JSONResponse(
         status_code=200,
         content={
@@ -118,11 +109,6 @@ async def update_password(
     current_user: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update user password.
-    
-    Requires valid token in cookie.
-    Returns new access_token, token_type, expire, and message.
-    """
     if "password" not in password_update:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -130,10 +116,10 @@ async def update_password(
         )
 
     new_password = password_update["password"]
-    if not new_password or len(new_password) < 1:
+    if not new_password or len(new_password) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="password cannot be empty",
+            detail="password must be at least 8 characters",
         )
 
     repo = UserRepository(session)
@@ -164,11 +150,5 @@ async def update_password(
             "message": "update success",
         },
     )
-    response.set_cookie(
-        key="token",
-        value=token,
-        httponly=True,
-        max_age=86400,
-        samesite="lax",
-    )
+    _set_auth_cookie(response, token)
     return response

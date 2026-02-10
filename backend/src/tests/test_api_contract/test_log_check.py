@@ -66,7 +66,7 @@ class TestLogEndpoints:
         log_file.write_text("some log content")
         
         with patch("module.api.v1.log.LOG_PATH", log_file):
-            response = client.get("/log/clear")
+            response = client.delete("/log/clear")
             assert response.status_code == 200
             assert response.json() == {
                 "msg_en": "Log cleared successfully.",
@@ -78,8 +78,8 @@ class TestLogEndpoints:
         nonexistent = tmp_path / "nonexistent.txt"
         
         with patch("module.api.v1.log.LOG_PATH", nonexistent):
-            response = client.get("/log/clear")
-            assert response.status_code == 406
+            response = client.delete("/log/clear")
+            assert response.status_code == 404
             assert response.json() == {
                 "msg_en": "Log file not found.",
                 "msg_zh": "日志文件未找到。"

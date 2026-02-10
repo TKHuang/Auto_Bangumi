@@ -20,7 +20,7 @@ async def get_log():
         return Response("Log file not found", status_code=404)
 
 
-@router.get("/clear", dependencies=[Depends(get_current_user)])
+@router.delete("/clear", dependencies=[Depends(get_current_user)])
 async def clear_log():
     """Clear log file and return success/error message."""
     if LOG_PATH.exists():
@@ -31,6 +31,6 @@ async def clear_log():
         )
     else:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "Log file not found.", "msg_zh": "日志文件未找到。"},
         )

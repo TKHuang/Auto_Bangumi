@@ -81,8 +81,9 @@ class TestGetConfig:
 
     def test_get_config_without_auth(self, client):
         """Test GET /config/get without authentication returns 401."""
-        response = client.get("/config/get")
-        assert response.status_code == 401
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            response = client.get("/config/get")
+            assert response.status_code == 401
 
     def test_get_config_with_auth(self, client, mock_config):
         """Test GET /config/get with valid token returns full config."""
@@ -120,11 +121,12 @@ class TestGetConfig:
 
     def test_get_config_invalid_token(self, client):
         """Test GET /config/get with invalid token returns 401."""
-        with patch("module.api.middleware.auth.decode_access_token") as mock_decode:
-            mock_decode.side_effect = Exception("Invalid token")
-            
-            response = client.get("/config/get", cookies={"token": "invalid_token"})
-            assert response.status_code == 401
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            with patch("module.api.middleware.auth.decode_access_token") as mock_decode:
+                mock_decode.side_effect = Exception("Invalid token")
+                
+                response = client.get("/config/get", cookies={"token": "invalid_token"})
+                assert response.status_code == 401
 
 
 class TestUpdateConfig:
@@ -132,8 +134,9 @@ class TestUpdateConfig:
 
     def test_update_config_without_auth(self, client, mock_config):
         """Test PATCH /config/update without authentication returns 401."""
-        response = client.patch("/config/update", json=mock_config.model_dump(by_alias=True))
-        assert response.status_code == 401
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            response = client.patch("/config/update", json=mock_config.model_dump(by_alias=True))
+            assert response.status_code == 401
 
     def test_update_config_success(self, client, mock_config):
         """Test PATCH /config/update with valid token saves config."""
@@ -175,7 +178,7 @@ class TestUpdateConfig:
                     cookies={"token": "valid_token"},
                 )
                 
-                assert response.status_code == 406
+                assert response.status_code == 500
                 data = response.json()
                 assert data["msg_en"] == "Update config failed."
                 assert data["msg_zh"] == "更新配置失败。"
@@ -210,15 +213,16 @@ class TestUpdateConfig:
 
     def test_update_config_invalid_token(self, client, mock_config):
         """Test PATCH /config/update with invalid token returns 401."""
-        with patch("module.api.middleware.auth.decode_access_token") as mock_decode:
-            mock_decode.side_effect = Exception("Invalid token")
-            
-            response = client.patch(
-                "/config/update",
-                json=mock_config.model_dump(by_alias=True),
-                cookies={"token": "invalid_token"},
-            )
-            assert response.status_code == 401
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            with patch("module.api.middleware.auth.decode_access_token") as mock_decode:
+                mock_decode.side_effect = Exception("Invalid token")
+                
+                response = client.patch(
+                    "/config/update",
+                    json=mock_config.model_dump(by_alias=True),
+                    cookies={"token": "invalid_token"},
+                )
+                assert response.status_code == 401
 
     def test_update_config_uses_by_alias(self, client, mock_config):
         """Test PATCH /config/update uses by_alias=True for serialization."""

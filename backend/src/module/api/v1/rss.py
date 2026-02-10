@@ -64,7 +64,7 @@ async def get_rss(session: AsyncSession = Depends(get_db_session)):
 
 
 @router.post(
-    path="/add", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+    path="/add", dependencies=[Depends(get_current_user)]
 )
 async def add_rss(
     rss: RSSItem,
@@ -221,7 +221,6 @@ async def enable_many_rss(rss_ids: list[int], session: AsyncSession = Depends(ge
 
 @router.delete(
     path="/delete/{rss_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def delete_rss(rss_id: int, session: AsyncSession = Depends(get_db_session)):
@@ -235,7 +234,7 @@ async def delete_rss(rss_id: int, session: AsyncSession = Depends(get_db_session
         )
     else:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "Delete RSS failed.", "msg_zh": "删除 RSS 失败。"},
         )
 
@@ -260,7 +259,6 @@ async def delete_many_rss(rss_ids: list[int], session: AsyncSession = Depends(ge
 
 @router.patch(
     path="/disable/{rss_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def disable_rss(rss_id: int, session: AsyncSession = Depends(get_db_session)):
@@ -274,7 +272,7 @@ async def disable_rss(rss_id: int, session: AsyncSession = Depends(get_db_sessio
         )
     else:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "Disable RSS failed.", "msg_zh": "禁用 RSS 失败。"},
         )
 
@@ -297,7 +295,6 @@ async def disable_many_rss(rss_ids: list[int], session: AsyncSession = Depends(g
 
 @router.patch(
     path="/update/{rss_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def update_rss(
@@ -316,14 +313,13 @@ async def update_rss(
         )
     except ValueError:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "Update RSS failed.", "msg_zh": "更新 RSS 失败。"},
         )
 
 
-@router.get(
+@router.post(
     path="/refresh/all",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def refresh_all(session: AsyncSession = Depends(get_db_session)):
@@ -335,9 +331,8 @@ async def refresh_all(session: AsyncSession = Depends(get_db_session)):
     )
 
 
-@router.get(
+@router.post(
     path="/refresh/{rss_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def refresh_rss(rss_id: int, session: AsyncSession = Depends(get_db_session)):
@@ -417,14 +412,14 @@ async def recreate_rss_rules(
             torrents = await local_analyser.get_rss_torrents(rss.url, full_parse=True, apply_filter=False)
             if not torrents:
                 return JSONResponse(
-                    status_code=406,
+                    status_code=404,
                     content={"msg_en": "Cannot find any torrent in the RSS feed.", "msg_zh": "无法在 RSS 订阅中找到任何种子。"},
                 )
 
             bangumi_list = await local_analyser.torrents_to_data(torrents, rss, full_parse=True)
             if not bangumi_list:
                 return JSONResponse(
-                    status_code=406,
+                    status_code=404,
                     content={"msg_en": "Cannot parse any torrent from the RSS feed.", "msg_zh": "无法解析 RSS 订阅中的任何种子。"},
                 )
 

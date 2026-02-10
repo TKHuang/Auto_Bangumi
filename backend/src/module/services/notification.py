@@ -5,6 +5,7 @@ Providers: Telegram, ServerChan, Bark, WeCom
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -182,4 +183,4 @@ async def send_notification(title: str, message: str, config: "Config") -> bool:
         logger.warning(f"Failed to create notification provider: {config.notification.type}")
         return False
 
-    return provider.send(title, message)
+    return await asyncio.to_thread(provider.send, title, message)

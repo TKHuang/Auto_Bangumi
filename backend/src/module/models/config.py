@@ -1,7 +1,7 @@
 from os.path import expandvars
 from typing import Literal
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class Program(BaseModel):
@@ -105,7 +105,8 @@ class ExperimentalOpenAI(BaseModel):
         "", description="Azure OpenAI deployment id, ignored when api type is openai"
     )
 
-    @validator("api_base")
+    @field_validator("api_base")
+    @classmethod
     def validate_api_base(cls, value: str):
         if value == "https://api.openai.com/":
             return "https://api.openai.com/v1"
@@ -122,5 +123,8 @@ class Config(BaseModel):
     notification: Notification = Notification()
     experimental_openai: ExperimentalOpenAI = ExperimentalOpenAI()
 
+    def model_dump(self, *args, by_alias=True, **kwargs):
+        return super().model_dump(*args, by_alias=by_alias, **kwargs)
+
     def dict(self, *args, by_alias=True, **kwargs):
-        return super().dict(*args, by_alias=by_alias, **kwargs)
+        return self.model_dump(*args, by_alias=by_alias, **kwargs)

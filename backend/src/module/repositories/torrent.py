@@ -17,6 +17,13 @@ class TorrentRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_hashes(self, hashes: list[str]) -> dict[str, Torrent]:
+        if not hashes:
+            return {}
+        stmt = select(Torrent).where(Torrent.hash.in_(hashes))
+        result = await self.session.execute(stmt)
+        return {t.hash: t for t in result.scalars().all() if t.hash}
+
     async def create(self, data: dict) -> Torrent:
         torrent = Torrent(**data)
         self.session.add(torrent)

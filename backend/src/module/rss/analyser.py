@@ -5,7 +5,7 @@ from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.models import Bangumi, ResponseModel, RSSItem, Torrent
 from module.network import RequestContent
-from module.parser import TitleParser
+from module.domain.parser.title_parser import TitleParser
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +208,7 @@ class RSSAnalyser(TitleParser):
         if not torrents:
             return ResponseModel(
                 status=False,
-                status_code=406,
+                status_code=404,
                 msg_en="Cannot find any torrent.",
                 msg_zh="无法找到种子。",
             )
@@ -220,9 +220,9 @@ class RSSAnalyser(TitleParser):
                 return data
         return ResponseModel(
             status=False,
-            status_code=406,
-            msg_en="Cannot parse this link.",
-            msg_zh="无法解析此链接。",
+                status_code=422,
+                msg_en="Cannot parse this link.",
+                msg_zh="无法解析此链接。",
         )
 
     def analyse_torrents(self, rss: RSSItem, _filter: str = None, title_raw: str = None) -> list[dict]:

@@ -102,7 +102,7 @@ class SeasonCollectorService:
             )
             return ResponseModel(
                 status=False,
-                status_code=406,
+                status_code=404,
                 msg_en=f"No new episodes found for {bangumi.official_title}.",
                 msg_zh=f"{bangumi.official_title} 没有找到新剧集。",
             )
@@ -196,7 +196,7 @@ class SeasonCollectorService:
             )
             return ResponseModel(
                 status=False,
-                status_code=406,
+                status_code=409,
                 msg_en=f"Collection of {bangumi.official_title} Season {bangumi.season} failed.",
                 msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季失败, 种子已经添加。",
             )
@@ -391,8 +391,8 @@ class SeasonCollectorService:
                 try:
                     await rss_repo.set_status(data.rss_id, "Error")
                     await session.commit()
-                except Exception:
-                    pass
+                except Exception as rss_err:
+                    logger.warning(f"[Collector] Failed to set RSS status to Error: {rss_err}")
             logger.error(
                 f"[Collector] Failed to subscribe bangumi {data.official_title}: {e}. "
                 f"All changes rolled back."
@@ -577,7 +577,7 @@ class SeasonCollectorService:
             try:
                 await rss_repo.set_status(rss_id, "Error")
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as rss_err:
+                logger.warning(f"[Collector] Failed to set RSS status to Error: {rss_err}")
             logger.error(f"[Collector] Batch subscription failed: {e}. All changes rolled back.")
             raise

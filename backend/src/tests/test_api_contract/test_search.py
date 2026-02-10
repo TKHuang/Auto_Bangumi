@@ -142,6 +142,13 @@ class TestSearchBangumi:
         assert response.status_code == 400
         assert "keywords" in response.json()["detail"].lower()
 
+    def test_search_bangumi_too_many_keywords(self, client):
+        """Test search with more than 10 keywords."""
+        keywords = " ".join(f"word{i}" for i in range(11))
+        response = client.get(f"/api/v1/search/bangumi?keywords={keywords}")
+        assert response.status_code == 400
+        assert "too many" in response.json()["detail"].lower()
+
     def test_search_bangumi_invalid_provider(self, client):
         """Test search with unsupported provider."""
         with patch("module.api.v1.search.search") as mock_search:

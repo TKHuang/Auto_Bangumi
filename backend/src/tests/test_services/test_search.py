@@ -63,15 +63,17 @@ class TestSearch:
         bangumi.group_name = "SubGroup"
         bangumi.poster_link = "https://example.com/poster.jpg"
         bangumi.rss_link = "https://example.com/rss/123"
-        # Make dict() return current rss_link value
-        bangumi.dict.side_effect = lambda: {
-            "official_title": "Test Bangumi",
-            "title_raw": "Test Bangumi",
-            "season": 1,
-            "group_name": "SubGroup",
-            "poster_link": "https://example.com/poster.jpg",
-            "rss_link": bangumi.rss_link,
-        }
+        def _mock_dump(**kwargs):
+            return {
+                "official_title": "Test Bangumi",
+                "title_raw": "Test Bangumi",
+                "season": 1,
+                "group_name": "SubGroup",
+                "poster_link": "https://example.com/poster.jpg",
+                "rss_link": bangumi.rss_link,
+            }
+        bangumi.dict.side_effect = _mock_dump
+        bangumi.model_dump.side_effect = _mock_dump
         return bangumi
 
     @pytest.fixture
@@ -126,13 +128,15 @@ class TestSearch:
             b.season = 1
             b.group_name = "SubGroup"
             b.rss_link = f"https://example.com/rss/{id(torrent)}"
-            b.dict.return_value = {
+            dump = {
                 "official_title": b.official_title,
                 "title_raw": b.title_raw,
                 "season": 1,
                 "group_name": "SubGroup",
                 "rss_link": b.rss_link,
             }
+            b.dict.return_value = dump
+            b.model_dump.return_value = dump
             return b
 
         mock_parser.raw_parser.side_effect = lambda raw: create_bangumi(raw, None)
@@ -172,13 +176,15 @@ class TestSearch:
         same_bangumi.season = 1
         same_bangumi.group_name = "SubGroup"
         same_bangumi.rss_link = "https://example.com/rss/same"
-        same_bangumi.dict.return_value = {
+        _same_dump = {
             "official_title": "Test Bangumi",
             "title_raw": "Test Bangumi",
             "season": 1,
             "group_name": "SubGroup",
             "rss_link": "https://example.com/rss/same",
         }
+        same_bangumi.dict.return_value = _same_dump
+        same_bangumi.model_dump.return_value = _same_dump
 
         mock_parser.raw_parser.return_value = same_bangumi
         mock_parser.torrent_to_data.return_value = same_bangumi

@@ -213,8 +213,8 @@ class BangumiParsingError(Exception):
 
 
 class ResponseModel(BaseModel):
-    status: bool = Field(..., example=True)
-    status_code: int = Field(..., example=200)
+    status: bool = Field(..., json_schema_extra={"example": True})
+    status_code: int = Field(..., json_schema_extra={"example": 200})
     msg_en: str
     msg_zh: str
     error_type: str | None = Field(default=None, description="Error type identifier")
@@ -224,9 +224,9 @@ class ResponseModel(BaseModel):
 
 
 class APIResponse(BaseModel):
-    status: bool = Field(..., example=True)
-    msg_en: str = Field(..., example="Success")
-    msg_zh: str = Field(..., example="成功")
+    status: bool = Field(..., json_schema_extra={"example": True})
+    msg_en: str = Field(..., json_schema_extra={"example": "Success"})
+    msg_zh: str = Field(..., json_schema_extra={"example": "成功"})
 
 
 # ==================== Path Utilities ====================

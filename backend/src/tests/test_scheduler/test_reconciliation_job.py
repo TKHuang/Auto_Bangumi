@@ -259,4 +259,6 @@ class TestReconciliationJob:
 
                         await reconciliation_job()
 
-                        mock_create_downloader.assert_called_once_with(mock_settings)
+                        mock_create_downloader.assert_called_once()
+                        call_args = mock_create_downloader.call_args
+                        assert call_args[0][0] is mock_settings

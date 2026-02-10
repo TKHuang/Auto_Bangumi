@@ -308,6 +308,7 @@ class TestRenameAll:
             url="https://example.com/torrent",
             hash="abc123",
             state=TorrentState.COMPLETED,
+            downloaded=True,
             renamed_at=None,
         )
         async_session.add(torrent)
@@ -370,6 +371,7 @@ class TestRenameAll:
             url="https://example.com/torrent",
             hash="abc123",
             state=TorrentState.COMPLETED,
+            downloaded=True,
             renamed_at=None,
         )
         async_session.add(torrent)

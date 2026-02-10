@@ -5,33 +5,38 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from module.api.responses import u_response
+from module.api.response import u_response
+from module.domain.value_objects import ResponseModel
 
 
 class TestResponseHelper:
     def test_u_response_success(self):
-        response = u_response(200, "Success", "成功")
+        model = ResponseModel(status=True, status_code=200, msg_en="Success", msg_zh="成功")
+        response = u_response(model)
         assert response.status_code == 200
         data = json.loads(response.body)
         assert data["msg_en"] == "Success"
         assert data["msg_zh"] == "成功"
 
     def test_u_response_error(self):
-        response = u_response(400, "Bad Request", "请求错误")
+        model = ResponseModel(status=False, status_code=400, msg_en="Bad Request", msg_zh="请求错误")
+        response = u_response(model)
         assert response.status_code == 400
         data = json.loads(response.body)
         assert data["msg_en"] == "Bad Request"
         assert data["msg_zh"] == "请求错误"
 
     def test_u_response_server_error(self):
-        response = u_response(500, "Internal Server Error", "服务器内部错误")
+        model = ResponseModel(status=False, status_code=500, msg_en="Internal Server Error", msg_zh="服务器内部错误")
+        response = u_response(model)
         assert response.status_code == 500
         data = json.loads(response.body)
         assert data["msg_en"] == "Internal Server Error"
         assert data["msg_zh"] == "服务器内部错误"
 
     def test_u_response_with_special_chars(self):
-        response = u_response(200, "Hello 'World'", "你好 \"世界\"")
+        model = ResponseModel(status=True, status_code=200, msg_en="Hello 'World'", msg_zh="你好 \"世界\"")
+        response = u_response(model)
         assert response.status_code == 200
         data = json.loads(response.body)
         assert data["msg_en"] == "Hello 'World'"

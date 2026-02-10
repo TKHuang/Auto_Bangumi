@@ -13,7 +13,6 @@ from module.database.engine import get_db_session
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
-from module.models.response import APIResponse
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
@@ -57,7 +56,7 @@ async def get_data(bangumi_id: int, session: AsyncSession = Depends(get_db_sessi
     data = await bangumi_repo.get_by_id(bangumi_id)
     if not data:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": f"Can't find data with {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id} 的数据"},
         )
     return data
@@ -65,7 +64,6 @@ async def get_data(bangumi_id: int, session: AsyncSession = Depends(get_db_sessi
 
 @router.patch(
     "/update/{bangumi_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def update_rule(
@@ -79,7 +77,7 @@ async def update_rule(
     old_data = await bangumi_repo.get_by_id(bangumi_id)
     if not old_data:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": f"Can't find data with {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id} 的数据"},
         )
 
@@ -130,7 +128,6 @@ async def update_rule(
 
 @router.delete(
     path="/delete/{bangumi_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession = Depends(get_db_session)):
@@ -140,7 +137,7 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
     data = await bangumi_repo.get_by_id(bangumi_id)
     if not data:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
@@ -168,7 +165,6 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
 
 @router.delete(
     path="/delete",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False, session: AsyncSession = Depends(get_db_session)):
@@ -177,7 +173,7 @@ async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False
 
     if not bangumi_id:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "No IDs provided", "msg_zh": "未提供 ID"},
         )
 
@@ -201,7 +197,6 @@ async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False
 
 @router.delete(
     path="/disable/{bangumi_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSession = Depends(get_db_session)):
@@ -211,7 +206,7 @@ async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSessio
     data = await bangumi_repo.get_by_id(bangumi_id)
     if not data:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
@@ -239,7 +234,6 @@ async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSessio
 
 @router.delete(
     path="/disable",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = False, session: AsyncSession = Depends(get_db_session)):
@@ -248,7 +242,7 @@ async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = Fals
 
     if not bangumi_id:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "No IDs provided", "msg_zh": "未提供 ID"},
         )
 
@@ -270,9 +264,8 @@ async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = Fals
     )
 
 
-@router.get(
+@router.patch(
     path="/enable/{bangumi_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def enable_rule(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):
@@ -280,7 +273,7 @@ async def enable_rule(bangumi_id: int, session: AsyncSession = Depends(get_db_se
     data = await bangumi_repo.get_by_id(bangumi_id)
     if not data:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
@@ -293,8 +286,8 @@ async def enable_rule(bangumi_id: int, session: AsyncSession = Depends(get_db_se
     )
 
 
-@router.get(
-    "/reset/all", response_model=APIResponse, dependencies=[Depends(get_current_user)]
+@router.delete(
+    "/reset/all", dependencies=[Depends(get_current_user)]
 )
 async def reset_all(session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
@@ -306,9 +299,8 @@ async def reset_all(session: AsyncSession = Depends(get_db_session)):
     )
 
 
-@router.get(
+@router.post(
     path="/refresh/poster/all",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
@@ -348,9 +340,8 @@ async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
     )
 
 
-@router.get(
+@router.post(
     path="/refresh/poster/{bangumi_id}",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def refresh_poster_by_id(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):
@@ -361,7 +352,7 @@ async def refresh_poster_by_id(bangumi_id: int, session: AsyncSession = Depends(
     bangumi = await bangumi_repo.get_by_id(bangumi_id)
     if not bangumi:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
@@ -433,7 +424,6 @@ async def get_torrent_status(bangumi_id: int, session: AsyncSession = Depends(ge
 
 @router.post(
     "/torrent/download",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def download_torrent(torrent_id: int = Query(...), session: AsyncSession = Depends(get_db_session)):
@@ -443,7 +433,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
     torrent = await torrent_repo.get_by_id(torrent_id)
     if not torrent:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "Torrent not found in database.", "msg_zh": "数据库中未找到该种子。"},
         )
 
@@ -463,7 +453,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
 
     if not bangumi:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={"msg_en": "Associated Bangumi rule not found or matched.", "msg_zh": "未找到或匹配到关联的番剧规则。"},
         )
 
@@ -495,7 +485,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
         )
     else:
         return JSONResponse(
-            status_code=406,
+            status_code=404,
             content={
                 "msg_en": f"Failed to add {torrent.name} to downloader. It might already exist.",
                 "msg_zh": f"添加 {torrent.name} 失败，可能已存在。",
@@ -505,7 +495,6 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
 
 @router.post(
     path="/{bangumi_id}/activate",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def activate_pending_bangumi(
@@ -557,7 +546,6 @@ async def activate_pending_bangumi(
 
 @router.post(
     path="/{bangumi_id}/retrigger-rename",
-    response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
 async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):

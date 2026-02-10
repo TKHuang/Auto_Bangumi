@@ -41,8 +41,10 @@ async def update_config(config: Config):
             },
         )
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Config update failed: {e}", exc_info=True)
         return JSONResponse(
-            status_code=406,
+            status_code=500,
             content={
                 "msg_en": "Update config failed.",
                 "msg_zh": "更新配置失败。",

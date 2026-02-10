@@ -9,16 +9,30 @@ from jose import JWTError, jwt
 
 @lru_cache(maxsize=1)
 def _get_secret_key() -> str:
-    """Get JWT secret key from environment or settings.
-
-    Set JWT_SECRET_KEY environment variable for persistent tokens across restarts.
-    """
+    """Get JWT secret key from environment, file, or generate and persist one."""
     key = os.getenv("JWT_SECRET_KEY")
     if key:
         return key
-    import secrets
 
-    return secrets.token_urlsafe(32)
+    key_file = os.path.join("data", ".jwt_secret_key")
+    try:
+        if os.path.isfile(key_file):
+            with open(key_file) as f:
+                stored = f.read().strip()
+                if stored:
+                    return stored
+    except OSError:
+        pass
+
+    import secrets
+    generated = secrets.token_urlsafe(32)
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open(key_file, "w") as f:
+            f.write(generated)
+    except OSError:
+        pass
+    return generated
 
 
 SECRET_KEY = _get_secret_key()

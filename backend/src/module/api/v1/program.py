@@ -35,7 +35,7 @@ def get_scheduler() -> AsyncScheduler:
     return _scheduler
 
 
-@router.get("/restart", dependencies=[Depends(get_current_user)])
+@router.post("/restart", dependencies=[Depends(get_current_user)])
 async def restart():
     """Restart the scheduler."""
     try:
@@ -59,7 +59,7 @@ async def restart():
         )
 
 
-@router.get("/start", dependencies=[Depends(get_current_user)])
+@router.post("/start", dependencies=[Depends(get_current_user)])
 async def start():
     """Start the scheduler."""
     try:
@@ -82,7 +82,7 @@ async def start():
         )
 
 
-@router.get("/stop", dependencies=[Depends(get_current_user)])
+@router.post("/stop", dependencies=[Depends(get_current_user)])
 async def stop():
     """Stop the scheduler."""
     try:
@@ -128,7 +128,7 @@ async def program_status():
         }
 
 
-@router.get("/shutdown", dependencies=[Depends(get_current_user)])
+@router.post("/shutdown", dependencies=[Depends(get_current_user)])
 async def shutdown_program():
     """Gracefully shutdown the program."""
     try:

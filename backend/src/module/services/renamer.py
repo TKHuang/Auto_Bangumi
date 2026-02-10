@@ -172,10 +172,11 @@ class RenamerService:
                     },
                 )
             except Exception as e:
-                logger.debug(
-                    f"[Renamer] State transition skipped for torrent {db_torrent.id} "
+                logger.warning(
+                    f"[Renamer] State transition failed for torrent {db_torrent.id} "
                     f"(state={db_torrent.state}): {e}"
                 )
+                continue
 
             media_files, subtitle_files = self._classify_files(torrent_info.files)
 
@@ -244,6 +245,9 @@ class RenamerService:
                     f"[Renamer] Successfully renamed torrent {db_torrent.id} with {file_count} files"
                 )
             else:
+                if db_torrent.state == TorrentState.RENAMING:
+                    db_torrent.state = TorrentState.COMPLETED
+                    await self.session.flush()
                 logger.warning(
                     f"[Renamer] Failed to rename torrent {db_torrent.id}"
                 )

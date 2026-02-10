@@ -146,16 +146,15 @@ class TestRefreshTokenEndpoint:
     @pytest.mark.asyncio
     async def test_refresh_token_no_cookie(self, client):
         """Test refresh token without cookie."""
-        response = client.get("/api/v1/auth/refresh_token")
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            response = client.get("/api/v1/auth/refresh_token")
 
-        assert response.status_code == 401
+            assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_refresh_token_invalid_cookie(self, client):
         """Test refresh token with invalid cookie."""
-        with patch("module.api.v1.auth.get_current_user") as mock_get_user:
-            mock_get_user.side_effect = Exception("Invalid token")
-
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
             response = client.get(
                 "/api/v1/auth/refresh_token",
                 cookies={"token": "invalid_token"},
@@ -188,9 +187,10 @@ class TestLogoutEndpoint:
     @pytest.mark.asyncio
     async def test_logout_no_cookie(self, client):
         """Test logout without cookie."""
-        response = client.get("/api/v1/auth/logout")
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            response = client.get("/api/v1/auth/logout")
 
-        assert response.status_code == 401
+            assert response.status_code == 401
 
 
 class TestUpdateEndpoint:
@@ -226,12 +226,13 @@ class TestUpdateEndpoint:
     @pytest.mark.asyncio
     async def test_update_no_cookie(self, client):
         """Test update without cookie."""
-        response = client.post(
-            "/api/v1/auth/update",
-            json={"password": "newpassword123"},
-        )
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            response = client.post(
+                "/api/v1/auth/update",
+                json={"password": "newpassword123"},
+            )
 
-        assert response.status_code == 401
+            assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_update_missing_password(self, client):
@@ -256,8 +257,9 @@ class TestProtectedEndpoint:
     @pytest.mark.asyncio
     async def test_protected_endpoint_without_cookie(self, client):
         """Test accessing protected endpoint without cookie."""
-        response = client.get("/api/v1/auth/refresh_token")
-        assert response.status_code == 401
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
+            response = client.get("/api/v1/auth/refresh_token")
+            assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_protected_endpoint_with_expired_token(self, client):
@@ -265,9 +267,7 @@ class TestProtectedEndpoint:
         # Create token that expired 1 day ago
         token = create_access_token("admin", expires_delta=timedelta(days=-1))
 
-        with patch("module.api.v1.auth.get_current_user") as mock_get_user:
-            mock_get_user.side_effect = Exception("Token expired")
-
+        with patch("module.api.middleware.auth.VERSION", "3.0.0"):
             response = client.get(
                 "/api/v1/auth/refresh_token",
                 cookies={"token": token},

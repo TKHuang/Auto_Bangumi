@@ -18,14 +18,11 @@ exec rclone mount "pikpak:${PIKPAK_PATH}" /media/pikpak \
     --cache-dir /cache/rclone \
     --vfs-cache-max-size "${RCLONE_CACHE_MAX_SIZE}" \
     --vfs-cache-max-age "${RCLONE_CACHE_MAX_AGE}" \
-    --vfs-write-back 5s \
+    --vfs-write-back 60s \
     --allow-other \
     --allow-non-empty \
     --exclude ".DS_Store" \
     --exclude "._**" \
-    --disable-http2 \
-    --transfers 2 \
-    --checkers 4 \
-    --multi-thread-streams 2 \
+    --fuse-flag="-o,backend=fskit" \
     --disable-http-keep-alives \
     --log-level INFO

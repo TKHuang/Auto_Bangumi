@@ -60,20 +60,15 @@ def temp_config_dir():
 
 @pytest.fixture
 def mock_database():
-    """Create a mock Database context manager."""
-    with patch("module.services.downloader.pikpak.Database") as MockDatabase:
-        mock_db_instance = MagicMock()
-        mock_torrent_db = MagicMock()
+    """Create a mock TorrentRepository for PikPak tests."""
+    with patch("module.services.downloader.pikpak.TorrentRepository") as MockRepo:
+        mock_repo_instance = AsyncMock()
         default_torrent = MagicMock()
         default_torrent.pikpak_cloud_path = "/downloads/Bangumi"
         default_torrent.renamed_at = None
-        mock_torrent_db.search_by_hash = MagicMock(return_value=default_torrent)
-        mock_db_instance.torrent = mock_torrent_db
-        MockDatabase.return_value.__enter__ = MagicMock(
-            return_value=mock_db_instance
-        )
-        MockDatabase.return_value.__exit__ = MagicMock(return_value=False)
-        yield MockDatabase, mock_db_instance
+        mock_repo_instance.get_by_hash = AsyncMock(return_value=default_torrent)
+        MockRepo.return_value = mock_repo_instance
+        yield MockRepo, mock_repo_instance
 
 
 @pytest.fixture
@@ -85,7 +80,8 @@ async def pikpak_downloader(mock_pikpak_api, mock_database, temp_config_dir):
         "module.services.downloader.pikpak.TOKEN_FILE",
         os.path.join(temp_config_dir, "pikpak_token.json"),
     ):
-        downloader = PikPakDownloader("test@example.com", "password123")
+        mock_session = AsyncMock()
+        downloader = PikPakDownloader("test@example.com", "password123", session=mock_session)
         yield downloader
 
 
@@ -109,7 +105,8 @@ async def pikpak_downloader_with_token(mock_pikpak_api, mock_database, temp_conf
         json.dump(token_data, f)
 
     with patch("module.services.downloader.pikpak.TOKEN_FILE", token_file):
-        downloader = PikPakDownloader("test@example.com", "password123")
+        mock_session = AsyncMock()
+        downloader = PikPakDownloader("test@example.com", "password123", session=mock_session)
         yield downloader
 
 

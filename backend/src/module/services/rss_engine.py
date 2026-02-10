@@ -40,6 +40,22 @@ def _is_cross_season(source_rss_url: str, bangumi_rss_link: str) -> bool:
     return bool(source_id and target_id and source_id != target_id)
 
 
+def _match_torrent_in_list(
+    torrent: Torrent, bangumi_list: list[Bangumi]
+) -> Optional[Bangumi]:
+    """In-memory torrent-to-bangumi matching (no DB call)."""
+    for bangumi in bangumi_list:
+        if bangumi.official_title in torrent.name or bangumi.title_raw in torrent.name:
+            torrent.bangumi_id = bangumi.id
+            if not bangumi.filter:
+                return bangumi
+            _filter = bangumi.filter.replace(",", "|")
+            if re.search(_filter, torrent.name, re.IGNORECASE):
+                return None
+            return bangumi
+    return None
+
+
 class RSSEngine:
     """RSS Engine for feed processing and torrent management."""
 
@@ -143,7 +159,8 @@ class RSSEngine:
                     return None
                 torrent.bangumi_id = existing.id
                 return existing
-            return None
+            auto_created_keys.discard(composite_key)
+            logger.debug(f"[Engine] Cached key {composite_key} not in DB, will re-create")
 
         existing = await bangumi_repo.get_by_composite_key(*composite_key)
         if existing:
@@ -203,7 +220,7 @@ class RSSEngine:
                 logger.debug(
                     f"[Engine] Torrent {torrent.name} excluded by filter: {bangumi_filter}"
                 )
-                return None
+                return created
             return created
         except ValueError:
             auto_created_keys.add(composite_key)
@@ -310,16 +327,20 @@ class RSSEngine:
                     logger.debug(f"[Engine] Inserted {inserted_count} new torrents")
 
                     if inserted_count > 0:
+                        torrent_hashes = [t.hash for t in matched_torrents if t.hash]
+                        db_torrents_map = await torrent_repo.get_by_hashes(torrent_hashes)
+                        all_active_bangumi = await bangumi_repo.get_active()
+
                         for torrent in matched_torrents:
-                            db_torrent = await torrent_repo.get_by_hash(torrent.hash)
+                            db_torrent = db_torrents_map.get(torrent.hash)
                             if db_torrent and db_torrent.downloaded:
                                 logger.debug(
                                     f"[Engine] Skip already-downloaded torrent: {torrent.name}"
                                 )
                                 continue
 
-                            matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
-                                torrent, bangumi_repo
+                            matched_bangumi = _match_torrent_in_list(
+                                torrent, all_active_bangumi
                             )
                             if matched_bangumi:
                                 save_path = matched_bangumi.save_path or gen_save_path(
@@ -456,7 +477,9 @@ class RSSEngine:
         urls = [torrent.url]
         await downloader.add_torrents(
             urls=urls,
-            save_path=created_bangumi.save_path or "",
+            save_path=created_bangumi.save_path or gen_save_path(
+                settings.downloader.path, created_bangumi.official_title, created_bangumi.season,
+            ),
             torrent_files=None,
         )
 

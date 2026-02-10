@@ -107,7 +107,7 @@ export const apiBangumi = {
    * @param bangumiId - 需要启用的 bangumi 的 id
    */
   async enableRule(bangumiId: number) {
-    const { data } = await axios.get<ApiSuccess>(
+    const { data } = await axios.patch<ApiSuccess>(
       `api/v1/bangumi/enable/${bangumiId}`
     );
     return data;
@@ -117,7 +117,7 @@ export const apiBangumi = {
    * 重置所有 bangumi 数据
    */
   async resetAll() {
-    const { data } = await axios.get<ApiSuccess>('api/v1/bangumi/reset/all');
+    const { data } = await axios.delete<ApiSuccess>('api/v1/bangumi/reset/all');
     return data;
   },
 
@@ -125,7 +125,7 @@ export const apiBangumi = {
    * 刷新所有没有海报的 bangumi 海报
    */
   async refreshPoster() {
-    const { data } = await axios.get<ApiSuccess>(
+    const { data } = await axios.post<ApiSuccess>(
       'api/v1/bangumi/refresh/poster/all'
     );
     return data;

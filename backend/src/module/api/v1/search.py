@@ -22,15 +22,15 @@ async def search_provider(
 
 @router.get("/bangumi")
 async def search_bangumi(
-    site: str = Query("mikan"),
-    keywords: str = Query(None),
+    site: str = Query("mikan", max_length=50),
+    keywords: str = Query(None, max_length=200),
     current_user: str = Depends(get_current_user),
 ):
     """Search for bangumi torrents with SSE streaming.
     
     Args:
         site: Search provider name (default: 'mikan')
-        keywords: Space-separated search keywords
+        keywords: Space-separated search keywords (max 200 chars, max 10 terms)
         
     Returns:
         Server-Sent Events stream of Bangumi objects as JSON
@@ -38,6 +38,7 @@ async def search_bangumi(
     Raises:
         400: If keywords are empty
         400: If provider is not supported
+        400: If too many keywords
     """
     if not keywords or not keywords.strip():
         raise HTTPException(
@@ -45,8 +46,13 @@ async def search_bangumi(
             detail="keywords parameter is required",
         )
     
-    # Split keywords by space
+    # Split keywords by space, limit to 10 terms
     keyword_list = keywords.strip().split()
+    if len(keyword_list) > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many keywords (max 10)",
+        )
     
     try:
         return EventSourceResponse(

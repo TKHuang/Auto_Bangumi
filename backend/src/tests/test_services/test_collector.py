@@ -173,7 +173,7 @@ class TestCollectSeason:
             )
 
         assert result.status is False
-        assert result.status_code == 406
+        assert result.status_code == 404
         assert "no new episodes" in result.msg_en.lower()
 
     @pytest.mark.asyncio
