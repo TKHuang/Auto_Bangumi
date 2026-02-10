@@ -2,7 +2,7 @@
 
 import pytest
 
-from module.models.parsed import SubtitleType
+from module.domain.value_objects import SubtitleType
 from module.domain.parser.analyser.bangumi_parser import BangumiParser, BracketContent
 
 
@@ -326,7 +326,7 @@ class TestParseMethod:
 
     def test_parse_returns_parsed_bangumi(self, parser: BangumiParser):
         """Test that parse returns a ParsedBangumi object."""
-        from module.models.parsed import ParsedBangumi
+        from module.domain.value_objects import ParsedBangumi
 
         result = parser.parse("[Group] Title - 01 [1080p].mkv")
 
@@ -3323,7 +3323,7 @@ class TestMovieOVADetection:
 
     def test_parse_ova(self, parser: BangumiParser):
         """Test parse() method integration with OVA marker - uses episode_type."""
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         result = parser.parse("[Group] Title OVA [1080p]")
         assert result.is_movie is False  # OVA is not a movie
@@ -3331,7 +3331,7 @@ class TestMovieOVADetection:
 
     def test_parse_special(self, parser: BangumiParser):
         """Test parse() method integration with Special marker - uses episode_type."""
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         result = parser.parse("[Group] Title Special [1080p]")
         assert result.is_movie is False  # Special is not a movie
@@ -3356,7 +3356,7 @@ class TestMovieOVADetection:
 
     def test_parse_real_world_ova_format(self, parser: BangumiParser):
         """Test parse() method with real-world OVA format - uses episode_type."""
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         result = parser.parse("[ANi] 進撃の巨人 OVA [1080p][Baha][WEB-DL][AAC AVC][CHT]")
         assert result.is_movie is False  # OVA is not a movie
@@ -3904,7 +3904,7 @@ class TestRealWorldFormats:
 
     def test_ova_format(self, parser: BangumiParser):
         """Test OVA format detection - uses episode_type."""
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         result = parser.parse("[LoliHouse] Series Title OVA [1080p][HEVC][简繁内封]")
         assert result.group == "LoliHouse"
@@ -3914,7 +3914,7 @@ class TestRealWorldFormats:
 
     def test_special_format(self, parser: BangumiParser):
         """Test Special episode format - uses episode_type."""
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         result = parser.parse(
             "[ANi] Series Special - SP01 [1080P][WEB-DL][AAC AVC][CHT]"

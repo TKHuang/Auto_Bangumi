@@ -1,6 +1,6 @@
 from fastapi.responses import JSONResponse
 
-from module.models.response import ResponseModel
+from module.domain.value_objects import ResponseModel
 
 
 def u_response(response_model: ResponseModel):

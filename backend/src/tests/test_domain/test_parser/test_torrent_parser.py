@@ -202,7 +202,7 @@ class TestTorrentFilePathParsing:
         The title should NOT include 'OVA' when episode_type is set to OVA,
         otherwise gen_path would produce "Title OVA OVA 01.mp4" (redundant).
         """
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         file_path = "/anime/OVA/[Group] Title OVA [1080p].mkv"
         bf = torrent_parser(file_path)
@@ -281,7 +281,7 @@ class TestTorrentFilePathParsing:
         This is a regression test for the bug where "Golden Kamuy OAD 01.mp4" would
         become "Golden Kamuy OAD 01 OAD 01.mp4" on each rename cycle.
         """
-        from module.models.parsed import EpisodeType
+        from module.domain.value_objects import EpisodeType
 
         # Test simple already-renamed OAD file
         file_path = "/anime/Golden Kamuy/Golden Kamuy OAD 01.mp4"

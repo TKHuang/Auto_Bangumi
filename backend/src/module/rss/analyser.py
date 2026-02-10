@@ -3,7 +3,8 @@ import re
 
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
-from module.models import Bangumi, ResponseModel, RSSItem, Torrent
+from module.domain.value_objects import ResponseModel
+from module.models import Bangumi, RSSItem, Torrent
 from module.network import RequestContent
 from module.domain.parser.title_parser import TitleParser
 

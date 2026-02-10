@@ -137,7 +137,7 @@ class MockRequestContent:
             raw_parser = None
             BangumiParsingError = None
             if title_raw:
-                from module.models.bangumi import BangumiParsingError
+                from module.domain.value_objects import BangumiParsingError
                 from module.domain.parser.title_parser import TitleParser
                 raw_parser = TitleParser()
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from module.models.bangumi import BangumiParsingError
+from module.domain.value_objects import BangumiParsingError
 from module.network.site.mikan import rss_parser
 from module.domain.parser.analyser.raw_parser import raw_parser
 from module.domain.parser.title_parser import TitleParser

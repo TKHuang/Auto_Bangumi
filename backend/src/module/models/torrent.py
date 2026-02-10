@@ -3,8 +3,6 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
-from module.domain.value_objects import EpisodeFile, SubtitleFile
-
 
 class Torrent(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True, alias="id")

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from module.domain.events.bus import event_bus
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.parser.title_parser import TitleParser
@@ -162,14 +161,6 @@ class RenamerService:
                 sm.start_rename()
                 db_torrent.state = TorrentState.RENAMING
                 await self.session.flush()
-                await event_bus.publish(
-                    "torrent.state_changed",
-                    {
-                        "torrent_id": db_torrent.id,
-                        "old_state": TorrentState.COMPLETED.value,
-                        "new_state": TorrentState.RENAMING.value,
-                    },
-                )
             except Exception as e:
                 logger.warning(
                     f"[Renamer] State transition failed for torrent {db_torrent.id} "
@@ -231,11 +222,6 @@ class RenamerService:
                 db_torrent.renamed_at = datetime.now(timezone.utc)
                 db_torrent.renamed_file_count = file_count
                 await self.session.flush()
-
-                await event_bus.publish(
-                    "torrent.renamed",
-                    {"torrent_id": db_torrent.id, "file_count": file_count},
-                )
 
                 renamed_results.append(
                     {"torrent_id": db_torrent.id, "file_count": file_count}
@@ -349,14 +335,6 @@ class RenamerService:
                     sm.start_rename()
                     db_torrent.state = TorrentState.RENAMING
                     await self.session.flush()
-                    await event_bus.publish(
-                        "torrent.state_changed",
-                        {
-                            "torrent_id": db_torrent.id,
-                            "old_state": TorrentState.COMPLETED.value,
-                            "new_state": TorrentState.RENAMING.value,
-                        },
-                    )
                 except Exception as e:
                     logger.error(
                         f"[Renamer] Failed to transition torrent {db_torrent.id} to RENAMING: {e}"
@@ -408,11 +386,6 @@ class RenamerService:
                 db_torrent.renamed_at = datetime.now(timezone.utc)
                 db_torrent.renamed_file_count = file_count
                 await self.session.flush()
-
-                await event_bus.publish(
-                    "torrent.renamed",
-                    {"torrent_id": db_torrent.id, "file_count": file_count},
-                )
 
                 renamed_results.append(
                     {"torrent_id": db_torrent.id, "file_count": file_count}

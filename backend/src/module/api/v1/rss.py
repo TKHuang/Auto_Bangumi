@@ -10,14 +10,12 @@ from module.conf import settings
 from module.database.engine import get_db_session
 from module.domain.models.bangumi import Bangumi as DomainBangumi
 from module.domain.value_objects import gen_save_path
+from module.domain.value_objects import APIResponse, BangumiParsingError, ResponseModel
 from module.models import (
-    APIResponse,
     Bangumi,
-    ResponseModel,
     RSSItem,
     RSSUpdate,
 )
-from module.models.bangumi import BangumiParsingError
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository

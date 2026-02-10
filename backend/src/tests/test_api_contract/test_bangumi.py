@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from module.api.v1.bangumi import router as bangumi_router
+from module.domain.value_objects import ResponseModel
 from module.models.bangumi import Bangumi, BangumiUpdate
-from module.models.response import ResponseModel
 
 
 @pytest.fixture

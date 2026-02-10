@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.user import User
-from module.models import ResponseModel
+from module.domain.value_objects import ResponseModel
 from module.models.user import UserUpdate
 from module.security.password import hash_password, verify_password
 

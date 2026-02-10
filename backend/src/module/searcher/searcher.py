@@ -1,6 +1,3 @@
-import json
-from typing import TypeAlias
-
 from module.models import Bangumi, RSSItem, Torrent
 from module.network import RequestContent
 from module.rss import RSSAnalyser
@@ -12,32 +9,12 @@ SEARCH_KEY = [
     "official_title",
 ]
 
-BangumiJSON: TypeAlias = str
-
 
 class SearchTorrent(RequestContent, RSSAnalyser):
     def search_torrents(self, rss_item: RSSItem) -> list[Torrent]:
         return self.get_torrents(rss_item.url)
         # torrents = self.get_torrents(rss_item.url)
         # return torrents
-
-    def analyse_keyword(
-        self, keywords: list[str], site: str = "mikan", limit: int = 5
-    ) -> BangumiJSON:
-        rss_item = search_url(site, keywords)
-        torrents = self.search_torrents(rss_item)
-        # yield for EventSourceResponse (Server Send)
-        exist_list = []
-        for torrent in torrents:
-            if len(exist_list) >= limit:
-                break
-            bangumi = self.torrent_to_data(torrent=torrent, rss=rss_item)
-            if bangumi:
-                special_link = self.special_url(bangumi, site).url
-                if special_link not in exist_list:
-                    bangumi.rss_link = special_link
-                    exist_list.append(special_link)
-                    yield json.dumps(bangumi.model_dump(), separators=(",", ":"))
 
     @staticmethod
     def special_url(data: Bangumi, site: str) -> RSSItem:

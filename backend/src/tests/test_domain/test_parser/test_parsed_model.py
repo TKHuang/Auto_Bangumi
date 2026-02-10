@@ -2,7 +2,7 @@
 
 import pytest
 
-from module.models.parsed import ParsedBangumi, SubtitleType
+from module.domain.value_objects import ParsedBangumi, SubtitleType
 
 
 class TestSubtitleType:

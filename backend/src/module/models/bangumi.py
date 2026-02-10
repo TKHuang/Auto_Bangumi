@@ -2,11 +2,7 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
-from module.domain.value_objects import (
-    BangumiParsingError,
-    Episode,
-    Notification,
-)
+
 
 
 class Bangumi(SQLModel, table=True):

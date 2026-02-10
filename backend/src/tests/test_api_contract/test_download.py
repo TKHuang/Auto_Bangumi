@@ -6,7 +6,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from module.api.v1.rss import router as rss_router
-from module.models import Bangumi, RSSItem, ResponseModel
+from module.domain.value_objects import ResponseModel
+from module.models import Bangumi, RSSItem
 
 
 @pytest.fixture

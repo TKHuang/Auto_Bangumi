@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.state_machine.torrent_state import TorrentStateMachine
-from module.models.parsed import EpisodeType
-from module.models.torrent import EpisodeFile, SubtitleFile
+from module.domain.value_objects import EpisodeFile, EpisodeType, SubtitleFile
 from module.services.renamer import RenamerService
 
 
@@ -314,33 +313,20 @@ class TestRenameAll:
         async_session.add(torrent)
         await async_session.flush()
 
-        # Mock event bus
-        with patch("module.services.renamer.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
+        # Execute rename_all
+        service = RenamerService(async_session, rename_method="advance")
+        result = await service.rename_all(mock_downloader)
 
-            # Execute rename_all
-            service = RenamerService(async_session, rename_method="advance")
-            result = await service.rename_all(mock_downloader)
+        # Verify results
+        assert len(result) == 1
+        assert result[0]["torrent_id"] == torrent.id
+        assert result[0]["file_count"] == 1
 
-            # Verify results
-            assert len(result) == 1
-            assert result[0]["torrent_id"] == torrent.id
-            assert result[0]["file_count"] == 1
-
-            # Verify torrent was marked renamed
-            await async_session.refresh(torrent)
-            assert torrent.renamed_at is not None
-            assert torrent.renamed_file_count == 1
-            assert torrent.state == TorrentState.RENAMED
-
-            # Verify events published
-            assert mock_bus.publish.call_count == 2
-            # First call: state_changed (COMPLETED -> RENAMING)
-            first_call = mock_bus.publish.call_args_list[0]
-            assert first_call[0][0] == "torrent.state_changed"
-            # Second call: renamed event
-            second_call = mock_bus.publish.call_args_list[1]
-            assert second_call[0][0] == "torrent.renamed"
+        # Verify torrent was marked renamed
+        await async_session.refresh(torrent)
+        assert torrent.renamed_at is not None
+        assert torrent.renamed_file_count == 1
+        assert torrent.state == TorrentState.RENAMED
 
     @pytest.mark.asyncio
     async def test_rename_all_no_unrenamed(self, async_session, mock_downloader):
@@ -389,20 +375,17 @@ class TestRenameAll:
         ]
         mock_downloader.torrents_rename_file = AsyncMock(return_value=False)
 
-        with patch("module.services.renamer.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
+        # Execute rename_all
+        service = RenamerService(async_session, rename_method="advance")
+        result = await service.rename_all(mock_downloader)
 
-            # Execute rename_all
-            service = RenamerService(async_session, rename_method="advance")
-            result = await service.rename_all(mock_downloader)
+        # Verify no successful renames
+        assert len(result) == 0
 
-            # Verify no successful renames
-            assert len(result) == 0
-
-            # Verify torrent restored to COMPLETED
-            await async_session.refresh(torrent)
-            assert torrent.state == TorrentState.COMPLETED
-            assert torrent.renamed_at is None
+        # Verify torrent restored to COMPLETED
+        await async_session.refresh(torrent)
+        assert torrent.state == TorrentState.COMPLETED
+        assert torrent.renamed_at is None
 
 
 class TestRenameBangumi:
@@ -466,18 +449,15 @@ class TestRenameBangumi:
         async_session.add(torrent)
         await async_session.flush()
 
-        with patch("module.services.renamer.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
+        # Execute rename_bangumi
+        service = RenamerService(async_session, rename_method="advance")
+        result = await service.rename_bangumi(
+            mock_downloader, bangumi.id, retrigger=False
+        )
 
-            # Execute rename_bangumi
-            service = RenamerService(async_session, rename_method="advance")
-            result = await service.rename_bangumi(
-                mock_downloader, bangumi.id, retrigger=False
-            )
-
-            # Verify results
-            assert len(result) == 1
-            assert result[0]["torrent_id"] == torrent.id
+        # Verify results
+        assert len(result) == 1
+        assert result[0]["torrent_id"] == torrent.id
 
     @pytest.mark.asyncio
     async def test_rename_bangumi_with_retrigger(
@@ -508,19 +488,16 @@ class TestRenameBangumi:
         async_session.add(torrent)
         await async_session.flush()
 
-        with patch("module.services.renamer.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
+        # Execute rename_bangumi with retrigger
+        service = RenamerService(async_session, rename_method="advance")
+        result = await service.rename_bangumi(
+            mock_downloader, bangumi.id, retrigger=True
+        )
 
-            # Execute rename_bangumi with retrigger
-            service = RenamerService(async_session, rename_method="advance")
-            result = await service.rename_bangumi(
-                mock_downloader, bangumi.id, retrigger=True
-            )
-
-            # Verify rename status was cleared
-            await async_session.refresh(torrent)
-            assert torrent.renamed_at is not None  # Re-renamed
-            assert torrent.renamed_file_count == 1
+        # Verify rename status was cleared
+        await async_session.refresh(torrent)
+        assert torrent.renamed_at is not None  # Re-renamed
+        assert torrent.renamed_file_count == 1
 
     @pytest.mark.asyncio
     async def test_rename_bangumi_moves_torrents_if_path_changed(
@@ -549,15 +526,12 @@ class TestRenameBangumi:
         async_session.add(torrent)
         await async_session.flush()
 
-        with patch("module.services.renamer.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
+        # Execute rename_bangumi
+        service = RenamerService(async_session, rename_method="advance")
+        await service.rename_bangumi(mock_downloader, bangumi.id, retrigger=False)
 
-            # Execute rename_bangumi
-            service = RenamerService(async_session, rename_method="advance")
-            await service.rename_bangumi(mock_downloader, bangumi.id, retrigger=False)
-
-            # Verify move_torrent was called
-            mock_downloader.move_torrent.assert_called_once()
-            call_args = mock_downloader.move_torrent.call_args[0]
-            assert "abc123" in call_args[0]
-            assert call_args[1] == "/data/Bangumi/New Title/Season 2"
+        # Verify move_torrent was called
+        mock_downloader.move_torrent.assert_called_once()
+        call_args = mock_downloader.move_torrent.call_args[0]
+        assert "abc123" in call_args[0]
+        assert call_args[1] == "/data/Bangumi/New Title/Season 2"
