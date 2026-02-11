@@ -45,7 +45,7 @@ async def get_all_data(session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
     torrent_repo = TorrentRepository(session)
     
-    orm_bangumi_list = await bangumi_repo.get_all()
+    orm_bangumi_list = await bangumi_repo.get_active()
     schema_bangumi_list = []
     
     for orm_bangumi in orm_bangumi_list:

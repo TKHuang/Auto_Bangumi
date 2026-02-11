@@ -58,10 +58,14 @@ class TestGetAllBangumi:
             _mock_bangumi_obj(id=1, official_title="Test Bangumi 1"),
             _mock_bangumi_obj(id=2, official_title="Test Bangumi 2", season=2),
         ]
-        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls:
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls:
             mock_repo = AsyncMock()
             mock_repo_cls.return_value = mock_repo
-            mock_repo.get_all.return_value = mock_list
+            mock_repo.get_active.return_value = mock_list
+            mock_torrent = AsyncMock()
+            mock_torrent_cls.return_value = mock_torrent
+            mock_torrent.get_by_bangumi.return_value = []
             response = client.get("/api/v1/bangumi/get/all")
             assert response.status_code == 200
             data = response.json()
@@ -70,10 +74,12 @@ class TestGetAllBangumi:
 
     @pytest.mark.asyncio
     async def test_get_all_empty(self, client):
-        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls:
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls:
             mock_repo = AsyncMock()
             mock_repo_cls.return_value = mock_repo
-            mock_repo.get_all.return_value = []
+            mock_repo.get_active.return_value = []
+            mock_torrent_cls.return_value = AsyncMock()
             response = client.get("/api/v1/bangumi/get/all")
             assert response.status_code == 200
             assert response.json() == []
