@@ -43,7 +43,20 @@ async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
 )
 async def get_all_data(session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
-    return await bangumi_repo.get_all()
+    torrent_repo = TorrentRepository(session)
+    
+    orm_bangumi_list = await bangumi_repo.get_all()
+    schema_bangumi_list = []
+    
+    for orm_bangumi in orm_bangumi_list:
+        schema_bangumi = Bangumi.model_validate(orm_bangumi)
+        if orm_bangumi.id:
+            torrents = await torrent_repo.get_by_bangumi(orm_bangumi.id)
+            schema_bangumi.torrent_count = len(torrents)
+            schema_bangumi.completed_count = sum(1 for t in torrents if t.downloaded)
+        schema_bangumi_list.append(schema_bangumi)
+    
+    return schema_bangumi_list
 
 
 @router.get(

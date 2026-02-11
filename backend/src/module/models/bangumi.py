@@ -35,6 +35,8 @@ class Bangumi(SQLModel, table=False):
     deleted: bool = Field(default=False, title="是否已删除")
     pending_review: bool = Field(default=False, title="待审核")
     global_filter_matches: Optional[str] = Field(default=None, title="全局过滤匹配")
+    torrent_count: int = Field(default=0, title="总种子数")
+    completed_count: int = Field(default=0, title="已完成数")
 
 
 class BangumiUpdate(SQLModel):
