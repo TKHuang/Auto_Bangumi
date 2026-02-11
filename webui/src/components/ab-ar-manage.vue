@@ -348,7 +348,7 @@ watch(show, (visible) => {
       </div>
 
       <!-- Pending Bangumi List -->
-      <div class="bangumi-list" max-h-400 overflow-y-auto>
+      <div class="bangumi-list" max-h-60vh overflow-y-auto>
         <div
           v-for="item in pendingBangumi"
           :key="item.id"

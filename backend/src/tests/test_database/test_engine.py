@@ -49,7 +49,7 @@ class TestAsyncEngine:
         async with engine.begin() as conn:
             result = await conn.execute(text("PRAGMA busy_timeout"))
             timeout = result.scalar()
-            assert timeout == 5000, f"Expected busy_timeout=5000, got {timeout}"
+            assert timeout == 30000, f"Expected busy_timeout=30000, got {timeout}"
 
     async def test_foreign_keys_enabled(self):
         """Test that foreign_keys constraint is enabled."""

@@ -220,7 +220,7 @@ class RSSEngine:
                 logger.debug(
                     f"[Engine] Torrent {torrent.name} excluded by filter: {bangumi_filter}"
                 )
-                return created
+                return None
             return created
         except ValueError:
             auto_created_keys.add(composite_key)
@@ -258,11 +258,12 @@ class RSSEngine:
         logger.debug(f"[Engine] Processing {len(rss_items)} RSS items")
 
         for rss_item in rss_items:
-            # Fix: Skip if recreating (concurrency gate)
             if rss_item.last_status == "Recreating":
                 logger.debug(f"[Engine] Skipping RSS {rss_item.name} - recreation in progress")
                 continue
 
+            rss_item_name = rss_item.name
+            rss_item_id = rss_item.id
             successfully_added_hashes: list[str] = []
 
             try:
@@ -336,6 +337,8 @@ class RSSEngine:
                         db_torrents_map = await torrent_repo.get_by_hashes(torrent_hashes)
                         all_active_bangumi = await bangumi_repo.get_active()
 
+                        # Phase 2: NETWORK — add torrents to downloader, collect results
+                        download_results: list[tuple[str, int, str]] = []
                         for torrent in matched_torrents:
                             db_torrent = db_torrents_map.get(torrent.hash)
                             if db_torrent and db_torrent.downloaded:
@@ -363,32 +366,38 @@ class RSSEngine:
                                     logger.debug(
                                         f"[Engine] Added torrent {torrent.name} to downloader"
                                     )
-                                    if db_torrent:
-                                        await torrent_repo.mark_downloaded_by_hash(
-                                            db_torrent.hash, matched_bangumi.id, save_path
+                                    if db_torrent and db_torrent.hash:
+                                        download_results.append(
+                                            (db_torrent.hash, matched_bangumi.id, save_path)
                                         )
 
-                await rss_repo.update_status(rss_item.id, "Success", None)
+                        # Phase 3: SHORT write — mark all downloaded in one batch
+                        for torrent_hash, bangumi_id_val, save_path in download_results:
+                            await torrent_repo.mark_downloaded_by_hash(
+                                torrent_hash, bangumi_id_val, save_path
+                            )
+
+                await rss_repo.update_status(rss_item_id, "Success", None)
                 await session.commit()
-                logger.debug(f"[Engine] Committed changes for RSS {rss_item.name}")
+                logger.debug(f"[Engine] Committed changes for RSS {rss_item_name}")
 
             except Exception as e:
-                logger.error(f"[Engine] Refresh RSS {rss_item.name} failed: {e}")
-                
+                logger.error(f"[Engine] Refresh RSS {rss_item_name} failed: {e}")
+
                 if successfully_added_hashes:
                     logger.warning(
                         f"[Engine] Rolling back - removing {len(successfully_added_hashes)} "
-                        f"torrents from downloader for RSS {rss_item.name}"
+                        f"torrents from downloader for RSS {rss_item_name}"
                     )
                     try:
                         await downloader.torrents_delete(successfully_added_hashes, delete_files=True)
                     except Exception as cleanup_error:
                         logger.error(f"[Engine] Failed to cleanup downloader: {cleanup_error}")
-                
+
                 await session.rollback()
-                
+
                 try:
-                    await rss_repo.update_status(rss_item.id, "Error", str(e))
+                    await rss_repo.update_status(rss_item_id, "Error", str(e))
                     await session.commit()
                 except Exception as status_error:
                     logger.error(f"[Engine] Failed to update RSS error status: {status_error}")
@@ -528,17 +537,13 @@ class RSSEngine:
     ) -> dict:
         """Download all episodes for bangumi (collection/backfill).
 
-        Args:
-            session: Async database session
-            downloader: Downloader client
-            bangumi_id: Bangumi ID to download
-
-        Returns:
-            Result dict with status and count
+        Uses 3-phase approach: READ → NETWORK → SHORT WRITE to avoid holding
+        DB write locks during slow downloader API calls.
         """
         bangumi_repo = BangumiRepository(session)
         torrent_repo = TorrentRepository(session)
 
+        # --- Phase 1: READ (gather data, no writes) ---
         bangumi = await bangumi_repo.get_by_id(bangumi_id)
         if not bangumi:
             return {
@@ -606,20 +611,21 @@ class RSSEngine:
                 "count": 0,
             }
 
-        inserted_count = await torrent_repo.add_all_or_ignore(new_torrents)
-        logger.debug(f"[Engine] download_bangumi: inserted {inserted_count}/{len(new_torrents)} torrents")
-
-        await session.flush()
-
         save_path = bangumi.save_path or gen_save_path(
             settings.downloader.path, bangumi.official_title, bangumi.season,
         )
+
+        # --- Phase 2: NETWORK I/O (downloader call, no DB transaction) ---
         urls = [t.url for t in new_torrents]
         await downloader.add_torrents(
             urls=urls,
             save_path=save_path,
             torrent_files=None,
         )
+
+        # --- Phase 3: SHORT write transaction (persist results) ---
+        inserted_count = await torrent_repo.add_all_or_ignore(new_torrents)
+        logger.debug(f"[Engine] download_bangumi: inserted {inserted_count}/{len(new_torrents)} torrents")
 
         for torrent in new_torrents:
             db_torrent = await torrent_repo.get_by_hash(torrent.hash)

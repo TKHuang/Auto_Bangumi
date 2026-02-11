@@ -543,13 +543,14 @@ class PikPakDownloader:
         if hashes_to_track:
             await self._delete_existing_tasks_for_redownload(hashes_to_track)
 
-        # Start all downloads
-        for url in url_list:
+        async def _add_single(url: str) -> None:
             logger.info(f"Adding download to PikPak: {url[:80]}...")
             result = await self._client.offline_download(
                 file_url=url, parent_id=folder_id
             )
             logger.debug(f"Download added, result: {result}")
+
+        await asyncio.gather(*[_add_single(url) for url in url_list])
 
         self._invalidate_task_cache()
         return True
@@ -1282,24 +1283,67 @@ class PikPakDownloader:
     ) -> bool:
         """Delete torrents and optionally their files from PikPak.
 
-        Removes both the in-progress offline tasks (if any) and optionally completed files
-        from PikPak cloud storage. Idempotent - silently succeeds if the
-        torrents/files are not found.
+        Batch-deletes offline tasks in a single API call, then batch-trashes
+        remaining files for hashes without tasks.
 
         Args:
             hashes: List of torrent hashes to delete.
-            delete_files: If True, also delete the downloaded files. If False, only remove
-                         the torrent/task but keep the files.
+            delete_files: If True, also delete the downloaded files.
 
         Returns:
             True on success.
         """
-        # Ensure token is valid before making API calls
+        if not hashes:
+            return True
+
         await self._ensure_valid_token()
 
-        for torrent_hash in hashes:
-            await self._delete_single_torrent(torrent_hash, delete_files=delete_files)
+        normalized_hashes = [h.lower() for h in hashes]
+        hash_to_task_id: dict[str, str] = {}
 
+        tasks = await self._get_all_tasks_cached()
+        for task in tasks:
+            file_url = task.get("file_url", "") or task.get("params", {}).get("url", "")
+            task_hash = self._extract_hash(file_url)
+            if task_hash and task_hash.lower() in normalized_hashes:
+                hash_to_task_id[task_hash.lower()] = task.get("id")
+
+        if hash_to_task_id:
+            task_ids = list(hash_to_task_id.values())
+            logger.info(
+                f"Batch deleting {len(task_ids)} offline tasks (delete_files={delete_files})"
+            )
+            try:
+                await self._delete_tasks_direct(task_ids, delete_files=delete_files)
+            except Exception as e:
+                logger.error(f"Batch task deletion failed: {e}")
+
+        hashes_without_task = [
+            h for h in normalized_hashes if h not in hash_to_task_id
+        ]
+        if hashes_without_task and delete_files:
+            file_ids_to_trash: list[str] = []
+            torrents = await self.torrents_info()
+            for h in hashes_without_task:
+                current_path = await self.get_torrent_path(h)
+                if not current_path:
+                    continue
+                for t in torrents:
+                    if t.hash == h:
+                        file_path = f"{current_path}/{t.name}".replace("//", "/")
+                        file_id = await self._find_file_id_by_path(file_path)
+                        if file_id:
+                            file_ids_to_trash.append(file_id)
+                        break
+
+            if file_ids_to_trash:
+                logger.info(f"Batch trashing {len(file_ids_to_trash)} files")
+                try:
+                    await self._client.delete_to_trash(ids=file_ids_to_trash)
+                except Exception as e:
+                    logger.error(f"Batch file trash failed: {e}")
+
+        self._invalidate_task_cache()
         return True
 
     @pikpak_retry_async(max_retries=3, initial_delay=5.0)

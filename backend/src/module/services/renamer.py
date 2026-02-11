@@ -114,8 +114,15 @@ class RenamerService:
     async def rename_all(
         self, downloader: DownloaderProtocol
     ) -> list[dict[str, Any]]:
+        """Rename all unrenamed torrents using a 3-phase approach to minimize DB lock time.
+
+        Phase 1 (READ): Load unrenamed torrents and bangumi metadata.
+        Phase 2 (NETWORK): Perform all downloader rename API calls (no DB writes).
+        Phase 3 (WRITE): Short DB transaction to persist results (milliseconds).
+        """
         logger.debug("[Renamer] Start rename_all process.")
 
+        # --- Phase 1: READ (no write lock) ---
         unrenamed_torrents = await self.torrent_repo.get_unrenamed()
         if not unrenamed_torrents:
             logger.debug("[Renamer] No unrenamed torrents found.")
@@ -132,7 +139,15 @@ class RenamerService:
             f"(filtered from {len(all_torrent_info)} total)"
         )
 
-        renamed_results: list[dict[str, Any]] = []
+        bangumi_cache: dict[int, Bangumi] = {}
+        for db_torrent in unrenamed_torrents:
+            if db_torrent.bangumi_id and db_torrent.bangumi_id not in bangumi_cache:
+                bangumi = await self.bangumi_repo.get_by_id(db_torrent.bangumi_id)
+                if bangumi:
+                    bangumi_cache[db_torrent.bangumi_id] = bangumi
+
+        # --- Phase 2: NETWORK I/O (no DB transaction held) ---
+        rename_successes: list[tuple[int, int]] = []
 
         for torrent_info in torrents_to_rename:
             db_torrent = next(
@@ -147,8 +162,8 @@ class RenamerService:
                     f"[Renamer] Torrent {db_torrent.id} has no bangumi_id"
                 )
                 continue
-            
-            bangumi = await self.bangumi_repo.get_by_id(db_torrent.bangumi_id)
+
+            bangumi = bangumi_cache.get(db_torrent.bangumi_id)
             if not bangumi:
                 logger.warning(
                     f"[Renamer] Bangumi {db_torrent.bangumi_id} not found for torrent {db_torrent.id}"
@@ -200,14 +215,7 @@ class RenamerService:
                 )
 
             if success:
-                db_torrent.downloaded = True
-                db_torrent.renamed_at = datetime.now(timezone.utc)
-                db_torrent.renamed_file_count = file_count
-                await self.session.flush()
-
-                renamed_results.append(
-                    {"torrent_id": db_torrent.id, "file_count": file_count}
-                )
+                rename_successes.append((db_torrent.id, file_count))
                 logger.info(
                     f"[Renamer] Successfully renamed torrent {db_torrent.id} with {file_count} files"
                 )
@@ -216,7 +224,23 @@ class RenamerService:
                     f"[Renamer] Failed to rename torrent {db_torrent.id}"
                 )
 
-        await self.session.commit()
+        # --- Phase 3: SHORT write transaction (milliseconds) ---
+        renamed_results: list[dict[str, Any]] = []
+        if rename_successes:
+            unrenamed_by_id = {t.id: t for t in unrenamed_torrents}
+            for torrent_id, file_count in rename_successes:
+                db_torrent = unrenamed_by_id.get(torrent_id)
+                if db_torrent:
+                    db_torrent.downloaded = True
+                    db_torrent.renamed_at = datetime.now(timezone.utc)
+                    db_torrent.renamed_file_count = file_count
+
+                renamed_results.append(
+                    {"torrent_id": torrent_id, "file_count": file_count}
+                )
+
+            await self.session.commit()
+
         logger.debug(
             f"[Renamer] Rename_all process finished. Renamed {len(renamed_results)} torrents."
         )
@@ -232,6 +256,7 @@ class RenamerService:
             f"[Renamer] Start rename_bangumi for bangumi_id={bangumi_id}, retrigger={retrigger}"
         )
 
+        # --- Phase 1: READ + short writes for retrigger ---
         bangumi = await self.bangumi_repo.get_by_id(bangumi_id)
         if not bangumi:
             logger.warning(f"[Renamer] Bangumi {bangumi_id} not found")
@@ -259,6 +284,7 @@ class RenamerService:
             f"[Renamer] Found {len(torrents_to_process)} torrents for bangumi {bangumi_id}"
         )
 
+        # --- Phase 2: NETWORK I/O (move + rename, no DB transaction held) ---
         target_save_path = bangumi.save_path
         hashes_to_move = []
         if target_save_path:
@@ -289,7 +315,7 @@ class RenamerService:
                     t for t in all_torrent_info if t.hash.lower() in target_hashes
                 ]
 
-        renamed_results: list[dict[str, Any]] = []
+        rename_successes: list[tuple[int, int]] = []
 
         for torrent_info in torrents_to_process:
             db_torrent = next(
@@ -303,7 +329,6 @@ class RenamerService:
             if not db_torrent:
                 continue
 
-            # Skip already-renamed torrents (unless retrigger cleared renamed_at)
             if db_torrent.renamed_at is not None:
                 continue
 
@@ -342,20 +367,29 @@ class RenamerService:
                     )
 
             if success:
-                db_torrent.downloaded = True
-                db_torrent.renamed_at = datetime.now(timezone.utc)
-                db_torrent.renamed_file_count = file_count
-                await self.session.flush()
-
-                renamed_results.append(
-                    {"torrent_id": db_torrent.id, "file_count": file_count}
-                )
+                rename_successes.append((db_torrent.id, file_count))
             else:
                 logger.warning(
                     f"[Renamer] Failed to rename torrent {db_torrent.id}"
                 )
 
-        await self.session.commit()
+        # --- Phase 3: SHORT write transaction (milliseconds) ---
+        renamed_results: list[dict[str, Any]] = []
+        if rename_successes:
+            torrents_by_id = {t.id: t for t in bangumi_torrents}
+            for torrent_id, file_count in rename_successes:
+                db_torrent = torrents_by_id.get(torrent_id)
+                if db_torrent:
+                    db_torrent.downloaded = True
+                    db_torrent.renamed_at = datetime.now(timezone.utc)
+                    db_torrent.renamed_file_count = file_count
+
+                renamed_results.append(
+                    {"torrent_id": torrent_id, "file_count": file_count}
+                )
+
+            await self.session.commit()
+
         logger.info(
             f"[Renamer] Rename_bangumi finished for bangumi {bangumi_id}. "
             f"Renamed {len(renamed_results)} torrents."
