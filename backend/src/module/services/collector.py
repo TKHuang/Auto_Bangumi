@@ -160,46 +160,70 @@ class SeasonCollectorService:
         await torrent_repo.add_all_or_ignore(all_torrents_to_add)
         await session.flush()
 
-        save_path = bangumi.save_path or gen_save_path(
-            settings.downloader.path, bangumi.official_title, bangumi.season,
-        )
-        urls = [t.url for t in new_torrents]
-        success = await downloader.add_torrents(
-            urls=urls,
-            save_path=save_path,
-            torrent_files=None,
-        )
+        successfully_added_hashes: list[str] = []
 
-        if success:
-            logger.info(
-                f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
+        try:
+            save_path = bangumi.save_path or gen_save_path(
+                settings.downloader.path, bangumi.official_title, bangumi.season,
             )
-            for torrent in new_torrents:
-                if torrent.hash and bangumi.id is not None:
-                    await torrent_repo.mark_downloaded_by_hash(
-                        torrent.hash, bangumi.id, save_path
-                    )
+            urls = [t.url for t in new_torrents]
+            success = await downloader.add_torrents(
+                urls=urls,
+                save_path=save_path,
+                torrent_files=None,
+            )
 
-            bangumi.eps_collect = True
-            await bangumi_repo.update_simple(bangumi.id, {"eps_collect": True})
-            await session.commit()
+            if success:
+                logger.info(
+                    f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
+                )
+                # Track successfully added hashes for compensation
+                for torrent in new_torrents:
+                    if torrent.hash:
+                        successfully_added_hashes.append(torrent.hash)
+                    if torrent.hash and bangumi.id is not None:
+                        await torrent_repo.mark_downloaded_by_hash(
+                            torrent.hash, bangumi.id, save_path
+                        )
 
-            return ResponseModel(
-                status=True,
-                status_code=200,
-                msg_en=f"Collections of {bangumi.official_title} Season {bangumi.season} completed.",
-                msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季完成。",
-            )
-        else:
-            logger.warning(
-                f"Already collected {bangumi.official_title} Season {bangumi.season}."
-            )
-            return ResponseModel(
-                status=False,
-                status_code=409,
-                msg_en=f"Collection of {bangumi.official_title} Season {bangumi.season} failed.",
-                msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季失败, 种子已经添加。",
-            )
+                bangumi.eps_collect = True
+                await bangumi_repo.update_simple(bangumi.id, {"eps_collect": True})
+                await session.commit()
+
+                return ResponseModel(
+                    status=True,
+                    status_code=200,
+                    msg_en=f"Collections of {bangumi.official_title} Season {bangumi.season} completed.",
+                    msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季完成。",
+                )
+            else:
+                logger.warning(
+                    f"Already collected {bangumi.official_title} Season {bangumi.season}."
+                )
+                return ResponseModel(
+                    status=False,
+                    status_code=409,
+                    msg_en=f"Collection of {bangumi.official_title} Season {bangumi.season} failed.",
+                    msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季失败, 种子已经添加。",
+                )
+
+        except Exception as e:
+            logger.error(f"[Collector] Collection failed: {e}")
+
+            # COMPENSATE: Remove torrents from downloader first
+            if successfully_added_hashes:
+                logger.warning(
+                    f"[Collector] Rolling back - removing {len(successfully_added_hashes)} torrents from downloader"
+                )
+                try:
+                    await downloader.torrents_delete(successfully_added_hashes, delete_files=True)
+                except Exception as cleanup_error:
+                    logger.error(f"[Collector] Failed to cleanup downloader: {cleanup_error}")
+
+            # Then rollback database
+            await session.rollback()
+
+            raise
 
     @staticmethod
     async def subscribe_season(
@@ -231,6 +255,8 @@ class SeasonCollectorService:
         bangumi_repo = BangumiRepository(session)
         torrent_repo = TorrentRepository(session)
         rss_repo = RSSRepository(session)
+
+        successfully_added_hashes: list[str] = []
 
         try:
             data.added = True
@@ -350,9 +376,16 @@ class SeasonCollectorService:
             )
 
             # Now download torrents - they will be linked to the Bangumi
+            successfully_added_hashes: list[str] = []
             result = await RSSEngine.download_bangumi(
                 session, downloader, created_bangumi.id
             )
+
+            # Track hashes of torrents added by download_bangumi
+            if isinstance(result, dict) and result.get("count", 0) > 0:
+                db_torrents = await torrent_repo.get_by_bangumi(created_bangumi.id)
+                if db_torrents:
+                    successfully_added_hashes = [t.hash for t in db_torrents if t.hash and t.downloaded]
 
             # If all torrents were filtered out, set pending_review
             if (
@@ -386,7 +419,21 @@ class SeasonCollectorService:
             return result
 
         except Exception as e:
+            logger.error(f"[Collector] Subscription failed: {e}")
+
+            # COMPENSATE: Remove torrents from downloader first
+            if successfully_added_hashes:
+                logger.warning(
+                    f"[Collector] Rolling back - removing {len(successfully_added_hashes)} torrents from downloader"
+                )
+                try:
+                    await downloader.torrents_delete(successfully_added_hashes, delete_files=True)
+                except Exception as cleanup_error:
+                    logger.error(f"[Collector] Failed to cleanup downloader: {cleanup_error}")
+
+            # Then rollback database
             await session.rollback()
+
             if data.rss_id:
                 try:
                     await rss_repo.set_status(data.rss_id, "Error")
@@ -440,6 +487,8 @@ class SeasonCollectorService:
         bangumi_repo = BangumiRepository(session)
         torrent_repo = TorrentRepository(session)
         rss_repo = RSSRepository(session)
+
+        successfully_added_hashes: list[str] = []
 
         try:
             await rss_repo.set_status(rss_id, "Recreating")
@@ -519,6 +568,7 @@ class SeasonCollectorService:
             # Need to re-fetch bangumi to get IDs
             all_bangumi = await bangumi_repo.get_by_rss(rss_id)
             download_results = []
+
             for bangumi in all_bangumi:
                 if bangumi.official_title not in failed_titles:
                     try:
@@ -526,6 +576,12 @@ class SeasonCollectorService:
                             session, downloader, bangumi.id
                         )
                         download_results.append((bangumi.official_title, result))
+
+                        # Track hashes of torrents added by download_bangumi
+                        if isinstance(result, dict) and result.get("count", 0) > 0:
+                            db_torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+                            if db_torrents:
+                                successfully_added_hashes.extend([t.hash for t in db_torrents if t.hash and t.downloaded])
 
                         # If all torrents were filtered out, set pending_review
                         if (
@@ -573,7 +629,21 @@ class SeasonCollectorService:
                 )
 
         except Exception as e:
+            logger.error(f"[Collector] Batch subscription failed: {e}")
+
+            # COMPENSATE: Remove torrents from downloader first
+            if successfully_added_hashes:
+                logger.warning(
+                    f"[Collector] Rolling back - removing {len(successfully_added_hashes)} torrents from downloader"
+                )
+                try:
+                    await downloader.torrents_delete(successfully_added_hashes, delete_files=True)
+                except Exception as cleanup_error:
+                    logger.error(f"[Collector] Failed to cleanup downloader: {cleanup_error}")
+
+            # Then rollback database
             await session.rollback()
+
             try:
                 await rss_repo.set_status(rss_id, "Error")
                 await session.commit()

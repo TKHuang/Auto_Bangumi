@@ -263,6 +263,8 @@ class RSSEngine:
                 logger.debug(f"[Engine] Skipping RSS {rss_item.name} - recreation in progress")
                 continue
 
+            successfully_added_hashes: list[str] = []
+
             try:
                 new_torrents = await RSSEngine.parse_rss_feed(rss_item.url)
 
@@ -353,6 +355,8 @@ class RSSEngine:
                                     torrent_files=None,
                                 )
                                 if success:
+                                    if torrent.hash:
+                                        successfully_added_hashes.append(torrent.hash)
                                     logger.debug(
                                         f"[Engine] Added torrent {torrent.name} to downloader"
                                     )
@@ -362,12 +366,30 @@ class RSSEngine:
                                         )
 
                 await rss_repo.update_status(rss_item.id, "Success", None)
+                await session.commit()
+                logger.debug(f"[Engine] Committed changes for RSS {rss_item.name}")
 
             except Exception as e:
                 logger.error(f"[Engine] Refresh RSS {rss_item.name} failed: {e}")
-                await rss_repo.update_status(rss_item.id, "Error", str(e))
-
-        await session.commit()
+                
+                if successfully_added_hashes:
+                    logger.warning(
+                        f"[Engine] Rolling back - removing {len(successfully_added_hashes)} "
+                        f"torrents from downloader for RSS {rss_item.name}"
+                    )
+                    try:
+                        await downloader.torrents_delete(successfully_added_hashes, delete_files=True)
+                    except Exception as cleanup_error:
+                        logger.error(f"[Engine] Failed to cleanup downloader: {cleanup_error}")
+                
+                await session.rollback()
+                
+                try:
+                    await rss_repo.update_status(rss_item.id, "Error", str(e))
+                    await session.commit()
+                except Exception as status_error:
+                    logger.error(f"[Engine] Failed to update RSS error status: {status_error}")
+                    await session.rollback()
 
     @staticmethod
     async def refresh_all_rss(
