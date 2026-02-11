@@ -22,6 +22,8 @@ export interface BangumiRule {
   subtitle: string;
   title_raw: string;
   year: string | null;
+  torrent_count: number;
+  completed_count: number;
 }
 
 export interface BangumiAPI extends Omit<BangumiRule, 'filter' | 'rss_link'> {
@@ -57,4 +59,6 @@ export const ruleTemplate: BangumiRule = {
   subtitle: '',
   title_raw: '',
   year: null,
+  torrent_count: 0,
+  completed_count: 0,
 };

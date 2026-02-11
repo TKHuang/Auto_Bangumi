@@ -2,7 +2,7 @@
 import { Write, CheckSmall } from '@icon-park/vue-next';
 import type { BangumiRule } from '#/bangumi';
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     type?: 'primary' | 'search';
     bangumi: BangumiRule;
@@ -17,6 +17,13 @@ withDefaults(
 );
 
 defineEmits(['click', 'select']);
+
+const countTagType = computed(() => {
+  const { completed_count, torrent_count } = props.bangumi;
+  if (completed_count === torrent_count) return 'active';
+  if (completed_count > 0) return 'notify';
+  return 'inactive';
+});
 </script>
 
 <template>
@@ -94,6 +101,11 @@ defineEmits(['click', 'select']);
         <div text-h3 truncate>{{ bangumi.official_title }}</div>
 
         <div flex="~ wrap col" pc:flex-row gap-5>
+          <ab-tag
+            v-if="bangumi.torrent_count > 0"
+            :title="`${bangumi.completed_count}/${bangumi.torrent_count}`"
+            :type="countTagType"
+          />
           <template v-for="i in ['season', 'group_name']" :key="i">
             <ab-tag
               v-if="bangumi[i]"
