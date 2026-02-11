@@ -323,6 +323,9 @@ class RSSEngine:
                                 )
                     except Exception as e:
                         logger.error(f"[Engine] Episode backfill failed for bangumi {bangumi_id}: {e}")
+                        # Rollback session to clear bad state, then re-raise to outer handler
+                        await session.rollback()
+                        raise
 
                 if matched_torrents:
                     inserted_count = await torrent_repo.add_all_or_ignore(matched_torrents)
