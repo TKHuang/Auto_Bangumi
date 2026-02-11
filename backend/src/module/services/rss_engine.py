@@ -22,6 +22,8 @@ from module.services.downloader.interface import DownloaderProtocol
 
 logger = logging.getLogger(__name__)
 
+_FILTERED = object()
+
 
 def _extract_mikan_bangumi_id(url: str) -> str | None:
     if not url:
@@ -89,15 +91,11 @@ class RSSEngine:
     @staticmethod
     async def match_torrent_to_bangumi(
         torrent: Torrent, bangumi_repo: BangumiRepository
-    ) -> Optional[Bangumi]:
+    ) -> Optional[Bangumi] | object:
         """Match torrent to bangumi rule with filter logic.
 
-        Args:
-            torrent: Torrent to match
-            bangumi_repo: Bangumi repository
-
         Returns:
-            Matched Bangumi or None if no match or filtered
+            Matched Bangumi, _FILTERED if matched but excluded by filter, or None if no match.
         """
         all_bangumi = await bangumi_repo.get_active()
 
@@ -113,7 +111,7 @@ class RSSEngine:
                     logger.debug(
                         f"[Engine] Torrent {torrent.name} excluded by filter: {bangumi.filter}"
                     )
-                    return None
+                    return _FILTERED
                 else:
                     return bangumi
 
@@ -257,35 +255,55 @@ class RSSEngine:
 
         logger.debug(f"[Engine] Processing {len(rss_items)} RSS items")
 
-        for rss_item in rss_items:
-            if rss_item.last_status == "Recreating":
-                logger.debug(f"[Engine] Skipping RSS {rss_item.name} - recreation in progress")
+        # Pre-extract attributes from ORM objects to avoid lazy-load after rollback.
+        # After session.rollback(), ORM objects become expired and accessing their
+        # attributes triggers lazy-loading which fails outside of greenlet context.
+        rss_item_attrs = []
+        for item in rss_items:
+            rss_item_attrs.append({
+                "id": item.id,
+                "name": item.name,
+                "url": item.url,
+                "last_status": item.last_status,
+                "aggregate": item.aggregate,
+            })
+
+        for rss_attr in rss_item_attrs:
+            if rss_attr["last_status"] == "Recreating":
+                logger.debug(f"[Engine] Skipping RSS {rss_attr['name']} - recreation in progress")
                 continue
 
-            rss_item_name = rss_item.name
-            rss_item_id = rss_item.id
+            rss_item_name = rss_attr["name"]
+            rss_item_id = rss_attr["id"]
             successfully_added_hashes: list[str] = []
 
             try:
-                new_torrents = await RSSEngine.parse_rss_feed(rss_item.url)
+                rss_item = await rss_repo.get_by_id(rss_item_id)
+                if not rss_item:
+                    logger.warning(f"[Engine] RSS {rss_item_name} (id={rss_item_id}) no longer exists, skipping")
+                    continue
+                new_torrents = await RSSEngine.parse_rss_feed(rss_attr["url"])
 
                 matched_torrents = []
                 auto_created_keys: set[tuple[str, int, str]] = set()
                 newly_created_ids: set[int] = set()
 
                 for torrent in new_torrents:
-                    torrent.rss_id = rss_item.id
-                    matched_bangumi = await RSSEngine.match_torrent_to_bangumi(
+                    torrent.rss_id = rss_item_id
+                    match_result = await RSSEngine.match_torrent_to_bangumi(
                         torrent, bangumi_repo
                     )
-                    if matched_bangumi:
-                        if _is_cross_season(rss_item.url, matched_bangumi.rss_link or ""):
+                    if match_result is _FILTERED:
+                        continue
+                    elif isinstance(match_result, Bangumi):
+                        matched_bangumi = match_result
+                        if _is_cross_season(rss_attr["url"], matched_bangumi.rss_link or ""):
                             logger.debug(
                                 f"[Engine] Skip {torrent.name} - cross-season RSS mismatch"
                             )
                             continue
                         matched_torrents.append(torrent)
-                    elif rss_item.aggregate:
+                    elif rss_attr["aggregate"]:
                         created = await RSSEngine._auto_create_bangumi(
                             torrent, rss_item, bangumi_repo, session,
                             auto_created_keys, newly_created_ids,
@@ -324,9 +342,7 @@ class RSSEngine:
                                 )
                     except Exception as e:
                         logger.error(f"[Engine] Episode backfill failed for bangumi {bangumi_id}: {e}")
-                        # Rollback session to clear bad state, then re-raise to outer handler
                         await session.rollback()
-                        raise
 
                 if matched_torrents:
                     inserted_count = await torrent_repo.add_all_or_ignore(matched_torrents)
@@ -628,10 +644,9 @@ class RSSEngine:
         logger.debug(f"[Engine] download_bangumi: inserted {inserted_count}/{len(new_torrents)} torrents")
 
         for torrent in new_torrents:
-            db_torrent = await torrent_repo.get_by_hash(torrent.hash)
-            if db_torrent:
+            if torrent.hash:
                 await torrent_repo.mark_downloaded_by_hash(
-                    db_torrent.hash, bangumi.id, save_path
+                    torrent.hash, bangumi.id, save_path
                 )
 
         await session.commit()
