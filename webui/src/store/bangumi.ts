@@ -11,6 +11,40 @@ export const useBangumiStore = defineStore('bangumi', () => {
     item: ruleTemplate,
   });
 
+  const selectMode = ref(false);
+  const selectedIds = ref<Set<number>>(new Set());
+
+  const selectedCount = computed(() => selectedIds.value.size);
+
+  function enterSelectMode() {
+    selectMode.value = true;
+    selectedIds.value = new Set();
+  }
+
+  function exitSelectMode() {
+    selectMode.value = false;
+    selectedIds.value = new Set();
+  }
+
+  function toggleSelect(id: number) {
+    const next = new Set(selectedIds.value);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    selectedIds.value = next;
+  }
+
+  function selectAll() {
+    if (!bangumi.value) return;
+    selectedIds.value = new Set(bangumi.value.map((b) => b.id));
+  }
+
+  function isSelected(id: number) {
+    return selectedIds.value.has(id);
+  }
+
   async function getAll() {
     const res = await apiBangumi.getAll();
     const sort = (arr: BangumiRule[]) => arr.sort((a, b) => b.id - a.id);
@@ -40,6 +74,16 @@ export const useBangumiStore = defineStore('bangumi', () => {
   const { execute: refreshPoster } = useApi(apiBangumi.refreshPoster, opts);
   const { execute: retriggerRename } = useApi(apiBangumi.retriggerRename, opts);
 
+  const batchOpts = {
+    showMessage: true,
+    onSuccess() {
+      exitSelectMode();
+      getAll();
+    },
+  };
+  const { execute: batchDelete } = useApi(apiBangumi.deleteRule, batchOpts);
+  const { execute: batchDisable } = useApi(apiBangumi.disableRule, batchOpts);
+
   function openEditPopup(data: BangumiRule) {
     editRule.show = true;
     editRule.item = data;
@@ -64,6 +108,9 @@ export const useBangumiStore = defineStore('bangumi', () => {
   return {
     bangumi,
     editRule,
+    selectMode,
+    selectedIds,
+    selectedCount,
 
     getAll,
     updateRule,
@@ -74,5 +121,12 @@ export const useBangumiStore = defineStore('bangumi', () => {
     retriggerRename,
     openEditPopup,
     ruleManage,
+    enterSelectMode,
+    exitSelectMode,
+    toggleSelect,
+    selectAll,
+    isSelected,
+    batchDelete,
+    batchDisable,
   };
 });

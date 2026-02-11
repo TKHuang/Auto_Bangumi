@@ -75,10 +75,12 @@ async def add_rss(
     rss_repo = RSSRepository(session)
     bangumi_repo = BangumiRepository(session)
 
+    rss_name = rss.name or rss.url
+
     try:
         if skip_bangumi:
             new_rss = await rss_repo.create({
-                "url": rss.url, "name": rss.name,
+                "url": rss.url, "name": rss_name,
                 "aggregate": rss.aggregate, "parser": rss.parser, "enabled": True,
             })
             await session.commit()
@@ -114,7 +116,7 @@ async def add_rss(
                     ))
 
             new_rss = await rss_repo.create({
-                "url": rss.url, "name": rss.name,
+                "url": rss.url, "name": rss_name,
                 "aggregate": rss.aggregate, "parser": rss.parser, "enabled": True,
             })
             await session.flush()
@@ -172,7 +174,7 @@ async def add_rss(
             )
         else:
             new_rss = await rss_repo.create({
-                "url": rss.url, "name": rss.name,
+                "url": rss.url, "name": rss_name,
                 "aggregate": rss.aggregate, "parser": rss.parser, "enabled": True,
             })
             await session.commit()

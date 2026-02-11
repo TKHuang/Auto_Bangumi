@@ -116,19 +116,24 @@ class TestUpdateBangumi:
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
             with patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls:
                 with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
-                    mock_b = AsyncMock()
-                    mock_b_cls.return_value = mock_b
-                    mock_b.get_by_id.return_value = _mock_bangumi_obj()
-                    mock_t = AsyncMock()
-                    mock_t_cls.return_value = mock_t
-                    mock_dl.return_value = AsyncMock()
-                    mock_dl.return_value.move_torrent = AsyncMock()
-                    mock_dl.return_value.torrents_info = AsyncMock(return_value=[])
-                    with patch("module.api.v1.bangumi.settings"):
-                        response = client.patch("/api/v1/bangumi/update/1", json=update_data)
-                    assert response.status_code == 200
-                    data = response.json()
-                    assert "msg_en" in data
+                    with patch("module.api.v1.bangumi.RenamerService") as mock_renamer_cls:
+                        mock_b = AsyncMock()
+                        mock_b_cls.return_value = mock_b
+                        mock_b.get_by_id.return_value = _mock_bangumi_obj()
+                        mock_t = AsyncMock()
+                        mock_t_cls.return_value = mock_t
+                        mock_dl.return_value = AsyncMock()
+                        mock_dl.return_value.move_torrent = AsyncMock()
+                        mock_dl.return_value.torrents_info = AsyncMock(return_value=[])
+                        mock_renamer = AsyncMock()
+                        mock_renamer_cls.return_value = mock_renamer
+                        mock_renamer.rename_bangumi.return_value = [{"torrent_id": 1, "file_count": 2}]
+                        with patch("module.api.v1.bangumi.settings"):
+                            response = client.patch("/api/v1/bangumi/update/1", json=update_data)
+                        assert response.status_code == 200
+                        data = response.json()
+                        assert "msg_en" in data
+                        mock_renamer.rename_bangumi.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_not_found(self, client):

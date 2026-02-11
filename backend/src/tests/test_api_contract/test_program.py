@@ -1,8 +1,14 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
-from module.api.v1.program import router, set_scheduler, get_scheduler
-from module.conf import VERSION
+from module.api.v1.program import (
+    router,
+    set_scheduler,
+    get_scheduler,
+    _remove_all_schedules,
+    _add_all_schedules,
+    _has_active_schedules,
+)
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
@@ -10,7 +16,9 @@ from fastapi import FastAPI
 @pytest.fixture
 def mock_scheduler():
     scheduler = AsyncMock()
-    scheduler.is_running = False
+    scheduler.get_schedule = AsyncMock(return_value=None)
+    scheduler.add_schedule = AsyncMock()
+    scheduler.remove_schedule = AsyncMock()
     return scheduler
 
 
@@ -28,96 +36,70 @@ def client(app_with_scheduler):
 
 
 class TestProgramStatus:
-    async def test_status_returns_running_true(self, mock_scheduler):
+    async def test_status_true_when_schedules_exist(self, mock_scheduler):
         set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = True
-        
-        scheduler = get_scheduler()
-        assert scheduler.is_running is True
+        mock_scheduler.get_schedule = AsyncMock(return_value="some_schedule")
 
-    async def test_status_returns_running_false(self, mock_scheduler):
+        assert await _has_active_schedules() is True
+
+    async def test_status_false_when_no_schedules(self, mock_scheduler):
         set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = False
-        
-        scheduler = get_scheduler()
-        assert scheduler.is_running is False
+        mock_scheduler.get_schedule = AsyncMock(return_value=None)
 
-    async def test_status_includes_version(self, mock_scheduler):
-        set_scheduler(mock_scheduler)
-        
-        scheduler = get_scheduler()
-        assert scheduler is not None
-
-
-class TestProgramStart:
-    async def test_start_when_not_running(self, mock_scheduler):
-        set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = False
-        mock_scheduler.start = AsyncMock()
-        
-        scheduler = get_scheduler()
-        if not scheduler.is_running:
-            await scheduler.start()
-        
-        mock_scheduler.start.assert_called_once()
-
-    async def test_start_when_already_running(self, mock_scheduler):
-        set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = True
-        mock_scheduler.start = AsyncMock()
-        
-        scheduler = get_scheduler()
-        if not scheduler.is_running:
-            await scheduler.start()
-        
-        mock_scheduler.start.assert_not_called()
+        assert await _has_active_schedules() is False
 
 
 class TestProgramStop:
-    async def test_stop_when_running(self, mock_scheduler):
+    async def test_stop_removes_all_schedules(self, mock_scheduler):
         set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = True
-        mock_scheduler.stop = AsyncMock()
-        
-        scheduler = get_scheduler()
-        if scheduler.is_running:
-            await scheduler.stop()
-        
-        mock_scheduler.stop.assert_called_once()
 
-    async def test_stop_when_not_running(self, mock_scheduler):
+        await _remove_all_schedules()
+
+        assert mock_scheduler.remove_schedule.call_count == 2
+        mock_scheduler.remove_schedule.assert_any_call("rename")
+        mock_scheduler.remove_schedule.assert_any_call("rss_refresh")
+
+    async def test_stop_ignores_missing_schedules(self, mock_scheduler):
         set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = False
-        mock_scheduler.stop = AsyncMock()
-        
-        scheduler = get_scheduler()
-        if scheduler.is_running:
-            await scheduler.stop()
-        
-        mock_scheduler.stop.assert_not_called()
+        from apscheduler import ScheduleLookupError
+
+        mock_scheduler.remove_schedule = AsyncMock(side_effect=ScheduleLookupError("x"))
+
+        await _remove_all_schedules()
+
+
+class TestProgramStart:
+    async def test_start_adds_all_schedules(self, mock_scheduler):
+        set_scheduler(mock_scheduler)
+
+        await _add_all_schedules()
+
+        assert mock_scheduler.add_schedule.call_count == 2
+
+    async def test_start_idempotent_when_already_active(self, mock_scheduler):
+        set_scheduler(mock_scheduler)
+        mock_scheduler.get_schedule = AsyncMock(return_value="exists")
+
+        has = await _has_active_schedules()
+        assert has is True
 
 
 class TestProgramRestart:
-    async def test_restart_stops_then_starts(self, mock_scheduler):
+    async def test_restart_removes_then_adds(self, mock_scheduler):
         set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = True
-        mock_scheduler.stop = AsyncMock()
-        mock_scheduler.start = AsyncMock()
-        
-        scheduler = get_scheduler()
-        if scheduler.is_running:
-            await scheduler.stop()
-        await scheduler.start()
-        
-        mock_scheduler.stop.assert_called_once()
-        mock_scheduler.start.assert_called_once()
+
+        await _remove_all_schedules()
+        await _add_all_schedules()
+
+        assert mock_scheduler.remove_schedule.call_count == 2
+        assert mock_scheduler.add_schedule.call_count == 2
 
 
 class TestSchedulerNotInitialized:
     def test_get_scheduler_raises_when_not_set(self):
         from module.api.v1 import program as program_module
         program_module._scheduler = None
-        
+
         with pytest.raises(RuntimeError, match="Scheduler not initialized"):
             get_scheduler()
 
@@ -130,10 +112,8 @@ class TestSchedulerIntegration:
 
     async def test_scheduler_state_persistence(self, mock_scheduler):
         set_scheduler(mock_scheduler)
-        mock_scheduler.is_running = True
-        
+
         scheduler1 = get_scheduler()
         scheduler2 = get_scheduler()
-        
+
         assert scheduler1 is scheduler2
-        assert scheduler1.is_running is True

@@ -115,14 +115,28 @@ async def update_rule(
     }
     await bangumi_repo.update_simple(bangumi_id, update_dict)
 
+    renamed_count = 0
     if rename_fields_changed:
         await torrent_repo.clear_rename_status(bangumi_id, new_cloud_path=path)
         logger.info(f"[API] Cleared rename status (season/title changed for bangumi {bangumi_id})")
+        await session.commit()
 
-    await session.commit()
+        # Trigger immediate re-rename so renamed_at gets set right away
+        renamer = RenamerService(session)
+        renamed_results = await renamer.rename_bangumi(downloader, bangumi_id)
+        renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
+        logger.info(f"[API] Re-renamed {renamed_count} files for bangumi {bangumi_id}")
+    else:
+        await session.commit()
+
+    msg_suffix_en = f" (renamed {renamed_count} files)" if renamed_count else ""
+    msg_suffix_zh = f"（重命名了 {renamed_count} 个文件）" if renamed_count else ""
     return JSONResponse(
         status_code=200,
-        content={"msg_en": f"Update rule for {data.official_title}", "msg_zh": f"更新 {data.official_title} 规则"},
+        content={
+            "msg_en": f"Update rule for {data.official_title}{msg_suffix_en}",
+            "msg_zh": f"更新 {data.official_title} 规则{msg_suffix_zh}",
+        },
     )
 
 

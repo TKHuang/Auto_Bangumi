@@ -1,13 +1,3 @@
-"""State machine module for domain models."""
+"""State machine module - deprecated."""
 
-from .torrent_state import (
-    TorrentStateEnum,
-    TorrentStateMachine,
-    TransitionNotAllowed,
-)
-
-__all__ = [
-    "TorrentStateMachine",
-    "TorrentStateEnum",
-    "TransitionNotAllowed",
-]
+__all__: list[str] = []

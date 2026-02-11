@@ -1,23 +1,31 @@
 <script lang="ts" setup>
-import { Write } from '@icon-park/vue-next';
+import { Write, CheckSmall } from '@icon-park/vue-next';
 import type { BangumiRule } from '#/bangumi';
 
 withDefaults(
   defineProps<{
     type?: 'primary' | 'search';
     bangumi: BangumiRule;
+    selectMode?: boolean;
+    selected?: boolean;
   }>(),
   {
     type: 'primary',
+    selectMode: false,
+    selected: false,
   }
 );
 
-defineEmits(['click']);
+defineEmits(['click', 'select']);
 </script>
 
 <template>
   <template v-if="type === 'primary'">
-    <div w="full pc:150" is-btn @click="() => $emit('click')">
+    <div
+      w="full pc:150"
+      is-btn
+      @click="selectMode ? $emit('select') : $emit('click')"
+    >
       <div rounded-4 overflow-hidden poster-shandow rel>
         <ab-image
           :src="bangumi.poster_link"
@@ -26,6 +34,39 @@ defineEmits(['click']);
         ></ab-image>
 
         <div
+          v-if="selectMode"
+          abs
+          z-2
+          top-6
+          left-6
+          wh-24
+          rounded="1/2"
+          f-cer
+          transition="all duration-200"
+          :class="
+            selected
+              ? 'bg-blue-500 border-blue-500'
+              : 'bg-white bg-opacity-80 border-gray-300'
+          "
+          border="2 solid"
+          @click.stop="$emit('select')"
+        >
+          <CheckSmall v-if="selected" size="16" :stroke-width="4" theme="outline" fill="white" />
+        </div>
+
+        <div
+          v-if="selectMode && selected"
+          abs
+          inset-0
+          z-1
+          bg-blue-500
+          bg-opacity-15
+          rounded-4
+          pointer-events-none
+        />
+
+        <div
+          v-if="!selectMode"
           abs
           f-cer
           z-1

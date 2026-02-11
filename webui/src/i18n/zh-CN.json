@@ -126,7 +126,16 @@
   "bangumi": {
     "no_torrents_hint": "未找到此番剧的种子。请尝试刷新 RSS 订阅。",
     "download": "下载",
-    "downloaded": "已下载"
+    "downloaded": "已下载",
+    "select_mode": "选择",
+    "cancel_select": "取消",
+    "select_all": "全选",
+    "selected_count": "已选 {count} 个",
+    "batch_delete": "删除",
+    "batch_disable": "禁用",
+    "delete_files_confirm": "是否删除本地文件？",
+    "batch_delete_confirm": "删除 {count} 个番剧？",
+    "batch_disable_confirm": "禁用 {count} 个番剧？"
   },
   "player": {
     "hit": "请设置媒体播放器地址"

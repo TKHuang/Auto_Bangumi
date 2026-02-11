@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent, TorrentState
-from module.domain.state_machine.torrent_state import TorrentStateMachine
 from module.domain.value_objects import EpisodeFile, EpisodeType, SubtitleFile
 from module.services.renamer import RenamerService
 
@@ -326,7 +325,7 @@ class TestRenameAll:
         await async_session.refresh(torrent)
         assert torrent.renamed_at is not None
         assert torrent.renamed_file_count == 1
-        assert torrent.state == TorrentState.RENAMED
+        assert torrent.downloaded is True
 
     @pytest.mark.asyncio
     async def test_rename_all_no_unrenamed(self, async_session, mock_downloader):
@@ -382,9 +381,7 @@ class TestRenameAll:
         # Verify no successful renames
         assert len(result) == 0
 
-        # Verify torrent restored to COMPLETED
         await async_session.refresh(torrent)
-        assert torrent.state == TorrentState.COMPLETED
         assert torrent.renamed_at is None
 
 

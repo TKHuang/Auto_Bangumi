@@ -126,7 +126,16 @@
   "bangumi": {
     "no_torrents_hint": "No torrents found for this Bangumi. Try refreshing the RSS feed.",
     "download": "Download",
-    "downloaded": "Downloaded"
+    "downloaded": "Downloaded",
+    "select_mode": "Select",
+    "cancel_select": "Cancel",
+    "select_all": "All",
+    "selected_count": "{count} selected",
+    "batch_delete": "Delete",
+    "batch_disable": "Disable",
+    "delete_files_confirm": "Delete local files?",
+    "batch_delete_confirm": "Delete {count} bangumi?",
+    "batch_disable_confirm": "Disable {count} bangumi?"
   },
   "player": {
     "hit": "Please set up the media player"

@@ -165,29 +165,6 @@ class TestTorrentRepository:
         assert len(torrents) == 1
         assert torrents[0].name == "Torrent 1"
 
-    async def test_get_by_state_returns_torrents(self, async_session):
-        repo = TorrentRepository(async_session)
-        
-        async with async_session.begin():
-            await repo.create({
-                "name": "Pending",
-                "url": "https://example.com/t1",
-                "hash": "hash1",
-                "state": TorrentState.PENDING,
-            })
-            await repo.create({
-                "name": "Completed",
-                "url": "https://example.com/t2",
-                "hash": "hash2",
-                "state": TorrentState.COMPLETED,
-            })
-        
-        async with async_session.begin():
-            completed = await repo.get_by_state(TorrentState.COMPLETED)
-        
-        assert len(completed) == 1
-        assert completed[0].name == "Completed"
-
     async def test_get_unrenamed_returns_completed_without_renamed_at(self, async_session):
         repo = TorrentRepository(async_session)
         
@@ -214,23 +191,6 @@ class TestTorrentRepository:
         
         assert len(unrenamed) == 1
         assert unrenamed[0].name == "Unrenamed"
-
-    async def test_update_state_changes_state(self, async_session):
-        repo = TorrentRepository(async_session)
-        
-        async with async_session.begin():
-            torrent = await repo.create({
-                "name": "Test",
-                "url": "https://example.com/t1",
-                "hash": "hash1",
-                "state": TorrentState.PENDING,
-            })
-            await repo.update_state(torrent.id, TorrentState.DOWNLOADING)
-        
-        async with async_session.begin():
-            updated = await repo.get_by_hash("hash1")
-        
-        assert updated.state == TorrentState.DOWNLOADING
 
     async def test_mark_renamed_sets_fields(self, async_session):
         repo = TorrentRepository(async_session)

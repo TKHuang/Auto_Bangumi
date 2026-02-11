@@ -5,7 +5,7 @@ from sqlalchemy import and_, delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from module.domain.models.torrent import Torrent, TorrentState
+from module.domain.models.torrent import Torrent
 
 
 class TorrentRepository:
@@ -38,7 +38,6 @@ class TorrentRepository:
         values = []
         for t in torrents:
             downloaded = getattr(t, "downloaded", None)
-            state = getattr(t, "state", None)
             val = {
                 "bangumi_id": t.bangumi_id,
                 "rss_id": t.rss_id,
@@ -47,7 +46,6 @@ class TorrentRepository:
                 "homepage": getattr(t, "homepage", None),
                 "downloaded": downloaded if downloaded is not None else False,
                 "hash": t.hash,
-                "state": state if state is not None else TorrentState.PENDING,
                 "pikpak_cloud_path": getattr(t, "pikpak_cloud_path", None),
             }
             values.append(val)
@@ -69,28 +67,10 @@ class TorrentRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_state(self, state: TorrentState) -> list[Torrent]:
-        stmt = select(Torrent).where(Torrent.state == state)
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
     async def get_unrenamed(self) -> list[Torrent]:
-        stmt = select(Torrent).where(
-            and_(
-                Torrent.downloaded == True,
-                Torrent.renamed_at.is_(None),
-            )
-        )
+        stmt = select(Torrent).where(Torrent.renamed_at.is_(None))
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
-
-    async def update_state(self, id: int, new_state: TorrentState) -> None:
-        torrent = await self.session.get(Torrent, id)
-        if not torrent:
-            raise ValueError(f"Torrent with id {id} not found")
-        
-        torrent.state = new_state
-        await self.session.flush()
 
     async def mark_renamed(
         self, id: int, file_count: int, cloud_path: Optional[str] = None
