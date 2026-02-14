@@ -23,6 +23,7 @@ exec rclone mount "pikpak:${PIKPAK_PATH}" /media/pikpak \
     --allow-non-empty \
     --exclude ".DS_Store" \
     --exclude "._**" \
+    --disable-http2 \
     --fuse-flag="-o,backend=fskit" \
     --disable-http-keep-alives \
     --log-level INFO
