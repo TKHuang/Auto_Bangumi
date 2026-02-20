@@ -137,6 +137,7 @@ class PikPakDownloader:
         self._token_expires_at: int = 0
         self._task_cache: list[dict] | None = None
         self._task_cache_time: float = 0
+        self._login_cooldown_until: float = 0
 
         # Try to load existing token
         token_data = self._load_token()
@@ -224,6 +225,8 @@ class PikPakDownloader:
         valid = expires_at > (int(time.time()) + 300)
         return valid
 
+    LOGIN_COOLDOWN_SECONDS = 120
+
     async def _ensure_valid_token(self) -> None:
         """Ensure the access token is valid, refreshing if necessary.
 
@@ -231,31 +234,49 @@ class PikPakDownloader:
         If the token is about to expire (within 5 minutes), performs a
         refresh using the refresh token. If refresh fails, re-authenticates.
 
+        Login attempts are rate-limited: after a failed login, no new login
+        is attempted for LOGIN_COOLDOWN_SECONDS to avoid PikPak rate bans.
+
         Raises:
-            Exception: If both token refresh and re-authentication fail.
+            Exception: If both token refresh and re-authentication fail,
+                       or if login is on cooldown.
         """
         import time
 
-        # Check if we need to refresh (within 5 minutes of expiry)
-        if self._token_expires_at > int(time.time()) + 300:
-            return  # Token is still valid
+        now = time.time()
 
-        if not self._client.refresh_token:
-            # No refresh token, need full re-auth
-            logger.info("No refresh token available, performing full authentication")
-            await self._client.login()
-            await asyncio.to_thread(self._save_token)
+        if self._token_expires_at > int(now) + 300:
             return
 
+        if self._client.refresh_token:
+            try:
+                logger.info("PikPak token expiring soon, refreshing...")
+                await self._client.refresh_access_token()
+                await asyncio.to_thread(self._save_token)
+                logger.info("PikPak token refreshed successfully")
+                return
+            except Exception as e:
+                logger.warning(f"Token refresh failed: {e}")
+
+        if now < self._login_cooldown_until:
+            remaining = int(self._login_cooldown_until - now)
+            raise RuntimeError(
+                f"PikPak login on cooldown ({remaining}s remaining). "
+                "Previous login failed — waiting to avoid rate limit."
+            )
+
         try:
-            logger.info("PikPak token expiring soon, refreshing...")
-            await self._client.refresh_access_token()
-            await asyncio.to_thread(self._save_token)
-            logger.info("PikPak token refreshed successfully")
-        except Exception as e:
-            logger.warning(f"Token refresh failed ({e}), attempting full re-auth")
+            logger.info("Performing full PikPak authentication")
             await self._client.login()
             await asyncio.to_thread(self._save_token)
+            self._login_cooldown_until = 0
+        except Exception as e:
+            self._login_cooldown_until = now + self.LOGIN_COOLDOWN_SECONDS
+            logger.error(
+                f"PikPak login failed: {e}. "
+                f"Cooling down for {self.LOGIN_COOLDOWN_SECONDS}s."
+            )
+            raise
 
     async def _get_all_tasks_cached(self) -> list[dict]:
         import time as _time
@@ -292,21 +313,7 @@ class PikPakDownloader:
         Raises:
             Exception: If login fails due to invalid credentials or network error.
         """
-        import time
-
-        # Check if we already have a valid token (loaded from file)
-        # Token is valid if it expires more than 5 minutes from now
-        if self._token_expires_at > int(time.time()) + 300:
-            logger.info(
-                f"PikPak: Using existing valid token for user {self._username} "
-                f"(expires in {(self._token_expires_at - int(time.time())) // 60} min)"
-            )
-        else:
-            logger.info(f"Authenticating PikPak user: {self._username}")
-            await self._client.login()
-            await asyncio.to_thread(self._save_token)
-            logger.info("PikPak authentication successful")
-
+        await self._ensure_valid_token()
         return True
 
     async def logout(self) -> None:
@@ -646,12 +653,26 @@ class PikPakDownloader:
                         )
                         continue  # Skip this task entirely - don't add to result list
 
-                    # Each PikPak task downloads exactly one file — use task's
-                    # file_name instead of listing the entire shared folder
+                    # PikPak sets file_name to the folder name (no extension)
+                    # for collection torrents (合集) — detect via extension.
                     task_file_name = task.get("file_name", "")
                     task_file_size = int(task.get("file_size", 0) or 0)
-                    if task_file_name:
+                    basename = task_file_name.rsplit("/", 1)[-1] if task_file_name else ""
+                    is_single_file = bool(basename) and "." in basename and not basename.startswith(".")
+
+                    if task_file_name and is_single_file:
                         files = [TorrentFile(name=task_file_name, size=task_file_size, path=task_file_name)]
+                    elif task_file_name:
+                        collection_path = f"{save_path}/{task_file_name}"
+                        raw_files = await self._list_files_in_folder(collection_path)
+                        files = [
+                            TorrentFile(
+                                name=f"{task_file_name}/{f.name}",
+                                size=f.size,
+                                path=f"{task_file_name}/{f.path}",
+                            )
+                            for f in raw_files
+                        ]
                     else:
                         files = await self._list_files_in_folder(save_path)
                     logger.debug(f"Task {task.get('name')}: found {len(files)} files")

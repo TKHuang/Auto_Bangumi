@@ -167,21 +167,32 @@ class TestPikPakDownloaderAuth:
 
     @pytest.mark.asyncio
     async def test_auth_success(self, pikpak_downloader, mock_pikpak_api):
-        """Test successful authentication."""
+        """Test successful authentication.
+
+        With the new _ensure_valid_token flow, auth() tries refresh first
+        (since mock client has a truthy refresh_token). If refresh succeeds,
+        login is never called.
+        """
         _, mock_instance = mock_pikpak_api
 
         result = await pikpak_downloader.auth()
 
         assert result is True
-        mock_instance.login.assert_called_once()
-        assert pikpak_downloader._token_expires_at > 0
+        mock_instance.refresh_access_token.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_auth_failure_propagates_exception(
         self, pikpak_downloader, mock_pikpak_api
     ):
-        """Test authentication failure raises exception."""
+        """Test authentication failure raises exception.
+
+        Both refresh and login must fail for auth() to propagate the error,
+        since _ensure_valid_token tries refresh first then falls through to login.
+        """
         _, mock_instance = mock_pikpak_api
+        mock_instance.refresh_access_token = AsyncMock(
+            side_effect=Exception("Refresh failed")
+        )
         mock_instance.login = AsyncMock(side_effect=Exception("Invalid credentials"))
 
         with pytest.raises(Exception, match="Invalid credentials"):
@@ -422,6 +433,135 @@ class TestPikPakDownloaderTorrents:
         assert "def456abc123def456abc123def456abc12345ef" in result
 
 
+class TestCollectionTorrentDetection:
+    MAGNET_HASH = "abc123def456abc123def456abc123def456abc1"
+    MAGNET_URL = f"magnet:?xt=urn:btih:{MAGNET_HASH}"
+
+    def _make_task(self, name: str, file_name: str = "", file_size: int = 0):
+        return {
+            "id": "task_1",
+            "name": name,
+            "phase": "PHASE_TYPE_COMPLETE",
+            "progress": 100,
+            "file_url": self.MAGNET_URL,
+            "file_name": file_name,
+            "file_size": file_size,
+        }
+
+    @pytest.mark.asyncio
+    async def test_single_file_uses_task_file_name(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    self._make_task(
+                        name="[Group] Episode 01.mkv",
+                        file_name="[Group] Episode 01.mkv",
+                        file_size=500_000_000,
+                    )
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        assert len(result[0].files) == 1
+        assert result[0].files[0].name == "[Group] Episode 01.mkv"
+        assert result[0].files[0].size == 500_000_000
+        mock_instance.file_list.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_collection_folder_enumerates_files(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        folder_name = "[DMG&LoliHouse] Re Zero [WebRip 1080p HEVC-10bit AAC ASSx2]"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [self._make_task(name=folder_name, file_name=folder_name)]
+            }
+        )
+
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+                {"id": "col_id", "name": folder_name},
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "episode01.mkv", "kind": "drive#file", "id": "e1"},
+                    {"name": "episode02.mkv", "kind": "drive#file", "id": "e2"},
+                    {"name": "subtitles.zip", "kind": "drive#file", "id": "s1"},
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        files = result[0].files
+        assert len(files) == 3
+        assert files[0].name == f"{folder_name}/episode01.mkv"
+        assert files[1].name == f"{folder_name}/episode02.mkv"
+        assert files[2].name == f"{folder_name}/subtitles.zip"
+        mock_instance.file_list.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_collection_empty_folder_marks_missing(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        folder_name = "[Group] Collection [01-12]"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [self._make_task(name=folder_name, file_name=folder_name)]
+            }
+        )
+        mock_instance.path_to_id = AsyncMock(return_value=None)
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        assert result[0].state == "missing"
+        assert result[0].files == []
+
+    @pytest.mark.asyncio
+    async def test_no_file_name_falls_back_to_folder_listing(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [self._make_task(name="Some Task", file_name="")]
+            }
+        )
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "file.mkv", "kind": "drive#file", "id": "f1"},
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        assert len(result[0].files) == 1
+        assert result[0].files[0].name == "file.mkv"
+
+
 class TestPikPakDownloaderHashExtraction:
     """Tests for torrent hash extraction from magnet links."""
 
@@ -489,6 +629,72 @@ class TestPikPakDownloaderTokenRefresh:
 
         await pikpak_downloader._ensure_valid_token()
 
+        mock_instance.login.assert_called_once()
+
+
+class TestLoginCooldown:
+
+    @pytest.mark.asyncio
+    async def test_login_failure_sets_cooldown(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.refresh_token = None
+        mock_instance.login = AsyncMock(side_effect=Exception("too frequent"))
+        pikpak_downloader._client.refresh_token = None
+        pikpak_downloader._token_expires_at = 0
+
+        with pytest.raises(Exception, match="too frequent"):
+            await pikpak_downloader._ensure_valid_token()
+
+        assert pikpak_downloader._login_cooldown_until > 0
+
+    @pytest.mark.asyncio
+    async def test_cooldown_blocks_subsequent_login(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        import time
+
+        _, mock_instance = mock_pikpak_api
+        pikpak_downloader._token_expires_at = 0
+        pikpak_downloader._client.refresh_token = None
+        pikpak_downloader._login_cooldown_until = time.time() + 9999
+
+        with pytest.raises(RuntimeError, match="cooldown"):
+            await pikpak_downloader._ensure_valid_token()
+
+        mock_instance.login.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_successful_login_clears_cooldown(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        import time
+
+        _, mock_instance = mock_pikpak_api
+        pikpak_downloader._token_expires_at = 0
+        pikpak_downloader._client.refresh_token = None
+        pikpak_downloader._login_cooldown_until = time.time() - 1
+
+        await pikpak_downloader._ensure_valid_token()
+
+        mock_instance.login.assert_called_once()
+        assert pikpak_downloader._login_cooldown_until == 0
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_falls_through_to_login(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        pikpak_downloader._token_expires_at = 0
+        pikpak_downloader._client.refresh_token = "some_token"
+        mock_instance.refresh_access_token = AsyncMock(
+            side_effect=Exception("refresh failed")
+        )
+
+        await pikpak_downloader._ensure_valid_token()
+
+        mock_instance.refresh_access_token.assert_called_once()
         mock_instance.login.assert_called_once()
 
 
