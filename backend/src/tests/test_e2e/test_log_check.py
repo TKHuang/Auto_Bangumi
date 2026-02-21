@@ -55,25 +55,15 @@ class TestCheckDownloader:
 
     def test_check_failure(self, authed_client):
         """Mock check_host to return False → response is False."""
-        from unittest.mock import AsyncMock
-
         client, mock_dl, token = authed_client
 
-        # Patch create_downloader where the check module looks it up
-        # (the conftest-level patch targets the factory module, but check.py
-        # already imported the original via `from ... import create_downloader`,
-        # so we must patch the name in check.py's namespace directly).
-        failing_dl = AsyncMock()
-        failing_dl.check_host.return_value = False
-        failing_dl.auth.return_value = True
+        mock_dl.check_host.return_value = False
 
-        with patch(
-            "module.api.v1.check.create_downloader",
-            return_value=failing_dl,
-        ):
-            resp = client.get("/api/v1/check/downloader")
-            assert resp.status_code == 200
-            assert resp.json() is False
+        resp = client.get("/api/v1/check/downloader")
+        assert resp.status_code == 200
+        assert resp.json() is False
+
+        mock_dl.check_host.return_value = True
 
     @patch("module.api.middleware.auth.VERSION", "3.0.0")
     def test_requires_auth(self, e2e_client):

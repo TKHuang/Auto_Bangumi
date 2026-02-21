@@ -213,6 +213,7 @@ def mock_downloader():
     dl.torrents_delete.return_value = True
     dl.move_torrent.return_value = True
     dl.get_torrent_path.return_value = None
+    dl.get_existing_hashes.return_value = set()
     return dl
 
 
@@ -275,9 +276,20 @@ def e2e_client(mock_downloader, fixture_request_content):
         self._scheduler = None
         self._exit_stack = None
 
+    # Patch create_downloader at the factory AND at every module that does
+    # `from module.services.downloader.factory import create_downloader`.
+    # Python's `from X import Y` binds Y in the importing module's namespace,
+    # so patching X.Y alone won't affect modules that already imported Y.
+    _dl_patch_target = dict(return_value=mock_downloader)
     patches = [
         patch("module.services.downloader.qbittorrent.Client"),
-        patch("module.services.downloader.factory.create_downloader", return_value=mock_downloader),
+        patch("module.services.downloader.factory.create_downloader", **_dl_patch_target),
+        patch("module.services.downloader.create_downloader", **_dl_patch_target),
+        patch("module.api.v1.bangumi.create_downloader", **_dl_patch_target),
+        patch("module.api.v1.rss.create_downloader", **_dl_patch_target),
+        patch("module.api.v1.check.create_downloader", **_dl_patch_target),
+        patch("module.scheduler.jobs.rename.create_downloader", **_dl_patch_target),
+        patch("module.scheduler.jobs.rss_refresh.create_downloader", **_dl_patch_target),
         # Patch RequestContent everywhere it's imported so all modules use the mock
         patch("module.network.request_contents.RequestContent", mock_rc_class),
         patch("module.network.RequestContent", mock_rc_class),
