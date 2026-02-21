@@ -132,6 +132,17 @@ class DownloaderProtocol(Protocol):
         """
         ...
 
+    async def get_existing_hashes(self, category: str | None = None) -> set[str]:
+        """Get hashes of all torrents currently tracked by the downloader.
+
+        Args:
+            category: Optional category/folder filter.
+
+        Returns:
+            Set of lowercase torrent hashes.
+        """
+        ...
+
     async def get_torrent_path(self, hash: str) -> str | None:
         """Get the save path of a torrent.
 

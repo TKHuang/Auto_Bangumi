@@ -44,18 +44,31 @@ async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
 async def get_all_data(session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
     torrent_repo = TorrentRepository(session)
-    
+
+    online_hashes: set[str] | None = None
+    try:
+        downloader = create_downloader(settings, session)
+        online_hashes = await downloader.get_existing_hashes()
+    except Exception:
+        logger.debug("Failed to query downloader for online hashes, using DB-only counts")
+
     orm_bangumi_list = await bangumi_repo.get_active()
     schema_bangumi_list = []
-    
+
     for orm_bangumi in orm_bangumi_list:
         schema_bangumi = Bangumi.model_validate(orm_bangumi)
         if orm_bangumi.id:
             torrents = await torrent_repo.get_by_bangumi(orm_bangumi.id)
             schema_bangumi.torrent_count = len(torrents)
-            schema_bangumi.completed_count = sum(1 for t in torrents if t.downloaded)
+            if online_hashes is not None:
+                schema_bangumi.completed_count = sum(
+                    1 for t in torrents
+                    if t.downloaded and t.hash and t.hash.lower() in online_hashes
+                )
+            else:
+                schema_bangumi.completed_count = sum(1 for t in torrents if t.downloaded)
         schema_bangumi_list.append(schema_bangumi)
-    
+
     return schema_bangumi_list
 
 
@@ -486,6 +499,12 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
 
     downloader = create_downloader(settings, session)
     save_path_before = bangumi.save_path
+
+    if torrent.hash:
+        try:
+            await downloader.torrents_delete([torrent.hash], delete_files=True)
+        except Exception:
+            logger.debug(f"Failed to delete old torrent {torrent.hash} before re-download (may not exist)")
 
     success = await downloader.add_torrents(
         urls=[torrent.url],
