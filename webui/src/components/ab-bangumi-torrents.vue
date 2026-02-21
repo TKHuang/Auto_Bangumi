@@ -54,6 +54,8 @@ const columns = computed<any[]>(() => [
               ? 'error'
               : row.status === 'downloading'
               ? 'info'
+              : row.status === 'archived'
+              ? 'warning'
               : 'success',
           size: 'small',
           round: true,
@@ -80,7 +82,7 @@ const columns = computed<any[]>(() => [
     fixed: 'right',
     render: (row: any) => {
       // Allow redownload for missing files or error states (e.g., file deleted on PikPak)
-      const canRedownload = row.status === 'missing' || row.status === 'error';
+      const canRedownload = row.status === 'missing' || row.status === 'error' || row.status === 'archived';
       return h(
         NButton,
         {

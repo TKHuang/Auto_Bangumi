@@ -82,7 +82,7 @@ watch([show, rssId], async ([newShow, newId]) => {
           </div>
           <div class="flex gap-x-8 mt-4 text-12 text-gray-500">
             <n-tag
-              :type="torrent.status === 'missing' ? 'error' : 'success'"
+              :type="torrent.status === 'missing' ? 'error' : torrent.status === 'archived' ? 'warning' : 'success'"
               size="small"
               round
             >
