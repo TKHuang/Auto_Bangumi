@@ -63,7 +63,10 @@ async def get_all_data(session: AsyncSession = Depends(get_db_session)):
             if online_hashes is not None:
                 schema_bangumi.completed_count = sum(
                     1 for t in torrents
-                    if t.downloaded and t.hash and t.hash.lower() in online_hashes
+                    if t.downloaded and (
+                        t.renamed_at
+                        or (t.hash and t.hash.lower() in online_hashes)
+                    )
                 )
             else:
                 schema_bangumi.completed_count = sum(1 for t in torrents if t.downloaded)
@@ -454,10 +457,12 @@ async def get_torrent_status(bangumi_id: int, session: AsyncSession = Depends(ge
                 "progress": matched_online.progress, "hash": matched_online.hash,
             })
         else:
+            status = "archived" if db_t.renamed_at else "missing"
             status_list.append({
                 "id": db_t.id, "name": db_t.name, "url": db_t.url,
-                "downloaded": db_t.downloaded, "status": "missing",
-                "progress": 0, "hash": db_t.hash,
+                "downloaded": db_t.downloaded, "status": status,
+                "progress": 1.0 if status == "archived" else 0,
+                "hash": db_t.hash,
             })
     return status_list
 

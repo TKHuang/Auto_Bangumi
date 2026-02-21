@@ -95,9 +95,9 @@ class TestGetAllBangumi:
     @pytest.mark.asyncio
     async def test_get_all_excludes_missing_from_completed_count(self, client):
         bangumi = _mock_bangumi_obj(id=1, official_title="Test")
-        t1 = MagicMock(downloaded=True, hash="aaa")
-        t2 = MagicMock(downloaded=True, hash="bbb")
-        t3 = MagicMock(downloaded=True, hash="ccc")
+        t1 = MagicMock(downloaded=True, hash="aaa", renamed_at=None)
+        t2 = MagicMock(downloaded=True, hash="bbb", renamed_at=None)
+        t3 = MagicMock(downloaded=True, hash="ccc", renamed_at=None)
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
              patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
              patch("module.api.v1.bangumi.create_downloader") as mock_dl:
@@ -115,6 +115,31 @@ class TestGetAllBangumi:
             data = response.json()
             assert data[0]["torrent_count"] == 3
             assert data[0]["completed_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_get_all_renamed_at_counts_as_completed_without_online_hash(self, client):
+        from datetime import datetime
+        bangumi = _mock_bangumi_obj(id=1, official_title="Test")
+        t1 = MagicMock(downloaded=True, hash="aaa", renamed_at=datetime(2025, 1, 1))
+        t2 = MagicMock(downloaded=True, hash="bbb", renamed_at=datetime(2025, 1, 1))
+        t3 = MagicMock(downloaded=True, hash="ccc", renamed_at=None)
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
+             patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.get_active.return_value = [bangumi]
+            mock_torrent = AsyncMock()
+            mock_torrent_cls.return_value = mock_torrent
+            mock_torrent.get_by_bangumi.return_value = [t1, t2, t3]
+            dl = AsyncMock()
+            mock_dl.return_value = dl
+            dl.get_existing_hashes = AsyncMock(return_value=set())
+            response = client.get("/api/v1/bangumi/get/all")
+            assert response.status_code == 200
+            data = response.json()
+            assert data[0]["torrent_count"] == 3
+            assert data[0]["completed_count"] == 2
 
     @pytest.mark.asyncio
     async def test_get_all_fallback_on_downloader_error(self, client):
@@ -382,6 +407,53 @@ class TestGetTorrentStatus:
                 assert isinstance(data, list)
                 assert len(data) == 1
                 assert data[0]["name"] == "Test Episode 01"
+
+    @pytest.mark.asyncio
+    async def test_torrent_not_online_with_renamed_at_shows_archived(self, client):
+        from datetime import datetime
+        with patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls:
+            with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+                mock_t = AsyncMock()
+                mock_t_cls.return_value = mock_t
+                db_torrent = MagicMock()
+                db_torrent.id = 1
+                db_torrent.name = "Test Episode 01"
+                db_torrent.url = "https://example.com/t"
+                db_torrent.downloaded = True
+                db_torrent.hash = "abc123"
+                db_torrent.renamed_at = datetime(2025, 1, 1)
+                mock_t.get_by_bangumi.return_value = [db_torrent]
+                dl = AsyncMock()
+                mock_dl.return_value = dl
+                dl.torrents_info = AsyncMock(return_value=[])
+                with patch("module.api.v1.bangumi.settings"):
+                    response = client.get("/api/v1/bangumi/torrent/1")
+                data = response.json()
+                assert data[0]["status"] == "archived"
+                assert data[0]["progress"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_torrent_not_online_without_renamed_at_shows_missing(self, client):
+        with patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls:
+            with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+                mock_t = AsyncMock()
+                mock_t_cls.return_value = mock_t
+                db_torrent = MagicMock()
+                db_torrent.id = 1
+                db_torrent.name = "Test Episode 01"
+                db_torrent.url = "https://example.com/t"
+                db_torrent.downloaded = True
+                db_torrent.hash = "abc123"
+                db_torrent.renamed_at = None
+                mock_t.get_by_bangumi.return_value = [db_torrent]
+                dl = AsyncMock()
+                mock_dl.return_value = dl
+                dl.torrents_info = AsyncMock(return_value=[])
+                with patch("module.api.v1.bangumi.settings"):
+                    response = client.get("/api/v1/bangumi/torrent/1")
+                data = response.json()
+                assert data[0]["status"] == "missing"
+                assert data[0]["progress"] == 0
 
 
 class TestDownloadTorrent:
