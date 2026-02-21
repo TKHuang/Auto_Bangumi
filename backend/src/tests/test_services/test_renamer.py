@@ -532,3 +532,181 @@ class TestRenameBangumi:
         call_args = mock_downloader.move_torrent.call_args[0]
         assert "abc123" in call_args[0]
         assert call_args[1] == "/data/Bangumi/New Title/Season 2"
+
+
+class TestSubtitleRenameNaming:
+    @pytest.fixture
+    def mock_parser(self):
+        with patch("module.services.renamer.TitleParser") as MockParser:
+            parser = MockParser.return_value
+            parser.torrent_parser.return_value = SubtitleFile(
+                media_path="[Collection] Folder Name/sub1.ass",
+                group=None,
+                title="Parsed Subtitle",
+                season=1,
+                episode=1,
+                version=None,
+                language="zh",
+                suffix=".ass",
+                is_movie=False,
+                episode_type=None,
+            )
+            yield parser
+
+    @pytest.mark.asyncio
+    async def test_rename_subtitles_no_torrent_name_kwarg(
+        self, async_session, mock_parser
+    ):
+        bangumi = Bangumi(
+            official_title="Test Bangumi",
+            title_raw="Test",
+            season=1,
+            group_name="Group",
+            save_path="/data/Bangumi/Test/Season 1",
+        )
+        async_session.add(bangumi)
+        await async_session.flush()
+
+        torrent_info = Mock(
+            hash="abc123",
+            name="[Collection] Folder Name",
+            save_path="/data/Bangumi/Test/Season 1",
+            files=[Mock(name="[Collection] Folder Name/sub1.ass")],
+        )
+
+        downloader = AsyncMock()
+        downloader.torrents_rename_file = AsyncMock(return_value=True)
+
+        service = RenamerService(async_session, rename_method="advance")
+        await service._rename_subtitles(
+            torrent_info,
+            ["[Collection] Folder Name/sub1.ass"],
+            bangumi,
+            downloader,
+        )
+
+        mock_parser.torrent_parser.assert_called_once()
+        call_kwargs = mock_parser.torrent_parser.call_args[1]
+        assert "torrent_name" not in call_kwargs
+        assert call_kwargs["torrent_path"] == "[Collection] Folder Name/sub1.ass"
+        assert call_kwargs["season"] == 1
+        assert call_kwargs["file_type"] == "subtitle"
+
+
+class TestRenameAllMediaZero:
+    @pytest.fixture
+    def mock_downloader(self):
+        downloader = AsyncMock()
+        downloader.torrents_info.return_value = [
+            Mock(
+                hash="abc123",
+                name="[Group] Subtitles Only",
+                save_path="/data/Bangumi/Test/Season 1",
+                files=[Mock(name="sub1.ass"), Mock(name="sub2.ass")],
+            )
+        ]
+        downloader.torrents_rename_file = AsyncMock(return_value=True)
+        return downloader
+
+    @pytest.fixture
+    def mock_parser(self):
+        with patch("module.services.renamer.TitleParser") as MockParser:
+            parser = MockParser.return_value
+            parser.torrent_parser.return_value = SubtitleFile(
+                media_path="sub1.ass",
+                group=None,
+                title="Parsed Sub",
+                season=1,
+                episode=1,
+                version=None,
+                language="zh",
+                suffix=".ass",
+                is_movie=False,
+                episode_type=None,
+            )
+            yield parser
+
+    @pytest.mark.asyncio
+    async def test_rename_all_media_zero_with_subtitles(
+        self, async_session, mock_downloader, mock_parser
+    ):
+        bangumi = Bangumi(
+            official_title="Test Bangumi",
+            title_raw="Test",
+            season=1,
+            group_name="Group",
+            save_path="/data/Bangumi/Test/Season 1",
+        )
+        async_session.add(bangumi)
+        await async_session.flush()
+
+        torrent = Torrent(
+            bangumi_id=bangumi.id,
+            name="[Group] Subtitles Only",
+            url="https://example.com/torrent",
+            hash="abc123",
+            state=TorrentState.COMPLETED,
+            downloaded=True,
+            renamed_at=None,
+        )
+        async_session.add(torrent)
+        await async_session.flush()
+
+        service = RenamerService(async_session, rename_method="advance")
+        with patch.object(service, "_classify_files", return_value=([], ["sub1.ass"])):
+            with patch.object(service, "_rename_subtitles", new_callable=AsyncMock):
+                result = await service.rename_all(mock_downloader)
+
+        assert len(result) == 1
+        assert result[0]["torrent_id"] == torrent.id
+        assert result[0]["file_count"] == 0
+
+        await async_session.refresh(torrent)
+        assert torrent.renamed_at is not None
+        assert torrent.renamed_file_count == 0
+
+    @pytest.mark.asyncio
+    async def test_rename_all_media_zero_no_subtitles(
+        self, async_session, mock_downloader
+    ):
+        mock_downloader.torrents_info.return_value = [
+            Mock(
+                hash="abc123",
+                name="[Group] Empty Torrent",
+                save_path="/data/Bangumi/Test/Season 1",
+                files=[],
+            )
+        ]
+
+        bangumi = Bangumi(
+            official_title="Test Bangumi",
+            title_raw="Test",
+            season=1,
+            group_name="Group",
+            save_path="/data/Bangumi/Test/Season 1",
+        )
+        async_session.add(bangumi)
+        await async_session.flush()
+
+        torrent = Torrent(
+            bangumi_id=bangumi.id,
+            name="[Group] Empty Torrent",
+            url="https://example.com/torrent",
+            hash="abc123",
+            state=TorrentState.COMPLETED,
+            downloaded=True,
+            renamed_at=None,
+        )
+        async_session.add(torrent)
+        await async_session.flush()
+
+        service = RenamerService(async_session, rename_method="advance")
+        result = await service.rename_all(mock_downloader)
+
+        assert len(result) == 1
+        assert result[0]["torrent_id"] == torrent.id
+        assert result[0]["file_count"] == 0
+
+        await async_session.refresh(torrent)
+        assert torrent.renamed_at is not None
+        assert torrent.renamed_file_count == 0

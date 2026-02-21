@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends
@@ -21,6 +22,7 @@ from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
 from module.services.collector import SeasonCollectorService
 from module.services.downloader.factory import create_downloader
+from module.network.request_contents import RequestContent
 from module.services.rss_engine import RSSEngine as AsyncRSSEngine
 from module.services.search_adapter import AsyncRSSAnalyserAdapter
 
@@ -75,7 +77,13 @@ async def add_rss(
     rss_repo = RSSRepository(session)
     bangumi_repo = BangumiRepository(session)
 
-    rss_name = rss.name or rss.url
+    if rss.name:
+        rss_name = rss.name
+    else:
+        def _fetch_title():
+            with RequestContent() as req:
+                return req.get_rss_title(rss.url)
+        rss_name = await asyncio.to_thread(_fetch_title) or rss.url
 
     try:
         if skip_bangumi:

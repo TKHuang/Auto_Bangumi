@@ -213,6 +213,15 @@ class RenamerService:
                 logger.warning(
                     f"[Renamer] Torrent {db_torrent.id} has no media files"
                 )
+                if subtitle_files:
+                    await self._rename_subtitles(
+                        torrent_info,
+                        subtitle_files,
+                        bangumi,
+                        downloader,
+                    )
+                success = True
+                file_count = 0
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -344,7 +353,7 @@ class RenamerService:
                     bangumi,
                     downloader,
                 )
-                if success and subtitle_files:
+                if (success or retrigger) and subtitle_files:
                     await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
@@ -358,13 +367,30 @@ class RenamerService:
                     bangumi,
                     downloader,
                 )
-                if success and subtitle_files:
+                if (success or retrigger) and subtitle_files:
                     await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+            else:
+                logger.warning(
+                    f"[Renamer] Torrent {db_torrent.id} has no media files"
+                )
+                if subtitle_files:
+                    await self._rename_subtitles(
+                        torrent_info,
+                        subtitle_files,
+                        bangumi,
+                        downloader,
+                    )
+                success = True
+                file_count = 0
+
+            if retrigger and not success:
+                success = True
+                file_count = 0
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -480,7 +506,6 @@ class RenamerService:
         for subtitle_path in subtitle_files:
             sub = self.parser.torrent_parser(
                 torrent_path=subtitle_path,
-                torrent_name=torrent_info.name,
                 season=bangumi.season,
                 file_type="subtitle",
             )

@@ -297,6 +297,21 @@ class PikPakDownloader:
         self._task_cache = None
         self._task_cache_time = 0
 
+    def _invalidate_path_cache(self):
+        """Clear pikpakapi's internal folder-path-to-ID cache.
+
+        The singleton PikPakDownloader preserves the pikpakapi client across
+        requests. Its ``_path_id_cache`` maps cloud folder paths to IDs and
+        never expires, so after a folder is deleted and recreated the cache
+        still holds the old (now-invalid) folder ID.
+
+        Call this at the start of every rename/listing cycle so that
+        ``path_to_id`` will re-query PikPak for fresh IDs.
+        """
+        if hasattr(self._client, "_path_id_cache"):
+            self._client._path_id_cache.clear()
+            logger.debug("[PikPak] Cleared _path_id_cache")
+
     @pikpak_retry_async(max_retries=3, initial_delay=10.0)
     async def auth(self) -> bool:
         """Authenticate with PikPak API.
@@ -591,6 +606,8 @@ class PikPakDownloader:
         else:
             phases = None
 
+        self._invalidate_path_cache()
+
         all_tasks = await self._get_all_tasks_cached()
         tasks = [t for t in all_tasks if phases is None or t.get("phase", "") in phases]
         torrents: list[TorrentInfo] = []
@@ -660,10 +677,16 @@ class PikPakDownloader:
                     basename = task_file_name.rsplit("/", 1)[-1] if task_file_name else ""
                     is_single_file = bool(basename) and "." in basename and not basename.startswith(".")
 
+                    logger.info(
+                        f"[PikPak] File detection: task_file_name='{task_file_name}', "
+                        f"is_single_file={is_single_file}, save_path='{save_path}'"
+                    )
+
                     if task_file_name and is_single_file:
                         files = [TorrentFile(name=task_file_name, size=task_file_size, path=task_file_name)]
                     elif task_file_name:
                         collection_path = f"{save_path}/{task_file_name}"
+                        logger.info(f"[PikPak] Collection detected, listing: {collection_path}")
                         raw_files = await self._list_files_in_folder(collection_path)
                         files = [
                             TorrentFile(
@@ -674,8 +697,9 @@ class PikPakDownloader:
                             for f in raw_files
                         ]
                     else:
+                        logger.info(f"[PikPak] No file_name, listing save_path: {save_path}")
                         files = await self._list_files_in_folder(save_path)
-                    logger.debug(f"Task {task.get('name')}: found {len(files)} files")
+                    logger.info(f"[PikPak] Task '{task.get('name')}': found {len(files)} files")
                     # If no files found, file was deleted from PikPak storage
                     if not files:
                         state = "missing"
@@ -945,7 +969,7 @@ class PikPakDownloader:
                         )
 
         except Exception as e:
-            logger.debug(f"Error listing files in {folder_path}: {e}")
+            logger.warning(f"[PikPak] Error listing files in {folder_path}: {e}")
 
         return files
 

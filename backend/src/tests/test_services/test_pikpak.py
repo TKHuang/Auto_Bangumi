@@ -807,3 +807,32 @@ class TestPikPakClassAttributes:
     async def test_supports_torrent_files_is_false(self):
         """Test that supports_torrent_files is False for PikPak."""
         assert PikPakDownloader.supports_torrent_files is False
+
+
+class TestInvalidatePathCache:
+    @pytest.mark.asyncio
+    async def test_invalidate_path_cache_clears_cache(self, pikpak_downloader):
+        pikpak_downloader._client._path_id_cache = {"/some/path": {"id": "old_id"}}
+        pikpak_downloader._invalidate_path_cache()
+        assert pikpak_downloader._client._path_id_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_invalidate_path_cache_handles_missing_attribute(
+        self, pikpak_downloader
+    ):
+        if hasattr(pikpak_downloader._client, "_path_id_cache"):
+            delattr(pikpak_downloader._client, "_path_id_cache")
+        pikpak_downloader._invalidate_path_cache()
+
+    @pytest.mark.asyncio
+    async def test_torrents_info_calls_invalidate_path_cache(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.offline_list = AsyncMock(return_value={"tasks": []})
+
+        with patch.object(
+            pikpak_downloader, "_invalidate_path_cache"
+        ) as mock_invalidate:
+            await pikpak_downloader.torrents_info()
+            mock_invalidate.assert_called_once()
