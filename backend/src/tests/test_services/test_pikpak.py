@@ -485,22 +485,38 @@ class TestCollectionTorrentDetection:
             }
         )
 
-        mock_instance.path_to_id = AsyncMock(
-            return_value=[
+        async def path_to_id_side_effect(path, create=False):
+            if folder_name in path:
+                return [
+                    {"id": "dl_id", "name": "downloads"},
+                    {"id": "bg_id", "name": "Bangumi"},
+                    {"id": "col_id", "name": folder_name},
+                ]
+            return [
                 {"id": "dl_id", "name": "downloads"},
                 {"id": "bg_id", "name": "Bangumi"},
-                {"id": "col_id", "name": folder_name},
             ]
-        )
-        mock_instance.file_list = AsyncMock(
-            return_value={
-                "files": [
-                    {"name": "episode01.mkv", "kind": "drive#file", "id": "e1"},
-                    {"name": "episode02.mkv", "kind": "drive#file", "id": "e2"},
-                    {"name": "subtitles.zip", "kind": "drive#file", "id": "s1"},
-                ]
-            }
-        )
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+
+        async def file_list_side_effect(parent_id=None):
+            if parent_id == "col_id":
+                return {
+                    "files": [
+                        {"name": "episode01.mkv", "kind": "drive#file", "id": "e1"},
+                        {"name": "episode02.mkv", "kind": "drive#file", "id": "e2"},
+                        {"name": "subtitles.zip", "kind": "drive#file", "id": "s1"},
+                    ]
+                }
+            if parent_id == "bg_id":
+                return {
+                    "files": [
+                        {"name": folder_name, "kind": "drive#folder", "id": "col_id"},
+                    ]
+                }
+            return {"files": []}
+
+        mock_instance.file_list = AsyncMock(side_effect=file_list_side_effect)
 
         result = await pikpak_downloader.torrents_info(status_filter="completed")
 
@@ -510,7 +526,6 @@ class TestCollectionTorrentDetection:
         assert files[0].name == f"{folder_name}/episode01.mkv"
         assert files[1].name == f"{folder_name}/episode02.mkv"
         assert files[2].name == f"{folder_name}/subtitles.zip"
-        mock_instance.file_list.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_collection_empty_folder_marks_missing(
@@ -836,3 +851,225 @@ class TestInvalidatePathCache:
         ) as mock_invalidate:
             await pikpak_downloader.torrents_info()
             mock_invalidate.assert_called_once()
+
+
+class TestCollectionRetriggerRootFiles:
+    MAGNET_HASH = "abc123def456abc123def456abc123def456abc1"
+    MAGNET_URL = f"magnet:?xt=urn:btih:{MAGNET_HASH}"
+    FOLDER_NAME = "[DMG&LoliHouse] Re Zero [1080p]"
+
+    def _make_task(self):
+        return {
+            "id": "task_1",
+            "name": self.FOLDER_NAME,
+            "phase": "PHASE_TYPE_COMPLETE",
+            "progress": 100,
+            "file_url": self.MAGNET_URL,
+            "file_name": self.FOLDER_NAME,
+            "file_size": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_retrigger_finds_files_moved_to_root(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """After first rename moves media from collection subfolder to save_path
+        root, retrigger should still find those files via root scan."""
+        _, mock_instance = mock_pikpak_api
+        mock_instance.offline_list = AsyncMock(
+            return_value={"tasks": [self._make_task()]}
+        )
+
+        call_count = 0
+
+        async def path_to_id_side_effect(path, create=False):
+            nonlocal call_count
+            call_count += 1
+            if self.FOLDER_NAME in path:
+                return [
+                    {"id": "dl_id", "name": "downloads"},
+                    {"id": "bg_id", "name": "Bangumi"},
+                    {"id": "col_id", "name": self.FOLDER_NAME},
+                ]
+            return [
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+
+        file_list_call_count = 0
+
+        async def file_list_side_effect(parent_id=None):
+            nonlocal file_list_call_count
+            file_list_call_count += 1
+            if parent_id == "col_id":
+                return {"files": [
+                    {"name": "subtitles.zip", "kind": "drive#file", "id": "s1"},
+                ]}
+            if parent_id == "bg_id":
+                return {"files": [
+                    {"name": "Re Zero S02E01.mkv", "kind": "drive#file", "id": "m1"},
+                    {"name": "Re Zero S02E02.mkv", "kind": "drive#file", "id": "m2"},
+                    {"name": self.FOLDER_NAME, "kind": "drive#folder", "id": "col_id"},
+                ]}
+            return {"files": []}
+
+        mock_instance.file_list = AsyncMock(side_effect=file_list_side_effect)
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        files = result[0].files
+        file_names = [f.name for f in files]
+        assert f"{self.FOLDER_NAME}/subtitles.zip" in file_names
+        assert "Re Zero S02E01.mkv" in file_names
+        assert "Re Zero S02E02.mkv" in file_names
+        assert len(files) == 3
+
+    @pytest.mark.asyncio
+    async def test_root_files_excluded_by_collection_prefix_match(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Root files whose name matches a collection-prefixed name are still
+        included because they have different relative paths — this is correct
+        since they represent different physical locations."""
+        _, mock_instance = mock_pikpak_api
+        mock_instance.offline_list = AsyncMock(
+            return_value={"tasks": [self._make_task()]}
+        )
+
+        async def path_to_id_side_effect(path, create=False):
+            if self.FOLDER_NAME in path:
+                return [
+                    {"id": "dl_id", "name": "downloads"},
+                    {"id": "bg_id", "name": "Bangumi"},
+                    {"id": "col_id", "name": self.FOLDER_NAME},
+                ]
+            return [
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+
+        async def file_list_side_effect(parent_id=None):
+            if parent_id == "col_id":
+                return {"files": [
+                    {"name": "episode01.mkv", "kind": "drive#file", "id": "e1"},
+                ]}
+            if parent_id == "bg_id":
+                return {"files": [
+                    {"name": "episode01.mkv", "kind": "drive#file", "id": "e1_root"},
+                    {"name": self.FOLDER_NAME, "kind": "drive#folder", "id": "col_id"},
+                ]}
+            return {"files": []}
+
+        mock_instance.file_list = AsyncMock(side_effect=file_list_side_effect)
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        files = result[0].files
+        names = [f.name for f in files]
+        assert f"{self.FOLDER_NAME}/episode01.mkv" in names
+        assert "episode01.mkv" in names
+        assert len(files) == 2
+
+    @pytest.mark.asyncio
+    async def test_first_rename_no_root_files_still_works(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """On first rename (no files moved yet), root scan finds nothing extra
+        and collection subfolder files are returned normally."""
+        _, mock_instance = mock_pikpak_api
+        mock_instance.offline_list = AsyncMock(
+            return_value={"tasks": [self._make_task()]}
+        )
+
+        async def path_to_id_side_effect(path, create=False):
+            if self.FOLDER_NAME in path:
+                return [
+                    {"id": "dl_id", "name": "downloads"},
+                    {"id": "bg_id", "name": "Bangumi"},
+                    {"id": "col_id", "name": self.FOLDER_NAME},
+                ]
+            return [
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+
+        async def file_list_side_effect(parent_id=None):
+            if parent_id == "col_id":
+                return {"files": [
+                    {"name": "ep01.mkv", "kind": "drive#file", "id": "e1"},
+                    {"name": "ep02.mkv", "kind": "drive#file", "id": "e2"},
+                ]}
+            if parent_id == "bg_id":
+                return {"files": [
+                    {
+                        "name": self.FOLDER_NAME,
+                        "kind": "drive#folder",
+                        "id": "col_id",
+                    },
+                ]}
+            return {"files": []}
+
+        mock_instance.file_list = AsyncMock(side_effect=file_list_side_effect)
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        files = result[0].files
+        assert len(files) == 2
+        assert files[0].name == f"{self.FOLDER_NAME}/ep01.mkv"
+        assert files[1].name == f"{self.FOLDER_NAME}/ep02.mkv"
+
+
+class TestListDirectFilesInFolder:
+
+    @pytest.mark.asyncio
+    async def test_returns_only_files_not_folders(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[{"id": "root_id", "name": "Season 2"}]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "ep01.mkv", "kind": "drive#file", "id": "f1"},
+                    {"name": "Subfolder", "kind": "drive#folder", "id": "d1"},
+                    {"name": "ep02.mkv", "kind": "drive#file", "id": "f2"},
+                ]
+            }
+        )
+
+        files = await pikpak_downloader._list_direct_files_in_folder("/Season 2")
+
+        assert len(files) == 2
+        assert files[0].name == "ep01.mkv"
+        assert files[1].name == "ep02.mkv"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_for_missing_folder(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.path_to_id = AsyncMock(return_value=None)
+
+        files = await pikpak_downloader._list_direct_files_in_folder("/nonexistent")
+
+        assert files == []
+
+    @pytest.mark.asyncio
+    async def test_handles_api_error_gracefully(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        mock_instance.path_to_id = AsyncMock(side_effect=Exception("API error"))
+
+        files = await pikpak_downloader._list_direct_files_in_folder("/broken")
+
+        assert files == []

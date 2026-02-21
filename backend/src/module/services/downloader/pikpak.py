@@ -652,23 +652,13 @@ class PikPakDownloader:
                 )
                 continue
 
-            # Get file list for completed downloads (needed for Renamer)
             files: list[TorrentFile] = []
-            # Check file existence for completed/error states
-            logger.debug(
-                f"Task {task.get('name')}: phase={phase}, state={state}, "
-                f"save_path={save_path}"
-            )
             if state == "completed" and save_path:
                 # Only skip renamed torrents when fetching for rename cycle
                 # (status_filter="completed"), not when fetching all for status display
                 if status_filter == "completed":
-                    # Check if already renamed - skip file listing entirely (saves API call!)
                     if torrent_record and torrent_record.renamed_at:
-                        logger.debug(
-                            f"Skipping already-renamed torrent: {task.get('name')}"
-                        )
-                        continue  # Skip this task entirely - don't add to result list
+                        continue
 
                     # PikPak sets file_name to the folder name (no extension)
                     # for collection torrents (合集) — detect via extension.
@@ -696,24 +686,22 @@ class PikPakDownloader:
                             )
                             for f in raw_files
                         ]
+                        # On retrigger, media files from a previous rename cycle
+                        # may have been moved to save_path root (parent folder).
+                        # Scan root for direct files and merge any not already found.
+                        root_files = await self._list_direct_files_in_folder(save_path)
+                        seen_names = {f.name for f in files}
+                        for rf in root_files:
+                            if rf.name not in seen_names:
+                                files.append(rf)
                     else:
                         logger.info(f"[PikPak] No file_name, listing save_path: {save_path}")
                         files = await self._list_files_in_folder(save_path)
                     logger.info(f"[PikPak] Task '{task.get('name')}': found {len(files)} files")
-                    # If no files found, file was deleted from PikPak storage
                     if not files:
                         state = "missing"
-                        logger.debug(
-                            f"Task {task.get('name')} marked as missing - "
-                            "files not found in PikPak storage"
-                        )
             elif state == "error":
-                # Only skip error tasks when fetching for rename cycle
                 if status_filter == "completed":
-                    logger.debug(
-                        f"Skipping file listing for error task: {task.get('name')}"
-                    )
-                    # Error tasks have no files to rename, skip them entirely
                     continue
 
             torrent_info = TorrentInfo(
@@ -970,6 +958,46 @@ class PikPakDownloader:
 
         except Exception as e:
             logger.warning(f"[PikPak] Error listing files in {folder_path}: {e}")
+
+        return files
+
+    async def _list_direct_files_in_folder(
+        self, folder_path: str
+    ) -> list[TorrentFile]:
+        """List only direct (non-recursive) files in a PikPak cloud folder.
+
+        Unlike _list_files_in_folder, this does NOT recurse into subfolders.
+        Used to find media files that were moved from a collection subfolder
+        to the save_path root by a previous rename cycle.
+
+        Args:
+            folder_path: Cloud folder path to list.
+
+        Returns:
+            List of TorrentFile objects for files directly in the folder.
+        """
+        files: list[TorrentFile] = []
+        try:
+            if not folder_path.startswith("/"):
+                folder_path = f"/{folder_path}"
+
+            path_info = await self._client.path_to_id(folder_path, create=False)
+            if not path_info:
+                return files
+
+            folder_id = path_info[-1].get("id")
+            if not folder_id:
+                return files
+
+            result = await self._client.file_list(parent_id=folder_id)
+            for f in result.get("files", []):
+                if f.get("kind") == "drive#file":
+                    file_name = f.get("name", "")
+                    files.append(
+                        TorrentFile(name=file_name, size=0, path=file_name)
+                    )
+        except Exception as e:
+            logger.debug(f"[PikPak] Error listing direct files in {folder_path}: {e}")
 
         return files
 
