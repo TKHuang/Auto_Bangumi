@@ -15,6 +15,7 @@ from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
+from module.domain.models.torrent import Torrent, TorrentState
 from module.repositories.torrent import TorrentRepository
 from module.services.downloader.factory import create_downloader
 from module.services.renamer import RenamerService
@@ -33,7 +34,7 @@ async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
     torrents = await downloader.torrents_info(status_filter=None)
     matched = [t.hash for t in torrents if t.save_path == bangumi.save_path]
     if not matched and bangumi.id:
-        db_torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+        db_torrents = await torrent_repo.get_visible_by_bangumi(bangumi.id)
         matched = [t.hash for t in db_torrents if t.hash]
     return matched
 
@@ -58,7 +59,7 @@ async def get_all_data(session: AsyncSession = Depends(get_db_session)):
     for orm_bangumi in orm_bangumi_list:
         schema_bangumi = Bangumi.model_validate(orm_bangumi)
         if orm_bangumi.id:
-            torrents = await torrent_repo.get_by_bangumi(orm_bangumi.id)
+            torrents = await torrent_repo.get_visible_by_bangumi(orm_bangumi.id)
             schema_bangumi.torrent_count = len(torrents)
             if online_hashes is not None:
                 schema_bangumi.completed_count = sum(
@@ -436,7 +437,7 @@ async def get_torrent_status(bangumi_id: int, session: AsyncSession = Depends(ge
     torrent_repo = TorrentRepository(session)
     downloader = create_downloader(settings, session)
 
-    db_torrents = await torrent_repo.get_by_bangumi(bangumi_id)
+    db_torrents = await torrent_repo.get_visible_by_bangumi(bangumi_id)
     if not db_torrents:
         return []
 
@@ -480,6 +481,15 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
         return JSONResponse(
             status_code=404,
             content={"msg_en": "Torrent not found in database.", "msg_zh": "数据库中未找到该种子。"},
+        )
+
+    if torrent.state == TorrentState.EXCLUDED:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "msg_en": "Cannot download an excluded torrent.",
+                "msg_zh": "无法下载已排除的种子。",
+            },
         )
 
     bangumi = None
@@ -551,15 +561,36 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
 async def activate_pending_bangumi(
     bangumi_id: int,
     filter: str = Body(default=None, embed=True),
+    excluded_hashes: list[str] | None = Body(default=None, embed=True),
     session: AsyncSession = Depends(get_db_session),
 ):
     bangumi_repo = BangumiRepository(session)
+    torrent_repo = TorrentRepository(session)
     success, message = await bangumi_repo.activate_pending(bangumi_id, filter)
     if not success:
         return JSONResponse(
             status_code=400,
             content={"msg_en": message, "msg_zh": "该番剧不在待审核状态"},
         )
+
+    # Insert manually-excluded torrents as "downloaded" so they are
+    # skipped by download_bangumi and future cron refreshes.
+    if excluded_hashes:
+        bangumi = await bangumi_repo.get_by_id(bangumi_id)
+        excluded_torrents = [
+            Torrent(
+                name="",
+                url="",
+                hash=h,
+                bangumi_id=bangumi_id,
+                rss_id=bangumi.rss_id if bangumi else None,
+                downloaded=True,
+                state=TorrentState.EXCLUDED,
+            )
+            for h in excluded_hashes
+            if h
+        ]
+        await torrent_repo.add_all_or_ignore(excluded_torrents)
 
     await session.commit()
 

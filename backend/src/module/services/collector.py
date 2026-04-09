@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.domain.models.bangumi import Bangumi
-from module.domain.models.torrent import Torrent
+from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.value_objects import ResponseModel, gen_save_path
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
@@ -234,6 +234,7 @@ class SeasonCollectorService:
         data: Bangumi,
         parser: str = "mikan",
         delete_files: bool = False,
+        excluded_hashes: list[str] | None = None,
     ) -> ResponseModel:
         """Subscribe to a single bangumi.
 
@@ -365,6 +366,28 @@ class SeasonCollectorService:
                 "pending_review": False,
                 "save_path": save_path,
             })
+
+            # Insert manually-excluded torrents as "downloaded" so they are
+            # skipped by download_bangumi and future cron refreshes.
+            if excluded_hashes:
+                excluded_torrents = [
+                    Torrent(
+                        name="",
+                        url="",
+                        hash=h,
+                        bangumi_id=created_bangumi.id,
+                        rss_id=data.rss_id,
+                        downloaded=True,
+                        state=TorrentState.EXCLUDED,
+                    )
+                    for h in excluded_hashes
+                    if h
+                ]
+                await torrent_repo.add_all_or_ignore(excluded_torrents)
+                logger.info(
+                    f"[Collector] Inserted {len(excluded_hashes)} excluded torrents "
+                    f"for {data.official_title}"
+                )
 
             await session.commit()
             logger.info(

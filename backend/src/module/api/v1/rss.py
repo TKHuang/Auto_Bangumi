@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -361,7 +361,7 @@ async def get_torrent(rss_id: int, session: AsyncSession = Depends(get_db_sessio
     torrent_repo = TorrentRepository(session)
     downloader = create_downloader(settings, session)
 
-    db_torrents = await torrent_repo.get_by_rss(rss_id)
+    db_torrents = await torrent_repo.get_visible_by_rss(rss_id)
     if not db_torrents:
         return []
 
@@ -503,12 +503,17 @@ async def download_collection(data: Bangumi, session: AsyncSession = Depends(get
 @router.post(
     "/subscribe", response_model=APIResponse, dependencies=[Depends(get_current_user)]
 )
-async def subscribe(data: Bangumi, rss: RSSItem, file: bool = False, session: AsyncSession = Depends(get_db_session)):
+async def subscribe(
+    data: Bangumi, rss: RSSItem, file: bool = False,
+    excluded_hashes: list[str] | None = Body(default=None),
+    session: AsyncSession = Depends(get_db_session),
+):
     downloader = create_downloader(settings, session)
     domain_data = _sqlmodel_to_domain_bangumi(data)
     try:
         result = await SeasonCollectorService.subscribe_season(
             session, downloader, domain_data, parser=rss.parser, delete_files=file,
+            excluded_hashes=excluded_hashes,
         )
         return u_response(result)
     except ValueError as e:
