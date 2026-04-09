@@ -34,7 +34,13 @@ export const apiDownload = {
       params.set('title_raw', titleRaw);
     }
     const { data } = await axios.post<
-      { name: string; url: string; homepage: string; filter: boolean }[]
+      {
+        name: string;
+        url: string;
+        homepage: string;
+        filter: boolean;
+        hash: string | null;
+      }[]
     >(`api/v1/rss/analysis/torrents?${params.toString()}`, rss_item);
     return data;
   },
@@ -57,7 +63,12 @@ export const apiDownload = {
     return data;
   },
 
-  async subscribe(bangumiData: BangumiRule, rss: RSS, deleteFiles: boolean = false) {
+  async subscribe(
+    bangumiData: BangumiRule,
+    rss: RSS,
+    deleteFiles: boolean = false,
+    excludedHashes?: string[]
+  ) {
     const { id: _, ...rest } = bangumiData;
     const bangumi = {
       ...rest,
@@ -67,6 +78,7 @@ export const apiDownload = {
     const postData = {
       data: bangumi,
       rss,
+      excluded_hashes: excludedHashes?.length ? excludedHashes : undefined,
     };
     const { data } = await axios.post<ApiSuccess>(
       `api/v1/rss/subscribe?file=${deleteFiles}`,
@@ -75,7 +87,11 @@ export const apiDownload = {
     return data;
   },
 
-  async subscribeBatch(bangumiList: BangumiRule[], rss: RSS, deleteFiles: boolean = false) {
+  async subscribeBatch(
+    bangumiList: BangumiRule[],
+    rss: RSS,
+    deleteFiles: boolean = false
+  ) {
     const convertedList = bangumiList.map((bangumiData) => {
       const { id: _, ...rest } = bangumiData;
       return {
