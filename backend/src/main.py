@@ -88,6 +88,13 @@ def _run_migrations(connection):
     if result.rowcount > 0:
         logger.info(f"[Migration] Updated {result.rowcount} bangumi records with NULL/empty group_name to 'Unknown'")
 
+    # Backfill excluded sentinel rows: mark name='', url='', downloaded=1 as EXCLUDED
+    result = connection.execute(
+        text("UPDATE torrent SET state = 'excluded' WHERE name = '' AND url = '' AND downloaded = 1 AND state != 'excluded'")
+    )
+    if result.rowcount > 0:
+        logger.info(f"[Migration] Backfilled {result.rowcount} excluded sentinel torrent rows")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -198,8 +205,7 @@ def create_app() -> FastAPI:
                 if path in files:
                     return FileResponse(f"dist/{path}")
                 else:
-                    context = {"request": request}
-                    return templates.TemplateResponse("index.html", context)
+                    return templates.TemplateResponse(request=request, name="index.html")
     else:
 
         @app.get("/", status_code=302, tags=["html"])
