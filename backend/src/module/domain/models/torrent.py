@@ -11,7 +11,14 @@ from .base import Base, TimestampMixin, VersionMixin
 
 
 class TorrentState(str, enum.Enum):
-    """Torrent lifecycle states."""
+    """Torrent lifecycle states.
+
+    Note: Most states are unused (all records default to PENDING).
+    Real-time status comes from downloader API queries.
+    EXCLUDED is actively used to mark manually-excluded sentinel rows
+    that exist solely to prevent cronjob re-downloads.
+    Any query returning user-visible torrents must filter state != EXCLUDED.
+    """
 
     PENDING = "pending"
     QUEUED = "queued"
@@ -22,6 +29,7 @@ class TorrentState(str, enum.Enum):
     ERROR = "error"
     STALE = "stale"
     MISSING = "missing"
+    EXCLUDED = "excluded"
 
 
 class Torrent(Base, TimestampMixin, VersionMixin):

@@ -5,7 +5,7 @@ from sqlalchemy import and_, delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from module.domain.models.torrent import Torrent
+from module.domain.models.torrent import Torrent, TorrentState
 
 
 class TorrentRepository:
@@ -38,6 +38,7 @@ class TorrentRepository:
         values = []
         for t in torrents:
             downloaded = getattr(t, "downloaded", None)
+            state = getattr(t, "state", None)
             val = {
                 "bangumi_id": t.bangumi_id,
                 "rss_id": t.rss_id,
@@ -47,6 +48,7 @@ class TorrentRepository:
                 "downloaded": downloaded if downloaded is not None else False,
                 "hash": t.hash,
                 "pikpak_cloud_path": getattr(t, "pikpak_cloud_path", None),
+                "state": state.value if isinstance(state, TorrentState) else TorrentState.PENDING.value,
             }
             values.append(val)
 
@@ -62,14 +64,41 @@ class TorrentRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_visible_by_bangumi(self, bangumi_id: int) -> list[Torrent]:
+        stmt = select(Torrent).where(
+            and_(
+                Torrent.bangumi_id == bangumi_id,
+                Torrent.state != TorrentState.EXCLUDED,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_by_rss(self, rss_id: int) -> list[Torrent]:
         stmt = select(Torrent).where(Torrent.rss_id == rss_id)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_unrenamed(self) -> list[Torrent]:
-        stmt = select(Torrent).where(Torrent.renamed_at.is_(None))
+    async def get_visible_by_rss(self, rss_id: int) -> list[Torrent]:
+        stmt = select(Torrent).where(
+            and_(
+                Torrent.rss_id == rss_id,
+                Torrent.state != TorrentState.EXCLUDED,
+            )
+        )
         result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    def _unrenamed_base_stmt(self):
+        return select(Torrent).where(
+            and_(
+                Torrent.renamed_at.is_(None),
+                Torrent.state != TorrentState.EXCLUDED,
+            )
+        )
+
+    async def get_unrenamed(self) -> list[Torrent]:
+        result = await self.session.execute(self._unrenamed_base_stmt())
         return list(result.scalars().all())
 
     async def mark_renamed(
@@ -118,7 +147,10 @@ class TorrentRepository:
             values["pikpak_cloud_path"] = new_cloud_path
         stmt = (
             update(Torrent)
-            .where(Torrent.bangumi_id == bangumi_id)
+            .where(
+                Torrent.bangumi_id == bangumi_id,
+                Torrent.state != TorrentState.EXCLUDED,
+            )
             .values(**values)
         )
         await self.session.execute(stmt)
@@ -152,8 +184,7 @@ class TorrentRepository:
         return result.scalars().first()
 
     async def get_unrenamed_hashes(self) -> set[str]:
-        stmt = select(Torrent).where(Torrent.renamed_at.is_(None))
-        result = await self.session.execute(stmt)
+        result = await self.session.execute(self._unrenamed_base_stmt())
         torrents = result.scalars().all()
         return {t.hash.lower() for t in torrents if t.hash}
 
