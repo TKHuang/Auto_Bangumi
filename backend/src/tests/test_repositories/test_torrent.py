@@ -593,6 +593,173 @@ class TestTorrentRepository:
         assert len(rss1_torrents) == 0
         assert len(rss2_torrents) == 1
 
+    # --- EXCLUDED state tests ---
+
+    async def test_get_visible_by_bangumi_filters_excluded(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            await repo.create({
+                "name": "Normal Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash_normal",
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "",
+                "url": "",
+                "hash": "hash_excluded",
+                "bangumi_id": 1,
+                "downloaded": True,
+                "state": TorrentState.EXCLUDED,
+            })
+
+        async with async_session.begin():
+            all_torrents = await repo.get_by_bangumi(1)
+            visible_torrents = await repo.get_visible_by_bangumi(1)
+
+        assert len(all_torrents) == 2
+        assert len(visible_torrents) == 1
+        assert visible_torrents[0].hash == "hash_normal"
+
+    async def test_get_visible_by_rss_filters_excluded(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            await repo.create({
+                "name": "Normal Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash_normal",
+                "rss_id": 1,
+                "bangumi_id": 1,
+            })
+            await repo.create({
+                "name": "",
+                "url": "",
+                "hash": "hash_excluded",
+                "rss_id": 1,
+                "bangumi_id": 2,
+                "downloaded": True,
+                "state": TorrentState.EXCLUDED,
+            })
+
+        async with async_session.begin():
+            all_torrents = await repo.get_by_rss(1)
+            visible_torrents = await repo.get_visible_by_rss(1)
+
+        assert len(all_torrents) == 2
+        assert len(visible_torrents) == 1
+        assert visible_torrents[0].hash == "hash_normal"
+
+    async def test_add_all_or_ignore_writes_excluded_state(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        excluded = Torrent(
+            name="",
+            url="",
+            hash="hash_excl",
+            bangumi_id=1,
+            downloaded=True,
+            state=TorrentState.EXCLUDED,
+        )
+
+        async with async_session.begin():
+            await repo.add_all_or_ignore([excluded])
+
+        async with async_session.begin():
+            torrent = await repo.get_by_hash("hash_excl")
+
+        assert torrent is not None
+        assert torrent.state == TorrentState.EXCLUDED
+        assert torrent.downloaded is True
+        assert torrent.name == ""
+
+    async def test_get_unrenamed_excludes_excluded_state(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            await repo.create({
+                "name": "Unrenamed Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash_unrenamed",
+                "bangumi_id": 1,
+                "downloaded": True,
+            })
+            await repo.create({
+                "name": "",
+                "url": "",
+                "hash": "hash_excluded",
+                "bangumi_id": 1,
+                "downloaded": True,
+                "state": TorrentState.EXCLUDED,
+            })
+
+        async with async_session.begin():
+            unrenamed = await repo.get_unrenamed()
+            unrenamed_hashes = await repo.get_unrenamed_hashes()
+
+        assert len(unrenamed) == 1
+        assert unrenamed[0].hash == "hash_unrenamed"
+        assert "hash_excluded" not in unrenamed_hashes
+        assert "hash_unrenamed" in unrenamed_hashes
+
+    async def test_clear_rename_status_skips_excluded(self, async_session):
+        repo = TorrentRepository(async_session)
+        from datetime import datetime, timezone
+
+        async with async_session.begin():
+            await repo.create({
+                "name": "Normal Torrent",
+                "url": "https://example.com/t1",
+                "hash": "hash_normal",
+                "bangumi_id": 1,
+                "renamed_at": datetime.now(timezone.utc),
+                "renamed_file_count": 3,
+            })
+            await repo.create({
+                "name": "",
+                "url": "",
+                "hash": "hash_excluded",
+                "bangumi_id": 1,
+                "downloaded": True,
+                "state": TorrentState.EXCLUDED,
+            })
+
+        async with async_session.begin():
+            await repo.clear_rename_status(1)
+
+        async with async_session.begin():
+            normal = await repo.get_by_hash("hash_normal")
+            excluded = await repo.get_by_hash("hash_excluded")
+
+        assert normal.renamed_at is None
+        assert excluded.state == TorrentState.EXCLUDED
+
+    async def test_dedup_still_works_with_excluded(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        excluded = Torrent(
+            name="", url="", hash="hash_dedup", bangumi_id=1,
+            downloaded=True, state=TorrentState.EXCLUDED,
+        )
+        normal = Torrent(
+            name="Normal", url="https://example.com", hash="hash_dedup", bangumi_id=1,
+        )
+
+        async with async_session.begin():
+            count1 = await repo.add_all_or_ignore([excluded])
+
+        async with async_session.begin():
+            count2 = await repo.add_all_or_ignore([normal])
+
+        assert count1 == 1
+        assert count2 == 0  # conflict: same hash+bangumi_id, skipped
+
+        async with async_session.begin():
+            torrent = await repo.get_by_hash("hash_dedup")
+
+        assert torrent.state == TorrentState.EXCLUDED  # original stays
+
     async def test_delete_all_removes_all_torrents(self, async_session):
         repo = TorrentRepository(async_session)
         
