@@ -590,14 +590,25 @@ class RSSEngine:
                 "count": 0,
             }
 
+        # Title match: when rss_link is an aggregate feed, only keep torrents
+        # whose name contains this bangumi's title to avoid cross-contamination.
+        title_matched = []
+        for torrent in all_torrents:
+            if (bangumi.official_title and bangumi.official_title in torrent.name) or \
+               (bangumi.title_raw and bangumi.title_raw in torrent.name):
+                title_matched.append(torrent)
+        # If title matching yields nothing, fall back to all (non-aggregate single-bangumi feeds)
+        if not title_matched:
+            title_matched = all_torrents
+
         filtered_torrents = []
         if bangumi.filter:
             _filter = bangumi.filter.replace(",", "|")
-            for torrent in all_torrents:
+            for torrent in title_matched:
                 if not re.search(_filter, torrent.name, re.IGNORECASE):
                     filtered_torrents.append(torrent)
         else:
-            filtered_torrents = all_torrents
+            filtered_torrents = title_matched
 
         if not filtered_torrents:
             return {

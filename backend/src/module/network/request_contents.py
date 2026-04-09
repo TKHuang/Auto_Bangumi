@@ -120,12 +120,22 @@ class RequestContent(RequestURL):
                 filtered = False
                 if _filter and re.search(_filter, _title, re.IGNORECASE):
                     filtered = True
-                
+
+                _hash = None
+                match = re.search(r"Download/\d+/([A-Fa-f0-9]{40})\.torrent", torrent_url)
+                if match:
+                    _hash = match.group(1).lower()
+                else:
+                    match = re.search(r"btih:([A-Fa-f0-9]{40})", torrent_url)
+                    if match:
+                        _hash = match.group(1).lower()
+
                 torrents.append({
                     "name": _title,
                     "url": torrent_url,
                     "homepage": homepage,
-                    "filter": filtered
+                    "filter": filtered,
+                    "hash": _hash,
                 })
             return torrents
         else:
@@ -184,5 +194,8 @@ class RequestContent(RequestURL):
                 # Strip common RSS provider prefixes
                 if title and title.startswith("Mikan Project - "):
                     title = title[len("Mikan Project - "):]
+                # Strip search result prefix from Mikan search RSS feeds
+                if title and title.startswith("搜索结果: "):
+                    title = title[len("搜索结果: "):]
                 return title
         return None

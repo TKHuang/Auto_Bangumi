@@ -175,6 +175,8 @@ class MockRequestContent:
                 title = title_elem.text
                 if title and title.startswith("Mikan Project - "):
                     title = title[len("Mikan Project - "):]
+                if title and title.startswith("搜索结果: "):
+                    title = title[len("搜索结果: "):]
                 return title
         return None
 
