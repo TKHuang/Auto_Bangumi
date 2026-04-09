@@ -255,8 +255,16 @@ class Torrent(SQLModel, table=True):
     rss_id: Optional[int]       # FK to RSSItem
     name: str
     url: str                    # Torrent/magnet URL
+    hash: Optional[str]         # Torrent info hash (unique with bangumi_id)
+    state: TorrentState         # Default PENDING; EXCLUDED for manually-excluded sentinels
     downloaded: bool = False
+    renamed_at: Optional[datetime]  # Set after successful rename
 ```
+
+**Note:** `state=EXCLUDED` marks sentinel rows inserted when users manually deselect
+torrents during subscription. These rows prevent cronjob re-downloads via the
+`(hash, bangumi_id)` unique constraint. User-visible queries must use
+`get_visible_by_bangumi()` / `get_visible_by_rss()` to filter them out.
 
 ### Model Relationships
 
