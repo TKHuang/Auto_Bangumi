@@ -19,6 +19,7 @@ interface TorrentPreview {
   url: string;
   homepage: string;
   filter: boolean;
+  hash: string | null;
 }
 
 const props = defineProps<{
@@ -179,6 +180,18 @@ function getTorrentsExclude(id: number): TorrentPreview[] {
   return torrents.filter((t) => t.filter);
 }
 
+// Toggle a torrent's filter state (keep ↔ exclude)
+function toggleTorrentFilter(bangumiId: number, torrentUrl: string) {
+  const list = torrentPreviews.value.get(bangumiId);
+  if (!list) return;
+  const torrent = list.find((t) => t.url === torrentUrl);
+  if (torrent) {
+    torrent.filter = !torrent.filter;
+    // Force Map reactivity
+    torrentPreviews.value = new Map(torrentPreviews.value);
+  }
+}
+
 // Fetch torrent preview for a specific bangumi
 async function fetchTorrentPreview(id: number) {
   if (!rssItem.value?.url) return;
@@ -258,7 +271,11 @@ async function activateSelected() {
       // Get the local filter for this bangumi (if edited) or empty string
       const filters = localFilters.value.get(id) || [];
       const filterStr = filters.join(',');
-      await apiBangumi.activatePending(id, filterStr);
+      // Collect manually-excluded torrent hashes
+      const excluded = getTorrentsExclude(id)
+        .map((t) => t.hash)
+        .filter((h): h is string => h !== null);
+      await apiBangumi.activatePending(id, filterStr, excluded);
       successCount++;
     } catch (e) {
       console.error(`Failed to activate bangumi ${id}:`, e);
@@ -513,6 +530,10 @@ watch(show, (visible) => {
                         text="11 green-700 dark:green-300"
                         p-4
                         rounded-4
+                        cursor-pointer
+                        hover:bg="green-100 dark:green-800/30"
+                        transition-colors
+                        @click="toggleTorrentFilter(item.id, torrent.url)"
                       >
                         {{ torrent.name }}
                       </div>
@@ -552,6 +573,11 @@ watch(show, (visible) => {
                         p-4
                         rounded-4
                         class="opacity-60 line-through"
+                        cursor-pointer
+                        hover:bg="red-100 dark:red-800/30"
+                        hover:opacity-80
+                        transition-colors
+                        @click="toggleTorrentFilter(item.id, torrent.url)"
                       >
                         {{ torrent.name }}
                       </div>

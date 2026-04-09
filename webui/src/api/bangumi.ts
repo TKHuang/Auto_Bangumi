@@ -165,10 +165,17 @@ export const apiBangumi = {
    * @param filter - 可选的过滤器字符串
    * @returns axios 请求返回的数据
    */
-  async activatePending(bangumiId: number, filter?: string) {
+  async activatePending(
+    bangumiId: number,
+    filter?: string,
+    excludedHashes?: string[]
+  ) {
+    const body: Record<string, unknown> = {};
+    if (filter !== undefined) body.filter = filter;
+    if (excludedHashes?.length) body.excluded_hashes = excludedHashes;
     const { data } = await axios.post<ApiSuccess>(
       `api/v1/bangumi/${bangumiId}/activate`,
-      filter !== undefined ? { filter } : {}
+      body
     );
     return data;
   },

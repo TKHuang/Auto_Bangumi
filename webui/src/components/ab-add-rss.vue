@@ -56,7 +56,7 @@ const loading = reactive({
 });
 
 const torrents = ref<
-  { name: string; url: string; homepage: string; filter: boolean }[]
+  { name: string; url: string; homepage: string; filter: boolean; hash: string | null }[]
 >([]);
 
 const torrentsKeep = computed(() => torrents.value.filter((t) => !t.filter));
@@ -240,7 +240,14 @@ function subscribe() {
       onFinally() {
         loading.subscribe = false;
       },
-    }).execute(rule.value, rss.value);
+    }).execute(
+      rule.value,
+      rss.value,
+      false,
+      torrentsExclude.value
+        .map((t) => t.hash)
+        .filter((h): h is string => h !== null),
+    );
   }
 }
 </script>
@@ -346,6 +353,10 @@ function subscribe() {
                 text="12 green-700 dark:green-300"
                 p-4
                 rounded-4
+                cursor-pointer
+                hover:bg="green-100 dark:green-800/30"
+                transition-colors
+                @click="torrent.filter = true"
               >
                 {{ torrent.name }}
               </div>
@@ -382,6 +393,11 @@ function subscribe() {
                 p-4
                 rounded-4
                 class="opacity-60 line-through"
+                cursor-pointer
+                hover:bg="red-100 dark:red-800/30"
+                hover:opacity-80
+                transition-colors
+                @click="torrent.filter = false"
               >
                 {{ torrent.name }}
               </div>
