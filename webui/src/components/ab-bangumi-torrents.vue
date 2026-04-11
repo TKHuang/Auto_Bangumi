@@ -16,8 +16,9 @@ const { t, returnUserLangText } = useMyI18n();
 const message = useMessage();
 
 const totalCount = computed(() => torrents.value.length);
+const errorStatuses = new Set(['missing', 'error']);
 const existCount = computed(
-  () => torrents.value.filter((row) => row.status !== 'missing').length
+  () => torrents.value.filter((row) => !errorStatuses.has(row.status)).length
 );
 const dialogTitle = computed(() =>
   totalCount.value > 0
@@ -50,7 +51,7 @@ const columns = computed<any[]>(() => [
         NTag,
         {
           type:
-            row.status === 'missing'
+            row.status === 'missing' || row.status === 'error'
               ? 'error'
               : row.status === 'downloading'
               ? 'info'
@@ -70,7 +71,7 @@ const columns = computed<any[]>(() => [
     width: 80,
     fixed: 'right',
     render: (row: any) => {
-      return row.status !== 'missing'
+      return row.status !== 'missing' && row.status !== 'error'
         ? `${(row.progress * 100).toFixed(1)}%`
         : '-';
     },

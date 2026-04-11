@@ -275,6 +275,15 @@ class SeasonCollectorService:
                     if rss_item.url == data.rss_link:
                         existing_rss_item = rss_item
                         data.rss_id = rss_item.id
+                        # Update RSS name if it doesn't match the resolved title
+                        # (e.g. RSS was created with channel title "搜索结果:X"
+                        # before the actual bangumi title was parsed)
+                        if data.official_title and rss_item.name != data.official_title:
+                            rss_item.name = data.official_title
+                            await session.flush()
+                            logger.debug(
+                                f"[Collector] Updated RSS name to '{data.official_title}'"
+                            )
                         logger.debug(f"[Collector] Found existing RSS with ID {data.rss_id}")
                         break
 

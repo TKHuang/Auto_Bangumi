@@ -305,6 +305,31 @@ class QBittorrentDownloader:
             logger.warning(f"[Downloader] Failed to get existing hashes: {e}")
             return set()
 
+    async def get_hash_status_map(self, category: str = "Bangumi") -> dict[str, str]:
+        """Get a mapping of torrent hashes to their qBittorrent state."""
+        try:
+            torrents: Any = await asyncio.to_thread(
+                self._client.torrents_info,
+                category=category,
+            )
+            result: dict[str, str] = {}
+            for t in torrents:
+                try:
+                    t_dict = dict(t)
+                    if not t_dict:
+                        raise ValueError("Empty dict")
+                    hash_val = t_dict.get("hash")
+                    state_val = t_dict.get("state", "unknown")
+                except (TypeError, ValueError):
+                    hash_val = getattr(t, "hash", None)
+                    state_val = getattr(t, "state", "unknown")
+                if hash_val:
+                    result[str(hash_val)] = str(state_val)
+            return result
+        except Exception as e:
+            logger.warning(f"[Downloader] Failed to get hash status map: {e}")
+            return {}
+
     async def check_connection(self) -> str:
         """Check connection and return qBittorrent version."""
         return await asyncio.to_thread(self._client.app_version)

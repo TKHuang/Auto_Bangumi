@@ -146,6 +146,21 @@ class DownloaderProtocol(Protocol):
         """
         ...
 
+    async def get_hash_status_map(self, category: str | None = None) -> dict[str, str]:
+        """Get a mapping of torrent hashes to their current state.
+
+        Unlike get_existing_hashes() which only returns hash presence,
+        this method includes the downloader-reported state for each torrent
+        (e.g. 'completed', 'error', 'downloading').
+
+        Args:
+            category: Optional category/folder filter.
+
+        Returns:
+            Dict mapping lowercase torrent hash to state string.
+        """
+        ...
+
     async def get_torrent_path(self, hash: str) -> str | None:
         """Get the save path of a torrent.
 

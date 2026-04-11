@@ -714,7 +714,18 @@ class PikPakDownloader:
             )
             torrents.append(torrent_info)
 
-        logger.debug(f"Found {len(torrents)} offline tasks in PikPak")
+        # Deduplicate by hash: when multiple PikPak tasks share the same hash
+        # (e.g. a completed task + an error retry), prefer the best state.
+        # Priority: completed > downloading/stalledDL > unknown > error/missing
+        _state_priority = {"completed": 0, "downloading": 1, "stalledDL": 2, "unknown": 3, "missing": 4, "error": 5}
+        deduped: dict[str, TorrentInfo] = {}
+        for ti in torrents:
+            key = ti.hash.lower()
+            if key not in deduped or _state_priority.get(ti.state, 99) < _state_priority.get(deduped[key].state, 99):
+                deduped[key] = ti
+        torrents = list(deduped.values())
+
+        logger.debug(f"Found {len(torrents)} offline tasks in PikPak (after dedup)")
         return torrents
 
     async def get_torrent_path(self, hash: str) -> str | None:
@@ -1597,6 +1608,39 @@ class PikPakDownloader:
         except Exception as e:
             logger.warning(f"[Downloader] Failed to get existing hashes: {e}")
             return set()
+
+    async def get_hash_status_map(self, category: str | None = None) -> dict[str, str]:
+        """Get a mapping of torrent hashes to their PikPak phase state.
+
+        Returns:
+            Dict mapping lowercase torrent hash to state string
+            (e.g. 'completed', 'error', 'downloading', 'stalledDL').
+        """
+        try:
+            tasks = await self._get_all_tasks_cached()
+            result: dict[str, str] = {}
+
+            for task in tasks:
+                file_url = task.get("file_url", "") or task.get("params", {}).get(
+                    "url", ""
+                )
+                torrent_hash = self._extract_hash(file_url)
+                if torrent_hash:
+                    phase = task.get("phase", "")
+                    state = PHASE_STATE_MAP.get(phase, "unknown")
+                    key = torrent_hash.lower()
+                    # Same hash may appear in multiple tasks (error + completed).
+                    # Keep the best state (completed > error).
+                    _pri = {"completed": 0, "downloading": 1, "stalledDL": 2, "unknown": 3, "missing": 4, "error": 5}
+                    if key not in result or _pri.get(state, 99) < _pri.get(result[key], 99):
+                        result[key] = state
+
+            logger.debug(f"Found {len(result)} hash-status entries in PikPak")
+            return result
+
+        except Exception as e:
+            logger.warning(f"[Downloader] Failed to get hash status map: {e}")
+            return {}
 
     # =========================================================================
     # Stub Methods for API Compatibility

@@ -46,12 +46,15 @@ async def get_all_data(session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
     torrent_repo = TorrentRepository(session)
 
-    online_hashes: set[str] | None = None
+    # States that indicate a torrent is NOT successfully available
+    error_states = {"error", "missing"}
+
+    hash_status_map: dict[str, str] | None = None
     try:
         downloader = create_downloader(settings, session)
-        online_hashes = await downloader.get_existing_hashes()
+        hash_status_map = await downloader.get_hash_status_map()
     except Exception:
-        logger.debug("Failed to query downloader for online hashes, using DB-only counts")
+        logger.debug("Failed to query downloader for hash status, using DB-only counts")
 
     orm_bangumi_list = await bangumi_repo.get_active()
     schema_bangumi_list = []
@@ -61,13 +64,18 @@ async def get_all_data(session: AsyncSession = Depends(get_db_session)):
         if orm_bangumi.id:
             torrents = await torrent_repo.get_visible_by_bangumi(orm_bangumi.id)
             schema_bangumi.torrent_count = len(torrents)
-            if online_hashes is not None:
+            if hash_status_map is not None:
+                def _is_completed(t) -> bool:
+                    if not t.downloaded:
+                        return False
+                    # Downloader state takes priority when available
+                    if t.hash and t.hash.lower() in hash_status_map:
+                        return hash_status_map[t.hash.lower()] not in error_states
+                    # Not in downloader — count as completed only if renamed
+                    return bool(t.renamed_at)
+
                 schema_bangumi.completed_count = sum(
-                    1 for t in torrents
-                    if t.downloaded and (
-                        t.renamed_at
-                        or (t.hash and t.hash.lower() in online_hashes)
-                    )
+                    1 for t in torrents if _is_completed(t)
                 )
             else:
                 schema_bangumi.completed_count = sum(1 for t in torrents if t.downloaded)

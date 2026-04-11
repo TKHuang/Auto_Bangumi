@@ -220,6 +220,13 @@ class TestGetRssTitle:
         title = rc.get_rss_title("http://example.com/rss")
         assert title == "能帮我弄干净吗？"
 
+    def test_strips_search_result_prefix_without_space(self):
+        xml = '<?xml version="1.0"?><rss><channel><title>Mikan Project - 搜索结果:淫獄</title></channel></rss>'
+        rc = RequestContent.__new__(RequestContent)
+        rc.get_url = MagicMock(return_value=_make_mock_response(xml))
+        title = rc.get_rss_title("http://example.com/rss")
+        assert title == "淫獄"
+
     def test_returns_none_when_no_title_element(self):
         xml = """<?xml version="1.0"?><rss><channel></channel></rss>"""
         rc = RequestContent.__new__(RequestContent)

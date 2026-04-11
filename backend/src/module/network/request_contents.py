@@ -195,7 +195,10 @@ class RequestContent(RequestURL):
                 if title and title.startswith("Mikan Project - "):
                     title = title[len("Mikan Project - "):]
                 # Strip search result prefix from Mikan search RSS feeds
-                if title and title.startswith("搜索结果: "):
-                    title = title[len("搜索结果: "):]
+                # Mikan uses "搜索结果:" with or without trailing space
+                for prefix in ("搜索结果: ", "搜索结果:"):
+                    if title and title.startswith(prefix):
+                        title = title[len(prefix):]
+                        break
                 return title
         return None

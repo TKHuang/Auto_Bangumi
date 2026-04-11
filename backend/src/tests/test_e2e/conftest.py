@@ -175,8 +175,10 @@ class MockRequestContent:
                 title = title_elem.text
                 if title and title.startswith("Mikan Project - "):
                     title = title[len("Mikan Project - "):]
-                if title and title.startswith("搜索结果: "):
-                    title = title[len("搜索结果: "):]
+                for prefix in ("搜索结果: ", "搜索结果:"):
+                    if title and title.startswith(prefix):
+                        title = title[len(prefix):]
+                        break
                 return title
         return None
 
@@ -216,6 +218,7 @@ def mock_downloader():
     dl.move_torrent.return_value = True
     dl.get_torrent_path.return_value = None
     dl.get_existing_hashes.return_value = set()
+    dl.get_hash_status_map.return_value = {}
     return dl
 
 
