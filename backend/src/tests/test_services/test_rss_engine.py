@@ -180,8 +180,9 @@ class TestMatchTorrentToBangumi:
             sample_torrent, bangumi_repo
         )
         
-        # Should still set bangumi_id but return None (filtered)
-        assert matched is None
+        # Should still set bangumi_id but return _FILTERED sentinel (not a Bangumi)
+        from module.services.rss_engine import _FILTERED
+        assert matched is _FILTERED
         assert sample_torrent.bangumi_id == created_bangumi.id
 
     @pytest.mark.asyncio

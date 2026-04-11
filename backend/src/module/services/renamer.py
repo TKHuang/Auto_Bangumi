@@ -129,7 +129,19 @@ class RenamerService:
             return []
 
         unrenamed_hashes = {t.hash.lower() for t in unrenamed_torrents if t.hash}
-        all_torrent_info = await downloader.torrents_info(status_filter="completed")
+
+        # Build cloud_paths map from already-loaded DB records so torrents_info
+        # doesn't need to query the DB (prevents session conflicts with
+        # concurrent scheduler jobs like rss_refresh).
+        cloud_paths = {
+            t.hash.lower(): t.pikpak_cloud_path
+            for t in unrenamed_torrents
+            if t.hash and t.pikpak_cloud_path
+        }
+
+        all_torrent_info = await downloader.torrents_info(
+            status_filter="completed", cloud_paths=cloud_paths,
+        )
         torrents_to_rename = [
             t for t in all_torrent_info if t.hash.lower() in unrenamed_hashes
         ]

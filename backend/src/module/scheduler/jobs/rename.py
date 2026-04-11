@@ -8,15 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
 
 from module.conf import settings
-from module.database import get_db_session
+from module.database.engine import AsyncSessionLocal
 from module.services.downloader import create_downloader
 from module.services.renamer import RenamerService
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -39,26 +35,19 @@ async def rename_job() -> None:
 
     async with _rename_lock:
         try:
-            # Get database session
-            async_session_gen = get_db_session()
-            session: AsyncSession = await async_session_gen.__anext__()
-
-            try:
-                # Create renamer service
+            # Use proper async context manager for session lifecycle.
+            # The renamer passes cloud_paths to torrents_info, so the
+            # downloader won't do DB queries during the rename cycle
+            # (prevents session conflicts with concurrent scheduler jobs).
+            async with AsyncSessionLocal() as session:
                 rename_method = settings.bangumi_manage.rename_method
                 renamer = RenamerService(session, rename_method=rename_method)
 
-                # Create downloader client with session
                 downloader = create_downloader(settings, session=session)
 
-                # Rename all completed torrents
                 await renamer.rename_all(downloader)
 
                 logger.info("Rename job completed successfully")
-
-            finally:
-                # Clean up session
-                await session.close()
 
         except Exception as e:
             logger.exception(f"Error in rename job: {e}")

@@ -583,6 +583,7 @@ class PikPakDownloader:
         status_filter: str | None = None,
         category: str | None = None,
         tag: str | None = None,
+        cloud_paths: dict[str, str] | None = None,
     ) -> list[TorrentInfo]:
         """Get info about offline download tasks in PikPak.
 
@@ -593,6 +594,10 @@ class PikPakDownloader:
                           For PikPak, maps to phase types.
             category: Unused (PikPak uses folders, not categories).
             tag: Unused (PikPak doesn't support tags).
+            cloud_paths: Pre-built hash→cloud_path map. When provided, avoids
+                        DB queries inside this method (prevents session conflicts
+                        between concurrent scheduler jobs). Callers should build
+                        this from their own DB query before calling.
 
         Returns:
             List of TorrentInfo objects with hash, name, state, progress, save_path, files.
@@ -633,17 +638,16 @@ class PikPakDownloader:
             if isinstance(progress, int):
                 progress = progress / 100.0
 
-            # Get save path from database
+            # Resolve cloud path: prefer caller-supplied map, fall back to DB
             torrent_hash_lower = torrent_hash.lower() if torrent_hash else ""
-            torrent_record = None
-            if self.session:
+            save_path: str | None = None
+
+            if cloud_paths is not None:
+                save_path = cloud_paths.get(torrent_hash_lower)
+            elif self.session:
                 repo = TorrentRepository(self.session)
                 torrent_record = await repo.get_by_hash(torrent_hash_lower)
-
-            if torrent_record:
-                save_path = torrent_record.pikpak_cloud_path
-            else:
-                save_path = None
+                save_path = torrent_record.pikpak_cloud_path if torrent_record else None
 
             # Skip torrents without cloud path (not tracked in database)
             if not save_path:
@@ -654,12 +658,7 @@ class PikPakDownloader:
 
             files: list[TorrentFile] = []
             if state == "completed" and save_path:
-                # Only skip renamed torrents when fetching for rename cycle
-                # (status_filter="completed"), not when fetching all for status display
                 if status_filter == "completed":
-                    if torrent_record and torrent_record.renamed_at:
-                        continue
-
                     # PikPak sets file_name to the folder name (no extension)
                     # for collection torrents (合集) — detect via extension.
                     task_file_name = task.get("file_name", "")

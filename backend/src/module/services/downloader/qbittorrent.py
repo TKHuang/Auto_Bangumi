@@ -104,8 +104,13 @@ class QBittorrentDownloader:
         status_filter: str | None = None,
         category: str | None = None,
         tag: str | None = None,
+        cloud_paths: dict[str, str] | None = None,
     ) -> list[TorrentInfo]:
-        """Get torrent information from qBittorrent."""
+        """Get torrent information from qBittorrent.
+
+        cloud_paths is accepted for interface compatibility with PikPak
+        but unused — qBittorrent manages its own file paths.
+        """
         torrents: Any = await asyncio.to_thread(
             self._client.torrents_info,
             status_filter=status_filter,  # type: ignore[arg-type]

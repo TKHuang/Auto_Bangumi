@@ -77,6 +77,10 @@ def _run_migrations(connection):
         logger.info("[Migration] Adding renamed_file_count column to torrent table")
         connection.execute(text("ALTER TABLE torrent ADD COLUMN renamed_file_count INTEGER"))
 
+    if "state" not in torrent_columns:
+        logger.info("[Migration] Adding state column to torrent table")
+        connection.execute(text("ALTER TABLE torrent ADD COLUMN state VARCHAR(11) NOT NULL DEFAULT 'pending'"))
+
     connection.execute(text(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_torrent_hash_bangumi "
         "ON torrent (hash, bangumi_id) WHERE hash IS NOT NULL"

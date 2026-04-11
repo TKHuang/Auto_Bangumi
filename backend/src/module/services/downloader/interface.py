@@ -76,6 +76,7 @@ class DownloaderProtocol(Protocol):
         status_filter: str | None = None,
         category: str | None = None,
         tag: str | None = None,
+        cloud_paths: dict[str, str] | None = None,
     ) -> list[TorrentInfo]:
         """Get information about torrents.
 
@@ -83,6 +84,8 @@ class DownloaderProtocol(Protocol):
             status_filter: Filter by torrent state (e.g., "completed", "downloading").
             category: Filter by category name.
             tag: Filter by tag.
+            cloud_paths: Pre-built hash→path map. PikPak uses this to avoid
+                        DB queries; qBittorrent ignores it.
 
         Returns:
             List of TorrentInfo objects matching the filters.

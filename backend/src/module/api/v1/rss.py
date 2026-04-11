@@ -365,7 +365,14 @@ async def get_torrent(rss_id: int, session: AsyncSession = Depends(get_db_sessio
     if not db_torrents:
         return []
 
-    online_torrents = await downloader.torrents_info(status_filter="all")
+    cloud_paths = {
+        t.hash.lower(): t.pikpak_cloud_path
+        for t in db_torrents
+        if t.hash and t.pikpak_cloud_path
+    }
+    online_torrents = await downloader.torrents_info(
+        status_filter="all", cloud_paths=cloud_paths,
+    )
 
     status_list = []
     for db_t in db_torrents:
