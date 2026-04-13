@@ -689,3 +689,129 @@ class TestDownloadBangumi:
         torrents = await torrent_repo.get_by_bangumi(bangumi.id)
         assert len(torrents) == 1
         assert "1080p" in torrents[0].name
+
+
+class TestAggregateRefreshRollbackSafety:
+    """Regression tests for FK constraint failures when download_bangumi
+    rollback wipes auto-created bangumi referenced by matched_torrents."""
+
+    @pytest.mark.asyncio
+    async def test_aggregate_refresh_survives_backfill_failure(
+        self, async_engine, async_session, mock_downloader
+    ):
+        """When download_bangumi fails during aggregate backfill, auto-created
+        bangumi must remain persisted and matched_torrents must insert
+        successfully (no FK violation, no orphan references).
+
+        Reproduces the production error:
+        ``sqlite3.IntegrityError: FOREIGN KEY constraint failed`` on batch
+        INSERT INTO torrent after aggregate RSS refresh.
+        """
+        from sqlalchemy import event
+        from module.repositories import (
+            BangumiRepository,
+            RSSRepository,
+            TorrentRepository,
+        )
+
+        # Enable FK enforcement on the test engine so a regression would raise
+        # the same IntegrityError seen in production.
+        @event.listens_for(async_engine.sync_engine, "connect")
+        def _fk_on(dbapi_connection, _):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        # Force the listener to run against the pooled connection.
+        async with async_engine.begin() as conn:
+            await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+        rss_repo = RSSRepository(async_session)
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        rss = await rss_repo.create({
+            "name": "我的番組",
+            "url": "https://example.com/aggregate.rss",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        await async_session.commit()
+
+        torrents_from_feed = [
+            Torrent(
+                name="[Group] Anime A - 01 [1080p]",
+                url="https://example.com/a1.torrent",
+                homepage="https://example.com/a/1",
+                hash="hash_a_01",
+            ),
+            Torrent(
+                name="[Group] Anime B - 02 [1080p]",
+                url="https://example.com/b2.torrent",
+                homepage="https://example.com/b/2",
+                hash="hash_b_02",
+            ),
+        ]
+
+        def _parser_for(name: str):
+            parsed = MagicMock()
+            # Use a distinct official_title per torrent so each creates its
+            # own bangumi.
+            if "Anime A" in name:
+                parsed.official_title = "Anime A"
+                parsed.title_raw = "Anime A"
+            else:
+                parsed.official_title = "Anime B"
+                parsed.title_raw = "Anime B"
+            parsed.season = 1
+            parsed.season_raw = "S1"
+            parsed.group_name = "Group"
+            parsed.dpi = "1080p"
+            parsed.source = "WebRip"
+            parsed.subtitle = ""
+            parsed.rss_link = None
+            parsed.poster_link = ""
+            parsed.filter = ""
+            parsed.eps_collect = False
+            parsed.offset = 0
+            return parsed
+
+        async def _failing_download_bangumi(session, downloader, bangumi_id):
+            # Simulate a network/downloader failure and dirty the session so
+            # the caller's rollback path is exercised.
+            raise RuntimeError("simulated backfill failure")
+
+        with patch.object(RSSEngine, "parse_rss_feed", return_value=torrents_from_feed), \
+             patch("module.services.rss_engine.TitleParser") as mock_parser_class, \
+             patch.object(RSSEngine, "download_bangumi", side_effect=_failing_download_bangumi):
+            mock_parser = MagicMock()
+            mock_parser_class.return_value = mock_parser
+            mock_parser.raw_parser.side_effect = lambda name: _parser_for(name)
+            # Avoid Mikan enrichment returning a MagicMock for poster_link,
+            # which SQLite cannot bind. The engine catches this and falls
+            # back to the torrent's original parsed data.
+            mock_parser.mikan_parser_with_rss.side_effect = RuntimeError("no network in tests")
+
+            # Must not raise. Before the fix, final add_all_or_ignore raised
+            # IntegrityError because download_bangumi rollback wiped the
+            # auto-created bangumi referenced in matched_torrents.
+            await RSSEngine.refresh_rss(
+                async_session, mock_downloader, rss_id=rss.id
+            )
+
+        await async_session.commit()
+
+        # Auto-created bangumi must survive the backfill rollback.
+        bangumi_list = await bangumi_repo.get_active()
+        titles = sorted(b.official_title for b in bangumi_list)
+        assert titles == ["Anime A", "Anime B"], titles
+
+        # Torrents must be persisted and reference the live bangumi rows.
+        persisted = await torrent_repo.get_by_rss(rss.id)
+        assert len(persisted) == 2
+        live_ids = {b.id for b in bangumi_list}
+        for t in persisted:
+            assert t.bangumi_id in live_ids, (
+                f"torrent {t.name!r} references dangling bangumi_id={t.bangumi_id}"
+            )

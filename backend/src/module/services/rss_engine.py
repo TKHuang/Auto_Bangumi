@@ -316,6 +316,15 @@ class RSSEngine:
                             f"[Engine] Skip torrent {torrent.name} - no matching bangumi"
                         )
 
+                # Persist auto-created bangumi BEFORE the backfill loop.
+                # download_bangumi may rollback on failure; if the auto-created
+                # bangumi are still pending (flushed but not committed), that
+                # rollback wipes them, leaving matched_torrents with dangling
+                # bangumi_id references that cause FK violations in the final
+                # add_all_or_ignore call.
+                if newly_created_ids:
+                    await session.commit()
+
                 for bangumi_id in newly_created_ids:
                     try:
                         result = await RSSEngine.download_bangumi(
