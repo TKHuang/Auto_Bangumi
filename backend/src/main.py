@@ -99,6 +99,32 @@ def _run_migrations(connection):
     if result.rowcount > 0:
         logger.info(f"[Migration] Backfilled {result.rowcount} excluded sentinel torrent rows")
 
+    # Sanitize bangumi.save_path entries containing filesystem-illegal chars.
+    # PikPak rejects folder names with ?, *, <, >, |, ", :, /, \. Full-width
+    # equivalents are valid Unicode and preserve the visible title.
+    _illegal_to_fullwidth = [
+        ("?", "？"), ("*", "＊"), ("<", "＜"), (">", "＞"),
+        ("|", "｜"), ('"', "＂"),
+    ]
+    sanitize_where = " OR ".join(
+        f"save_path LIKE '%' || {chr(39)}{ch}{chr(39)} || '%'"
+        for ch, _ in _illegal_to_fullwidth
+    )
+    cursor = connection.execute(
+        text(f"SELECT id, save_path FROM bangumi WHERE save_path IS NOT NULL AND ({sanitize_where})")
+    )
+    rows = cursor.fetchall()
+    for row_id, old_path in rows:
+        new_path = old_path
+        for bad, good in _illegal_to_fullwidth:
+            new_path = new_path.replace(bad, good)
+        connection.execute(
+            text("UPDATE bangumi SET save_path = :p WHERE id = :i"),
+            {"p": new_path, "i": row_id},
+        )
+    if rows:
+        logger.info(f"[Migration] Sanitized save_path for {len(rows)} bangumi (illegal chars → full-width)")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

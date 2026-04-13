@@ -216,9 +216,41 @@ class APIResponse(BaseModel):
 # ==================== Path Utilities ====================
 
 
+# Characters that break PikPak folder creation and Windows/SMB filesystems.
+# Map each to its full-width Unicode equivalent so the name stays human-readable.
+_PATH_ILLEGAL_CHAR_MAP = str.maketrans({
+    "?": "？",
+    "*": "＊",
+    "<": "＜",
+    ">": "＞",
+    "|": "｜",
+    '"': "＂",
+    ":": "：",
+    "/": "／",
+    "\\": "＼",
+})
+
+
+def sanitize_path_component(name: str) -> str:
+    """Make a single path component safe for PikPak / Windows / SMB.
+
+    Replaces illegal chars with full-width equivalents, strips trailing
+    dots and whitespace, and collapses empty results to ``_``.
+    """
+    if not name:
+        return "_"
+    cleaned = name.translate(_PATH_ILLEGAL_CHAR_MAP).rstrip(" .")
+    return cleaned or "_"
+
+
 def gen_save_path(base_path: str, official_title: str, season: int, year: Optional[str] = None) -> str:
-    """Generate save path: <base>/<title[ (year)]>/Season <n>."""
+    """Generate save path: <base>/<title[ (year)]>/Season <n>.
+
+    Sanitizes ``official_title`` so titles containing ``?``, ``:``, ``/`` etc.
+    do not break PikPak folder creation ("name contains illegal characters").
+    """
     from pathlib import PurePosixPath
 
-    folder = f"{official_title} ({year})" if year else official_title
+    safe_title = sanitize_path_component(official_title)
+    folder = f"{safe_title} ({year})" if year else safe_title
     return str(PurePosixPath(base_path) / folder / f"Season {season}")
