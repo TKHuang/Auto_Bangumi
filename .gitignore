@@ -229,3 +229,4 @@ backend/config/
 # dev data directories
 data/
 .sisyphus/
+.gstack/
