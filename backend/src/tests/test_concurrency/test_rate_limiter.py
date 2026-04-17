@@ -55,3 +55,57 @@ class TestRateLimiterReleasesOnException:
         async with asyncio.timeout(1):
             async with rl:
                 pass
+
+
+@pytest.mark.unit
+class TestRateLimiterDegradation:
+    async def test_429_halves_concurrent(self):
+        rl = RateLimiter(max_concurrent=4, min_interval_ms=0)
+        assert rl.current_concurrent() == 4
+        rl.record_result(status=429)
+        assert rl.current_concurrent() == 2
+
+    async def test_503_halves_concurrent(self):
+        rl = RateLimiter(max_concurrent=4, min_interval_ms=0)
+        rl.record_result(status=503)
+        assert rl.current_concurrent() == 2
+
+    async def test_halving_floors_at_one(self):
+        rl = RateLimiter(max_concurrent=2, min_interval_ms=0)
+        rl.record_result(status=429)
+        assert rl.current_concurrent() == 1
+        rl.record_result(status=429)
+        assert rl.current_concurrent() == 1  # does not go below 1
+
+    async def test_ten_consecutive_successes_restore(self):
+        rl = RateLimiter(max_concurrent=4, min_interval_ms=0)
+        rl.record_result(status=503)
+        assert rl.current_concurrent() == 2
+
+        for _ in range(9):
+            rl.record_result(status=200)
+        assert rl.current_concurrent() == 2  # not yet
+
+        rl.record_result(status=200)
+        assert rl.current_concurrent() == 4  # 10th success restores
+
+    async def test_failure_between_successes_resets_counter(self):
+        rl = RateLimiter(max_concurrent=4, min_interval_ms=0)
+        rl.record_result(status=503)
+        for _ in range(5):
+            rl.record_result(status=200)
+        rl.record_result(status=503)  # resets success counter
+        for _ in range(5):
+            rl.record_result(status=200)
+        # Only 5 successes since last failure — still degraded
+        assert rl.current_concurrent() == 1  # halved twice: 4 -> 2 -> 1
+
+    async def test_is_degraded_flag(self):
+        rl = RateLimiter(max_concurrent=4, min_interval_ms=0)
+        assert rl.is_degraded() is False
+        rl.record_result(status=429)
+        assert rl.is_degraded() is True
+
+        for _ in range(10):
+            rl.record_result(status=200)
+        assert rl.is_degraded() is False
