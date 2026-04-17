@@ -30,7 +30,7 @@ _SEASON_PATTERNS = [
 
 _COUR_PATTERNS: list[tuple[str, str]] = [
     (r"后半部分|後半部分|后半|後半", "latter"),
-    (r"前半部分|前半部分|前半", "former"),
+    (r"前半部分|前半部份|前半", "former"),
     (r"第\s*[0-9一二]+\s*部分", "part"),
     (r"[Pp]art\s*\d+", "part"),
     (r"[Cc]our\s*\d+", "cour"),
