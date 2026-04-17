@@ -7,7 +7,7 @@ can point to the same Series via Bangumi.series_id (added in Plan 04).
 
 from typing import Optional
 
-from sqlalchemy import Boolean, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin, VersionMixin
@@ -20,6 +20,17 @@ class Series(Base, TimestampMixin, VersionMixin):
         UniqueConstraint("mikan_bangumi_id", name="uq_series_mikan"),
         UniqueConstraint(
             "normalized_title", "season", "cour_part", name="uq_series_fallback"
+        ),
+        # Partial unique index for the NULL cour_part case.
+        # SQL UNIQUE constraints treat NULLs as distinct, so two rows with
+        # (normalized_title='x', season=1, cour_part=NULL) would not violate
+        # uq_series_fallback. This partial index closes that gap.
+        Index(
+            "uq_series_fallback_null_cour",
+            "normalized_title",
+            "season",
+            unique=True,
+            sqlite_where=text("cour_part IS NULL"),
         ),
     )
 
