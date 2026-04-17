@@ -63,11 +63,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "anyio>=4.0",
+    "httpx",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
+    "pytest-httpx>=0.30",
     "ruff>=0.9",
-    "httpx",
 ]
 
 [project.urls]
