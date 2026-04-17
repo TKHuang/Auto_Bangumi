@@ -62,11 +62,12 @@ async def test_run_migrations_on_fresh_db_creates_schema(tmp_path, monkeypatch):
     assert "rssitem" in tables
     assert "torrent" in tables
     assert "user" in tables
+    assert "series" in tables
 
     with engine.begin() as conn:
         row = conn.execute(sa.text("SELECT version_num FROM alembic_version")).first()
     assert row is not None
-    assert row[0] == "0001_baseline"
+    assert row[0] == "0002_add_series"
 
 
 @pytest.mark.integration
@@ -82,8 +83,15 @@ async def test_run_migrations_on_legacy_db_stamps_then_upgrades(tmp_path, monkey
     import module.domain.models.bangumi  # noqa: F401
     import module.domain.models.torrent  # noqa: F401
 
+    # Create only the 4 legacy tables (pre-0001_baseline state).
+    # series was added in 0002_add_series and must NOT exist in the legacy DB
+    # seed — otherwise alembic upgrade 0002 will fail with "table already exists".
+    _legacy_tables = {"bangumi", "rssitem", "torrent", "user"}
     seed_engine = sa.create_engine(f"sqlite:///{db}")
-    Base.metadata.create_all(seed_engine)
+    Base.metadata.create_all(
+        seed_engine,
+        tables=[t for t in Base.metadata.sorted_tables if t.name in _legacy_tables],
+    )
     seed_engine.dispose()
 
     # Seed a row so we can verify data survives the stamp
@@ -98,11 +106,11 @@ async def test_run_migrations_on_legacy_db_stamps_then_upgrades(tmp_path, monkey
     monkeypatch.setenv("AB_ALEMBIC_DB_URL", f"sqlite+aiosqlite:///{db}")
     await run_migrations()
 
-    # Verify alembic_version exists and is stamped to baseline
+    # Verify alembic_version exists and is at head (0002_add_series after upgrade)
     engine = sa.create_engine(f"sqlite:///{db}")
     with engine.begin() as conn:
         row = conn.execute(sa.text("SELECT version_num FROM alembic_version")).first()
-        assert row is not None and row[0] == "0001_baseline"
+        assert row is not None and row[0] == "0002_add_series"
         # Legacy data survived
         user_row = conn.execute(
             sa.text("SELECT username FROM user WHERE username='legacy_admin'")

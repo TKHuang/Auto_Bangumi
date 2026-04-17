@@ -85,6 +85,7 @@ def test_baseline_upgrade_on_empty_db_matches_metadata(tmp_path):
     import module.domain.models.rss  # noqa: F401
     import module.domain.models.bangumi  # noqa: F401
     import module.domain.models.torrent  # noqa: F401
+    import module.domain.models.series  # noqa: F401
 
     model_tables = set(Base.metadata.tables.keys())
     assert db_tables == model_tables, (

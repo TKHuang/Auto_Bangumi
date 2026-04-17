@@ -44,6 +44,22 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _include_object(obj, name, type_, reflected, compare_to):
+    """Exclude objects managed outside SQLAlchemy metadata.
+
+    idx_torrent_hash_bangumi is a partial unique index created via op.execute()
+    in 0001_baseline because SQLAlchemy metadata cannot express the WHERE clause.
+    Exclude it from autogenerate diffs so subsequent revisions stay clean.
+    Similarly for uq_series_fallback_null_cour added in 0002_add_series.
+    """
+    if type_ == "index" and name in (
+        "idx_torrent_hash_bangumi",
+        "uq_series_fallback_null_cour",
+    ):
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode (URL only, no engine)."""
     url = config.get_main_option("sqlalchemy.url")
@@ -53,6 +69,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,  # SQLite batch mode for ALTER support
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -63,6 +80,7 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         render_as_batch=True,  # SQLite batch mode
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
