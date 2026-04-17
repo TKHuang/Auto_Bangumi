@@ -38,3 +38,24 @@ class TestMikanEpisodeRefModel:
     def test_info_hash_is_primary_key(self):
         pk_cols = [c.name for c in MikanEpisodeRef.__table__.primary_key.columns]
         assert pk_cols == ["info_hash"]
+
+
+from module.domain.models.pending_enrichment import PendingTorrentEnrichment
+
+
+@pytest.mark.unit
+class TestPendingTorrentEnrichmentModel:
+    def test_required_columns(self):
+        cols = {c.name for c in PendingTorrentEnrichment.__table__.columns}
+        expected = {
+            "info_hash", "raw_name", "homepage", "url", "rss_id",
+            "published_at", "first_seen_at", "attempt_count",
+            "last_error", "last_attempt_at",
+        }
+        assert expected.issubset(cols), f"missing: {expected - cols}"
+
+    def test_rss_id_has_fk(self):
+        col = PendingTorrentEnrichment.__table__.c.rss_id
+        fks = list(col.foreign_keys)
+        assert len(fks) == 1
+        assert fks[0].column.table.name == "rssitem"

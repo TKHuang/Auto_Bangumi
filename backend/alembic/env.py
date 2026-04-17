@@ -27,6 +27,7 @@ import module.domain.models.bangumi  # noqa: F401, E402
 import module.domain.models.torrent  # noqa: F401, E402
 import module.domain.models.series  # noqa: F401, E402
 import module.domain.models.mikan_ref  # noqa: F401, E402
+import module.domain.models.pending_enrichment  # noqa: F401, E402
 
 config = context.config
 
