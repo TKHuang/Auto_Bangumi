@@ -13,8 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module.api.v1 import auth, bangumi, check, config, log, program, rss, search
 from module.conf import VERSION, settings, setup_logger
 from module.database.engine import AsyncSessionLocal, engine
-from module.domain.models.base import Base
-from module.domain.models.user import User
 from module.repositories.user import UserRepository
 from module.scheduler.engine import AsyncScheduler
 from module.scheduler.jobs.rename import rename_job
@@ -131,9 +129,10 @@ async def lifespan(app: FastAPI):
     global scheduler
     logger.info("Starting application...")
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created")
+    from module.database.migrate import run_migrations
+
+    await run_migrations()
+    logger.info("Database migrations applied")
 
     async with AsyncSessionLocal() as session:
         user_repo = UserRepository(session)
@@ -149,10 +148,6 @@ async def lifespan(app: FastAPI):
             logger.info("Default user created (admin/adminadmin)")
         else:
             logger.info("Users exist, skipping default user creation")
-
-    async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
-    logger.info("Database migrations applied")
 
     scheduler = AsyncScheduler()
     await scheduler.start()
