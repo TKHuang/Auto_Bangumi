@@ -25,6 +25,7 @@ import module.domain.models.user  # noqa: F401, E402
 import module.domain.models.rss  # noqa: F401, E402
 import module.domain.models.bangumi  # noqa: F401, E402
 import module.domain.models.torrent  # noqa: F401, E402
+import module.domain.models.series  # noqa: F401, E402
 
 config = context.config
 
