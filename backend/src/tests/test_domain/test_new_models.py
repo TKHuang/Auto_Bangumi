@@ -59,3 +59,25 @@ class TestPendingTorrentEnrichmentModel:
         fks = list(col.foreign_keys)
         assert len(fks) == 1
         assert fks[0].column.table.name == "rssitem"
+
+
+from module.domain.models.merge_history import BangumiMergeHistory
+
+
+@pytest.mark.unit
+class TestBangumiMergeHistoryModel:
+    def test_required_columns(self):
+        cols = {c.name for c in BangumiMergeHistory.__table__.columns}
+        expected = {
+            "id", "merged_at", "merged_by", "merge_reason",
+            "winner_bangumi_id", "loser_bangumi_id",
+            "loser_snapshot", "moved_torrent_ids", "dropped_torrents",
+            "undone_at", "undone_by",
+        }
+        assert expected.issubset(cols), f"missing: {expected - cols}"
+
+    def test_both_bangumi_fks(self):
+        winner_col = BangumiMergeHistory.__table__.c.winner_bangumi_id
+        loser_col = BangumiMergeHistory.__table__.c.loser_bangumi_id
+        assert any(fk.column.table.name == "bangumi" for fk in winner_col.foreign_keys)
+        assert any(fk.column.table.name == "bangumi" for fk in loser_col.foreign_keys)
