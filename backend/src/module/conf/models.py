@@ -113,6 +113,33 @@ class ExperimentalOpenAI(BaseModel):
         return value
 
 
+class Mikan(BaseModel):
+    base_url: str = Field(
+        "https://mikanani.me",
+        description="Mikan site base URL (change here when domain migrates)",
+    )
+    timeout_seconds: int = Field(
+        10,
+        description="HTTP timeout per Mikan request",
+    )
+    max_concurrent: int = Field(
+        2,
+        description="Max concurrent Mikan requests (base rate for dynamic limiter)",
+    )
+    min_interval_ms: int = Field(
+        500,
+        description="Minimum gap between Mikan requests in milliseconds",
+    )
+    health_ok_window_hours: int = Field(
+        1,
+        description="Dashboard banner shows 'ok' if last success within this window",
+    )
+    health_down_threshold_hours: int = Field(
+        24,
+        description="Dashboard banner shows 'down' if no success within this window",
+    )
+
+
 class Config(BaseModel):
     program: Program = Field(default_factory=lambda: Program())
     downloader: Downloader = Field(default_factory=lambda: Downloader())
@@ -121,6 +148,7 @@ class Config(BaseModel):
     log: Log = Field(default_factory=lambda: Log())
     proxy: Proxy = Field(default_factory=lambda: Proxy())
     notification: Notification = Field(default_factory=lambda: Notification())
+    mikan: Mikan = Field(default_factory=lambda: Mikan())
     experimental_openai: ExperimentalOpenAI = Field(default_factory=lambda: ExperimentalOpenAI())
 
     def model_dump(self, *args, by_alias=True, **kwargs):
