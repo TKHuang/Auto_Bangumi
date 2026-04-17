@@ -39,6 +39,7 @@ dependencies = [
     "alembic>=1.13",
     "apscheduler>=4.0.0a6",
     "httpx>=0.28",
+    "opencc>=1.1.9",
     "requests>=2.31",
     "PySocks>=1.7",
     "pikpakapi>=0.1",
