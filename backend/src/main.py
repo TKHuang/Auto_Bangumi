@@ -8,11 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from module.api.v1 import auth, bangumi, check, config, log, program, rss, search
 from module.conf import VERSION, settings, setup_logger
-from module.database.engine import AsyncSessionLocal, engine
+from module.database.engine import AsyncSessionLocal
 from module.repositories.user import UserRepository
 from module.scheduler.engine import AsyncScheduler
 from module.scheduler.jobs.rename import rename_job
@@ -36,92 +34,6 @@ uvicorn_logging_config = {
 }
 
 scheduler: AsyncScheduler | None = None
-
-
-def _run_migrations(connection):
-    from sqlalchemy import text
-
-    cursor = connection.execute(text("PRAGMA table_info(rssitem)"))
-    rss_columns = [row[1] for row in cursor.fetchall()]
-    if "last_update" not in rss_columns:
-        connection.execute(text("ALTER TABLE rssitem ADD COLUMN last_update TEXT"))
-        connection.execute(text("ALTER TABLE rssitem ADD COLUMN last_status TEXT"))
-        connection.execute(text("ALTER TABLE rssitem ADD COLUMN last_error TEXT"))
-
-    cursor = connection.execute(text("PRAGMA table_info(bangumi)"))
-    bangumi_columns = [row[1] for row in cursor.fetchall()]
-
-    if "rss_id" not in bangumi_columns:
-        logger.info("[Migration] Adding rss_id column to bangumi table")
-        connection.execute(text("ALTER TABLE bangumi ADD COLUMN rss_id INTEGER REFERENCES rssitem(id)"))
-
-    if "pending_review" not in bangumi_columns:
-        logger.info("[Migration] Adding pending_review column to bangumi table")
-        connection.execute(text("ALTER TABLE bangumi ADD COLUMN pending_review INTEGER DEFAULT 0"))
-
-    if "global_filter_matches" not in bangumi_columns:
-        logger.info("[Migration] Adding global_filter_matches column to bangumi table")
-        connection.execute(text("ALTER TABLE bangumi ADD COLUMN global_filter_matches TEXT"))
-
-    cursor = connection.execute(text("PRAGMA table_info(torrent)"))
-    torrent_columns = [row[1] for row in cursor.fetchall()]
-    if "hash" not in torrent_columns:
-        connection.execute(text("ALTER TABLE torrent ADD COLUMN hash TEXT"))
-
-    if "renamed_at" not in torrent_columns:
-        logger.info("[Migration] Adding renamed_at column to torrent table")
-        connection.execute(text("ALTER TABLE torrent ADD COLUMN renamed_at TEXT"))
-    if "renamed_file_count" not in torrent_columns:
-        logger.info("[Migration] Adding renamed_file_count column to torrent table")
-        connection.execute(text("ALTER TABLE torrent ADD COLUMN renamed_file_count INTEGER"))
-
-    if "state" not in torrent_columns:
-        logger.info("[Migration] Adding state column to torrent table")
-        connection.execute(text("ALTER TABLE torrent ADD COLUMN state VARCHAR(11) NOT NULL DEFAULT 'pending'"))
-
-    connection.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_torrent_hash_bangumi "
-        "ON torrent (hash, bangumi_id) WHERE hash IS NOT NULL"
-    ))
-
-    result = connection.execute(
-        text("UPDATE bangumi SET group_name = 'Unknown' WHERE group_name IS NULL OR group_name = ''")
-    )
-    if result.rowcount > 0:
-        logger.info(f"[Migration] Updated {result.rowcount} bangumi records with NULL/empty group_name to 'Unknown'")
-
-    # Backfill excluded sentinel rows: mark name='', url='', downloaded=1 as EXCLUDED
-    result = connection.execute(
-        text("UPDATE torrent SET state = 'excluded' WHERE name = '' AND url = '' AND downloaded = 1 AND state != 'excluded'")
-    )
-    if result.rowcount > 0:
-        logger.info(f"[Migration] Backfilled {result.rowcount} excluded sentinel torrent rows")
-
-    # Sanitize bangumi.save_path entries containing filesystem-illegal chars.
-    # PikPak rejects folder names with ?, *, <, >, |, ", :, /, \. Full-width
-    # equivalents are valid Unicode and preserve the visible title.
-    _illegal_to_fullwidth = [
-        ("?", "？"), ("*", "＊"), ("<", "＜"), (">", "＞"),
-        ("|", "｜"), ('"', "＂"),
-    ]
-    sanitize_where = " OR ".join(
-        f"save_path LIKE '%' || {chr(39)}{ch}{chr(39)} || '%'"
-        for ch, _ in _illegal_to_fullwidth
-    )
-    cursor = connection.execute(
-        text(f"SELECT id, save_path FROM bangumi WHERE save_path IS NOT NULL AND ({sanitize_where})")
-    )
-    rows = cursor.fetchall()
-    for row_id, old_path in rows:
-        new_path = old_path
-        for bad, good in _illegal_to_fullwidth:
-            new_path = new_path.replace(bad, good)
-        connection.execute(
-            text("UPDATE bangumi SET save_path = :p WHERE id = :i"),
-            {"p": new_path, "i": row_id},
-        )
-    if rows:
-        logger.info(f"[Migration] Sanitized save_path for {len(rows)} bangumi (illegal chars → full-width)")
 
 
 @asynccontextmanager
