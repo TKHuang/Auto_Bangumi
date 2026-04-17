@@ -29,6 +29,32 @@ uv run python -m pytest src/tests/test_repositories/ src/tests/test_domain/ src/
 uv run uvicorn main:app --reload --port 7893 --app-dir src
 ```
 
+### Database migrations (Alembic)
+
+```bash
+cd backend
+
+# Show current revision
+uv run alembic current
+
+# Upgrade to latest
+uv run alembic upgrade head
+
+# Downgrade one step
+uv run alembic downgrade -1
+
+# Create new migration (after changing ORM models)
+uv run alembic revision --autogenerate -m "describe the change"
+
+# Stamp existing DB as baseline (manual recovery only)
+uv run alembic stamp 0001_baseline
+
+# Use alternate DB path (tests/scratch)
+AB_ALEMBIC_DB_URL="sqlite+aiosqlite:////tmp/other.db" uv run alembic upgrade head
+```
+
+On first startup after upgrade, pre-Alembic DBs (with legacy schema, no `alembic_version` table) are auto-stamped to `0001_baseline` by `module.database.migrate.run_migrations()`. No manual intervention required.
+
 ### WebUI (Vue 3 + Vite)
 
 ```bash
