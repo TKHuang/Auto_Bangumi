@@ -1,11 +1,14 @@
 """Bangumi domain model."""
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, VersionMixin
+
+if TYPE_CHECKING:
+    from .series import Series
 
 
 class Bangumi(Base, TimestampMixin, VersionMixin):
@@ -51,3 +54,14 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     pending_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     global_filter_matches: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # New identity surface (migration 0007). series_id becomes NOT NULL in 0008.
+    series_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("series.id"), nullable=True, index=True
+    )
+    mikan_subgroup_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    path_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    observed_groups: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    series: Mapped[Optional["Series"]] = relationship("Series", lazy="select")

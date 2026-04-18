@@ -71,3 +71,5 @@ class Torrent(Base, TimestampMixin, VersionMixin):
     renamed_file_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     pikpak_cloud_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     pikpak_task_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    mikan_bangumi_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mikan_subgroup_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
