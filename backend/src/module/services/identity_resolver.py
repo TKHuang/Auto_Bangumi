@@ -92,27 +92,14 @@ class IdentityResolver:
         if hit is not None and hit.mikan_bangumi_id is None:
             return ResolvedIdentity(series=hit, tier="fallback", newly_created=False)
 
-        # Tier 3: pending review, possibly with cross-source candidates
+        # Tier 3: pending review. With the partial fallback constraint scoped
+        # to mikan_bangumi_id IS NULL (migration 0006), inserting a new
+        # non-Mikan series is safe even when an existing Mikan series shares
+        # the same (normalized_title, season, cour_part). The Mikan row is
+        # surfaced as a merge candidate; user / UI confirms the merge.
         candidates = await self._repo.find_possible_cross_source_merge(
             normalized_title, season, cour_part,
         )
-
-        # When the fallback key is already occupied by a Mikan-sourced series,
-        # the unique constraint prevents creating a second row with the same key.
-        # Instead, flag the conflicting Mikan series as pending_review so the
-        # user can confirm whether the two sources refer to the same anime.
-        if candidates:
-            representative = candidates[0]
-            representative.pending_review = True
-            await self._repo.session.flush()
-            await self._repo.session.refresh(representative)
-            return ResolvedIdentity(
-                series=representative,
-                tier="pending_review",
-                newly_created=False,
-                merge_candidates=[c.id for c in candidates],
-            )
-
         created = await self._repo.create({
             "canonical_title": raw_title_for_root,
             "normalized_title": normalized_title,

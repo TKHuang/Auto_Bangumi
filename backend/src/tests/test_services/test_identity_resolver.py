@@ -103,29 +103,42 @@ class TestIdentityResolverTier3:
         assert result.newly_created is True
         assert result.series.canonical_title == "Unknown Show"
 
-    async def test_flags_cross_source_candidates(self, db_session):
-        """If a Mikan-sourced series exists with matching fallback key, the
-        Tier-3 result surfaces it as a merge candidate."""
-        series_repo = SeriesRepository(db_session)
-        mikan_existing = await series_repo.create({
-            "mikan_bangumi_id": 100,
-            "canonical_title": "Mikan Version",
-            "normalized_title": "sharedtitle",
+    async def test_tier3_creates_new_pending_series_with_cross_source_candidates(
+        self, db_session,
+    ):
+        """When a non-Mikan torrent's fallback key matches an existing Mikan
+        series, IdentityResolver creates a NEW pending series and surfaces the
+        Mikan candidate ID for manual review (spec §6.4 Tier 3)."""
+        repo = SeriesRepository(db_session)
+        # Existing Mikan series with the same fallback key
+        mikan_row = await repo.create({
+            "mikan_bangumi_id": 9999,
+            "canonical_title": "Foo",
+            "normalized_title": "foo",
             "season": 1,
-            "root_path": "/downloads/mikan",
+            "cour_part": None,
+            "root_path": "/downloads/Foo",
+            "pending_review": False,
         })
         await db_session.commit()
 
-        resolver = IdentityResolver(series_repo=series_repo)
+        resolver = IdentityResolver(series_repo=repo)
         result = await resolver.resolve(
             mikan_ref=None,
-            normalized_title="sharedtitle",
+            normalized_title="foo",
             season=1,
             cour_part=None,
-            raw_title_for_root="Nyaa Version",
+            raw_title_for_root="Foo (nyaa)",
         )
         await db_session.commit()
 
-        assert result.series.pending_review is True
         assert result.tier == "pending_review"
-        assert result.merge_candidates == [mikan_existing.id]
+        assert result.newly_created is True
+        assert result.series.id != mikan_row.id
+        assert result.series.mikan_bangumi_id is None
+        assert result.series.pending_review is True
+        assert result.merge_candidates == [mikan_row.id]
+
+        # Mikan row must NOT have been mutated
+        refreshed = await repo.get_by_id(mikan_row.id)
+        assert refreshed.pending_review is False
