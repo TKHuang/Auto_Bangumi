@@ -48,6 +48,7 @@ declare module '@vue/runtime-core' {
     ConfigPlayer: typeof import('./../../src/components/setting/config-player.vue')['default']
     ConfigProxy: typeof import('./../../src/components/setting/config-proxy.vue')['default']
     MediaQuery: typeof import('./../../src/components/media-query.vue')['default']
+    MikanHealthBanner: typeof import('./../../src/components/dashboard/MikanHealthBanner.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }

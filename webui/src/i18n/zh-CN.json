@@ -277,6 +277,12 @@
     "undo": "撤銷",
     "undone": "已撤銷"
   },
+  "health": {
+    "down_title": "Mikan 不可達",
+    "degraded_title": "Mikan 降級",
+    "pending_count": "{n} 個待處理項目",
+    "view_details": "查看詳情"
+  },
   "sidebar": {
     "calendar": "番剧日历",
     "config": "设置",
@@ -284,8 +290,11 @@
     "homepage": "主页",
     "log": "日志",
     "logout": "退出",
+    "merge": "合併歷史",
+    "pending": "待解析",
     "player": "播放器",
     "rss": "RSS 管理",
+    "series": "Series",
     "title": "菜单"
   },
    "topbar": {

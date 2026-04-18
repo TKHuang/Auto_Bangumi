@@ -16,6 +16,7 @@ const title = computed(() => useRoute().name);
 
       <div class="layout-content">
         <ab-page-title :title="title"></ab-page-title>
+        <MikanHealthBanner />
 
         <RouterView v-slot="{ Component }">
           <KeepAlive>

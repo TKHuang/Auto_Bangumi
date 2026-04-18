@@ -2,12 +2,15 @@
 import {
   Calendar,
   Download,
+  History,
   Home,
+  HourglassFull,
   Log,
   Logout,
   MenuUnfold,
   Play,
   SettingTwo,
+  VideoOne,
 } from '@icon-park/vue-next';
 import InlineSvg from 'vue-inline-svg';
 
@@ -78,6 +81,24 @@ const items = [
     icon: SettingTwo,
     label: () => t('sidebar.config'),
     path: '/config',
+  },
+  {
+    id: 8,
+    icon: VideoOne,
+    label: () => t('sidebar.series'),
+    path: '/series',
+  },
+  {
+    id: 9,
+    icon: HourglassFull,
+    label: () => t('sidebar.pending'),
+    path: '/pending-resolution',
+  },
+  {
+    id: 10,
+    icon: History,
+    label: () => t('sidebar.merge'),
+    path: '/merge-history',
   },
 ];
 

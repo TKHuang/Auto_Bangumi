@@ -277,6 +277,12 @@
     "undo": "Undo",
     "undone": "Undone"
   },
+  "health": {
+    "down_title": "Mikan unreachable",
+    "degraded_title": "Mikan degraded",
+    "pending_count": "{n} pending items",
+    "view_details": "View details"
+  },
   "sidebar": {
     "calendar": "Calendar",
     "config": "Config",
@@ -284,8 +290,11 @@
     "homepage": "HomePage",
     "log": "Log",
     "logout": "Logout",
+    "merge": "Merge History",
+    "pending": "Pending Resolution",
     "player": "Player",
     "rss": "RSS Manager",
+    "series": "Series",
     "title": "Menu"
   },
    "topbar": {

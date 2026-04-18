@@ -34,6 +34,7 @@ export default defineConfig(({ mode }) => ({
       dirs: [
         'src/components',
         'src/components/basic',
+        'src/components/dashboard',
         'src/components/layout',
         'src/components/setting',
       ],
