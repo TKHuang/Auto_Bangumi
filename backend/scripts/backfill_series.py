@@ -58,11 +58,12 @@ def extract_mikan_ids_from_rss(
     return bangumi_id, subgroup_id
 
 
-async def backfill_one_bangumi(session: AsyncSession, bangumi: Bangumi) -> None:
+async def backfill_one_bangumi(session: AsyncSession, bangumi: Bangumi) -> bool:
     """Resolve a Series for `bangumi` and link via series_id /
-    mikan_subgroup_id. No-op when already linked."""
+    mikan_subgroup_id. No-op when already linked. Returns True iff a new
+    Series link was written."""
     if bangumi.series_id is not None:
-        return
+        return False
 
     mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(
         bangumi.rss_link
@@ -70,6 +71,12 @@ async def backfill_one_bangumi(session: AsyncSession, bangumi: Bangumi) -> None:
 
     mikan_ref: Optional[MikanRef] = None
     if mikan_bangumi_id is not None:
+        # MikanRef.mikan_subgroup_id is non-Optional in the dataclass; pass 0
+        # as a placeholder when subgroupid is missing from the RSS URL. The
+        # Series identity downstream only reads mikan_bangumi_id from this
+        # ref, so the placeholder is inert. (Future Mikan consumers must
+        # not interpret this field without checking for the URL having a
+        # real subgroupid.)
         mikan_ref = MikanRef(
             mikan_bangumi_id=mikan_bangumi_id,
             mikan_subgroup_id=mikan_subgroup_id or 0,
@@ -94,6 +101,7 @@ async def backfill_one_bangumi(session: AsyncSession, bangumi: Bangumi) -> None:
     if bangumi.observed_groups is None:
         bangumi.observed_groups = json.dumps([bangumi.group_name or "Unknown"])
     await session.flush()
+    return True
 
 
 async def backfill_torrents_for_bangumi(
@@ -135,17 +143,19 @@ async def main() -> int:
         ).scalars().all()
         logger.info("Backfilling %d bangumi rows", len(all_bangumi))
 
-        bangumi_count = 0
+        linked_count = 0
         torrent_count = 0
         for bangumi in all_bangumi:
-            await backfill_one_bangumi(session, bangumi)
-            bangumi_count += 1
+            if await backfill_one_bangumi(session, bangumi):
+                linked_count += 1
             torrent_count += await backfill_torrents_for_bangumi(session, bangumi)
 
         await session.commit()
         logger.info(
-            "Backfill complete: %d bangumi linked, %d torrents updated",
-            bangumi_count,
+            "Backfill complete: %d bangumi newly linked (of %d total), "
+            "%d torrents updated",
+            linked_count,
+            len(all_bangumi),
             torrent_count,
         )
     return 0
