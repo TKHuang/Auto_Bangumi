@@ -19,6 +19,7 @@ from module.models import (
 )
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
+from module.repositories.series import SeriesRepository
 from module.repositories.torrent import TorrentRepository
 from module.services.collector import SeasonCollectorService
 from module.services.downloader.factory import create_downloader
@@ -128,9 +129,19 @@ async def add_rss(
                 return u_response(data)
 
             if isinstance(data, Bangumi) and not official_title:
-                # TODO(plan05): re-enable duplicate-by-title check via SeriesRepository.
-                # Currently disabled — find_by_official_title() was removed in migration 0008.
-                pass
+                existing_series = await SeriesRepository(session).find_by_canonical_title(
+                    data.official_title
+                )
+                if existing_series is not None:
+                    return u_response(ResponseModel(
+                        status=False,
+                        status_code=409,
+                        msg_en=(
+                            f"Series '{data.official_title}' already exists "
+                            f"(id={existing_series.id})."
+                        ),
+                        msg_zh=f"番剧「{data.official_title}」已存在（id={existing_series.id}）。",
+                    ))
 
             if isinstance(data, Bangumi) and data.rss_link:
                 rss_links = data.rss_link.split(",") if data.rss_link else []

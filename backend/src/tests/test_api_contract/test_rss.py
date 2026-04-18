@@ -155,6 +155,44 @@ class TestAddRSS:
 
                     assert response.status_code in [200, 422]
 
+    @pytest.mark.asyncio
+    async def test_add_rss_rejects_duplicate_series_title(self, client):
+        """When a Series with the same canonical_title already exists,
+        add_rss returns 409 (re-enabled in Plan 05 Task 10)."""
+        from module.models import Bangumi as BangumiModel
+
+        mock_series = MagicMock()
+        mock_series.id = 42
+
+        # spec=BangumiModel so isinstance(mock_data, Bangumi) passes in rss.py
+        mock_data = MagicMock(spec=BangumiModel)
+        mock_data.official_title = "My Show"
+        mock_data.rss_link = None
+
+        with patch("module.api.v1.rss.RSSRepository"):
+            with patch("module.api.v1.rss.BangumiRepository"):
+                with patch("module.api.v1.rss.SeriesRepository") as mock_series_cls:
+                    with patch("module.api.v1.rss.analyser") as mock_analyser:
+                        mock_series_repo = AsyncMock()
+                        mock_series_cls.return_value = mock_series_repo
+                        mock_series_repo.find_by_canonical_title.return_value = mock_series
+                        mock_analyser.link_to_data = AsyncMock(return_value=mock_data)
+
+                        response = client.post(
+                            "/api/v1/rss/add",
+                            json={
+                                "name": "My Show RSS",
+                                "url": "https://example.com/rss.xml",
+                                "aggregate": False,
+                                "parser": "mikan",
+                            },
+                        )
+
+                        assert response.status_code == 409
+                        data = response.json()
+                        assert "My Show" in data["msg_en"]
+                        assert "42" in data["msg_en"]
+
 
 class TestDeleteRSS:
     """Test DELETE /rss/delete/{rss_id} endpoint."""
