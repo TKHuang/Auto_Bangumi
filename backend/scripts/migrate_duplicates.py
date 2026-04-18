@@ -124,6 +124,7 @@ async def pick_winner(session: AsyncSession, group: list[Bangumi]) -> int:
             0 if b.added else 1,                                          # added=True first
             -counts.get(b.id, 0),                                         # more torrents first
             -(b.updated_at.timestamp() if b.updated_at else 0),           # newer first
+            b.id,                                                         # deterministic tiebreaker (lower id wins)
         )
 
     winner = min(group, key=_sort_key)
