@@ -57,6 +57,7 @@ def _serialize_torrent(t: Torrent) -> dict:
         "hash": t.hash,
         "homepage": t.homepage,
         "downloaded": t.downloaded,
+        "state": t.state.value if t.state is not None else None,
     }
 
 
