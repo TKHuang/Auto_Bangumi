@@ -187,6 +187,20 @@ class BangumiMergeService:
         if history.undone_at is not None:
             raise ValueError("merge already undone")
 
+        # Cascade guard (spec §11.5): refuse if a newer un-undone merge
+        # references either participant — the user must undo the newer
+        # merge first or the identity invariant breaks.
+        blockers = await self._history_repo.find_cascade_blockers(
+            history_id=history.id,
+            winner_id=history.winner_bangumi_id,
+            loser_id=history.loser_bangumi_id,
+        )
+        if blockers:
+            raise ValueError(
+                "cascade: newer un-undone merge(s) reference this pair "
+                f"(ids={blockers}); undo the newer merge first"
+            )
+
         loser = await self._bangumi_repo.get_by_id(history.loser_bangumi_id)
         if loser is None:
             raise ValueError(f"loser bangumi id={history.loser_bangumi_id} missing")

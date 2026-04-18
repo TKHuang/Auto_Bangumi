@@ -141,3 +141,37 @@ async def test_merge_refuses_winner_equal_loser(db_session):
             winner_id=winner.id, loser_id=winner.id,
             merge_reason="auto_migration", merged_by="auto_migration",
         )
+
+
+@pytest.mark.integration
+async def test_undo_refuses_when_later_history_references_merge(db_session):
+    """Spec §11.5 cascade guard (review H-4): if a later un-undone merge
+    references either participant, undo must be refused with guidance to
+    undo the newer merge first."""
+    s, winner, loser = await _seed(db_session)
+    # Seed a third bangumi so the second merge has somewhere to land.
+    third = Bangumi(
+        group_name=_grp(),
+        rss_link="", series_id=s.id, mikan_subgroup_id=372, active=True,
+        observed_groups=json.dumps([]),
+    )
+    db_session.add(third)
+    await db_session.flush()
+
+    svc = BangumiMergeService(db_session)
+    h1 = await svc.merge(
+        winner_id=winner.id, loser_id=loser.id,
+        merge_reason="first", merged_by="test",
+    )
+    # Later merge: the first history's winner gets merged into `third`.
+    h2 = await svc.merge(
+        winner_id=third.id, loser_id=winner.id,
+        merge_reason="second", merged_by="test",
+    )
+
+    with pytest.raises(ValueError, match="cascade|newer"):
+        await svc.undo(history_id=h1.id, undone_by="test")
+
+    # After h2 is undone, h1 should be undoable.
+    await svc.undo(history_id=h2.id, undone_by="test")
+    await svc.undo(history_id=h1.id, undone_by="test")

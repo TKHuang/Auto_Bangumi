@@ -47,6 +47,35 @@ class BangumiMergeHistoryRepository:
         await self.session.refresh(row)
         return row
 
+    async def find_cascade_blockers(
+        self, history_id: int, winner_id: int, loser_id: int
+    ) -> list[int]:
+        """Return ids of later un-undone merges that reference either
+        participant — undoing ``history_id`` is unsafe while any exist
+        (spec §11.5).
+
+        A blocker is any history row with ``id > history_id`` AND
+        ``undone_at IS NULL`` whose winner or loser matches either the
+        winner or loser of the history being undone.
+        """
+        participants = {winner_id, loser_id}
+        stmt = (
+            select(BangumiMergeHistory.id)
+            .where(
+                and_(
+                    BangumiMergeHistory.id > history_id,
+                    BangumiMergeHistory.undone_at.is_(None),
+                    or_(
+                        BangumiMergeHistory.winner_bangumi_id.in_(participants),
+                        BangumiMergeHistory.loser_bangumi_id.in_(participants),
+                    ),
+                )
+            )
+            .order_by(BangumiMergeHistory.id)
+        )
+        result = await self.session.execute(stmt)
+        return [row for row in result.scalars().all()]
+
     async def mark_undone(self, history_id: int, actor: str) -> None:
         row = await self.get_by_id(history_id)
         if row is None:
