@@ -57,7 +57,9 @@ class TestGetBangumi:
         assert resp.status_code == 200
         bangumis = resp.json()
         assert len(bangumis) >= 1
-        assert any(b["title_raw"] for b in bangumis)
+        # title_raw was dropped in migration 0008; verify the canonical
+        # title (sourced from Series) is populated instead.
+        assert any(b["official_title"] for b in bangumis)
 
     def test_get_by_id(self, authed_client):
         """GET /bangumi/get/{id} returns the correct bangumi."""

@@ -31,8 +31,17 @@ class SeriesRepository:
         season: int,
         cour_part: Optional[str],
     ) -> Optional[Series]:
+        """Tier 2 lookup — intentionally scoped to non-Mikan series only.
+
+        The partial UNIQUE index (migration 0006) enforces fallback-key
+        uniqueness on ``WHERE mikan_bangumi_id IS NULL`` rows, so Tier 2 must
+        mirror that scope. Matching a Mikan-sourced row here would cause
+        Tier 3 to spawn a duplicate pending_review series instead of
+        returning the authoritative Mikan one (review M-3).
+        """
         stmt = select(Series).where(
             and_(
+                Series.mikan_bangumi_id.is_(None),
                 Series.normalized_title == normalized_title,
                 Series.season == season,
                 (Series.cour_part.is_(None) if cour_part is None

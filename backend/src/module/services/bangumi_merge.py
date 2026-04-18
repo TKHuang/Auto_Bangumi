@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.merge_history import BangumiMergeHistory
-from module.domain.models.torrent import Torrent
+from module.domain.models.torrent import Torrent, TorrentState
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.merge_history import BangumiMergeHistoryRepository
 from module.repositories.torrent import TorrentRepository
@@ -219,7 +219,6 @@ class BangumiMergeService:
         # Recreate torrents that were dropped (hash-conflict duplicates).
         dropped: list[dict] = json.loads(history.dropped_torrents or "[]")
         for t_dict in dropped:
-            from module.domain.models.torrent import TorrentState  # local import to avoid cycles
             new_t = Torrent(
                 bangumi_id=history.loser_bangumi_id,
                 rss_id=t_dict.get("rss_id"),

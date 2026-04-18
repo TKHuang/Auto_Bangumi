@@ -106,16 +106,25 @@ class BangumiRepository:
         bangumi.deleted = True
         await self.session.flush()
 
-    async def get_active(self) -> list[Bangumi]:
+    async def get_active(self, enabled_only: bool = False) -> list[Bangumi]:
+        """List bangumi that are not soft-deleted and not pending review.
+
+        When ``enabled_only`` is True, also excludes rows with ``active=False``.
+        Processing paths (RSS torrent matching, rename) must pass
+        ``enabled_only=True`` so disabled subscriptions don't swallow torrents
+        (spec §10.2). The UI listing (``/bangumi/get/all``) keeps the default
+        so users can see and re-enable disabled rows.
+        """
+        conditions = [
+            Bangumi.deleted == False,
+            Bangumi.pending_review == False,
+        ]
+        if enabled_only:
+            conditions.append(Bangumi.active == True)
         stmt = (
             select(Bangumi)
             .options(selectinload(Bangumi.series))
-            .where(
-                and_(
-                    Bangumi.deleted == False,
-                    Bangumi.pending_review == False,
-                )
-            )
+            .where(and_(*conditions))
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

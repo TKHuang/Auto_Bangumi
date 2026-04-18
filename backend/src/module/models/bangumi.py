@@ -63,7 +63,7 @@ def _orm_bangumi_to_flat(obj: Any) -> dict:
         "pending_review": getattr(obj, "pending_review", False),
         "global_filter_matches": getattr(obj, "global_filter_matches", None),
         # Pydantic-only fields (not on ORM) kept at defaults
-        "title_raw": getattr(obj, "title_raw", "title_raw"),
+        "title_raw": getattr(obj, "title_raw", ""),
         "season_raw": getattr(obj, "season_raw", None),
         # Computed from series
         "official_title": canonical_title,

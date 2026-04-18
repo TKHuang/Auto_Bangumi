@@ -101,12 +101,11 @@ class RSSEngine:
         Returns:
             Matched Bangumi, _FILTERED if matched but excluded by filter, or None if no match.
         """
-        all_bangumi = await bangumi_repo.get_active()
+        all_bangumi = await bangumi_repo.get_active(enabled_only=True)
 
         for bangumi in all_bangumi:
             _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-            _title_raw = getattr(bangumi, "title_raw", None)
-            if _canonical and (_canonical in torrent.name or (_title_raw and _title_raw in torrent.name)):
+            if _canonical and _canonical in torrent.name:
                 torrent.bangumi_id = bangumi.id
 
                 if bangumi.filter == "":
@@ -411,7 +410,7 @@ class RSSEngine:
                     if inserted_count > 0:
                         torrent_hashes = [t.hash for t in matched_torrents if t.hash]
                         db_torrents_map = await torrent_repo.get_by_hashes(torrent_hashes)
-                        all_active_bangumi = await bangumi_repo.get_active()
+                        all_active_bangumi = await bangumi_repo.get_active(enabled_only=True)
 
                         # Phase 2: NETWORK — add torrents to downloader, collect results
                         download_results: list[tuple[str, int, str]] = []
