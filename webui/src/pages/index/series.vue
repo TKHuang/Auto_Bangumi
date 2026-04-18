@@ -66,7 +66,7 @@ onMounted(() => seriesStore.refresh());
 <template>
   <div class="series-page">
     <!-- List panel -->
-    <div :class="['series-list', { 'has-detail': selectedId !== null }]">
+    <div class="series-list" :class="[{ 'has-detail': selectedId !== null }]">
       <div v-if="seriesStore.loading" class="loading">
         {{ t('series.loading') }}
       </div>
@@ -87,7 +87,7 @@ onMounted(() => seriesStore.refresh());
           <tr
             v-for="s in seriesStore.items"
             :key="s.id"
-            :class="['series-row', { active: selectedId === s.id }]"
+            class="series-row" :class="[{ active: selectedId === s.id }]"
             @click="openDetail(s.id)"
           >
             <td>{{ s.canonical_title }}</td>
