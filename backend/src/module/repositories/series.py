@@ -7,7 +7,7 @@ Identity lookup order (spec §6.4):
 """
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.series import Series
@@ -64,6 +64,14 @@ class SeriesRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def find_by_canonical_title(self, title: str) -> Optional[Series]:
+        """Case-insensitive lookup by canonical_title. Returns first match or None."""
+        stmt = select(Series).where(
+            func.lower(Series.canonical_title) == title.lower()
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
 
     async def create(self, data: dict) -> Series:
         series = Series(**data)
