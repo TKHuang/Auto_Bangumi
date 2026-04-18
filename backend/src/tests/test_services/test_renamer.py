@@ -498,9 +498,11 @@ class TestRenameBangumi:
         self, db_session, mock_downloader, mock_parser
     ):
         """Test rename_bangumi moves torrents when save_path changes."""
+        # root_path is the base directory (without Season N).
+        # save_path property appends "Season {series.season}" automatically.
         series = await _add_series(
             db_session, title="New Title", season=2,
-            root_path="/data/Bangumi/New Title/Season 2",
+            root_path="/data/Bangumi/New Title",
         )
         bangumi = Bangumi(series_id=series.id, group_name="Group")
         db_session.add(bangumi)

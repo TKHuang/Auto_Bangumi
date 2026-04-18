@@ -194,7 +194,8 @@ class TestBangumi:
         assert loaded.season == 2
         assert loaded.year == 2024
         assert loaded.poster_link == "https://example.com/poster.jpg"
-        assert loaded.save_path == "/downloads/Shim"
+        # save_path = root_path / "Season {season}" (post-0008 shim behaviour)
+        assert loaded.save_path == "/downloads/Shim/Season 2"
 
     def test_bangumi_save_path_prefers_path_override(self, session):
         s = _make_series(session)
