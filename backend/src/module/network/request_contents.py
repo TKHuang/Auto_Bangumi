@@ -110,7 +110,7 @@ class RequestContent(RequestURL):
                         # Different subgroups format titles differently, e.g.:
                         #   "Modaete yo, Adam-kun (BDRip 1080p HEVC FLAC)" vs "Modaete yo, Adam-kun"
                         # If either title contains the other, consider it a match
-                        # TODO(Task 11): title_raw ORM read will be removed when parsing is series-aware
+                        # TODO(plan05): title_raw ORM read will be removed when parsing is series-aware
                         _parsed_title_raw = getattr(parsed, "title_raw", None) or ""
                         if title_raw not in _parsed_title_raw and _parsed_title_raw not in title_raw:
                             continue

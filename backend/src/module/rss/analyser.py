@@ -117,7 +117,7 @@ class RSSAnalyser(TitleParser):
         new_data = []
         for torrent in torrents:
             bangumi = self.raw_parser(raw=torrent.name)
-            # TODO(Task 11): title_raw ORM reads will be removed when analyser is series-aware
+            # TODO(plan05): title_raw ORM reads will be removed when analyser is series-aware
             _b_title_raw = getattr(bangumi, "title_raw", None)
             if bangumi and _b_title_raw not in [getattr(i, "title_raw", None) for i in new_data]:
                 self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)

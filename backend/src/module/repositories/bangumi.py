@@ -28,8 +28,8 @@ class BangumiRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    # Legacy column names dropped in migration 0008.  Services and older
-    # callers may still pass them; strip silently so we don't break them.
+    # Fields the bangumi.create() filter must drop because they were removed
+    # in migration 0008 — callers are still passing them as Plan 05 catches up.
     # NOTE: save_path and poster_link are handled specially in _apply_update_dict
     # rather than stripped here (they map to path_override / series.poster_url).
     _DROPPED_COLUMNS: frozenset[str] = frozenset(
@@ -37,9 +37,11 @@ class BangumiRepository:
          "save_path", "poster_link"}
     )
 
-    # Columns that are silently ignored on write (Plan 05 will rewrite callers).
+    # Fields silently dropped on update() — parser intermediates that no
+    # longer persist. (Other dropped columns like official_title are
+    # delegated to series, not silently dropped.)
     _SILENT_DROP_ON_WRITE: frozenset[str] = frozenset(
-        {"official_title", "title_raw", "year", "season", "season_raw"}
+        {"title_raw", "season_raw"}
     )
 
     def _apply_update_dict(self, bangumi: "Bangumi", data: dict) -> None:
@@ -50,7 +52,10 @@ class BangumiRepository:
         Mapping rules (Task 12):
         - save_path        → path_override
         - poster_link      → series.poster_url  (if series is loaded)
-        - official_title, title_raw, year, season, season_raw → silently dropped
+        - official_title   → series.canonical_title  (if series is loaded)
+        - season           → series.season  (if series is loaded)
+        - year             → series.year  (if series is loaded)
+        - title_raw, season_raw → silently dropped (parser intermediates)
         - everything else  → setattr if hasattr
         """
         for key, value in data.items():
@@ -62,8 +67,17 @@ class BangumiRepository:
                 if bangumi.series is not None:
                     bangumi.series.poster_url = value
                 # else: no series loaded, cannot persist — silently drop
+            elif key == "official_title":
+                if bangumi.series is not None:
+                    bangumi.series.canonical_title = value
+            elif key == "season":
+                if bangumi.series is not None:
+                    bangumi.series.season = int(value) if value is not None else value
+            elif key == "year":
+                if bangumi.series is not None:
+                    bangumi.series.year = int(value) if value else None
             elif key in self._SILENT_DROP_ON_WRITE:
-                # Plan 05 will rewrite these write paths to go through Series
+                # Parser intermediates — no longer stored on any model
                 pass
             elif hasattr(bangumi, key):
                 setattr(bangumi, key, value)

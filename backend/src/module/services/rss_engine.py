@@ -49,7 +49,7 @@ def _match_torrent_in_list(
 ) -> Optional[Bangumi]:
     """In-memory torrent-to-bangumi matching (no DB call)."""
     for bangumi in bangumi_list:
-        # TODO(Task 11): replace direct field reads when RSS engine becomes series-aware
+        # TODO(plan05): replace direct field reads when RSS engine becomes series-aware
         _title_raw = getattr(bangumi, "title_raw", None)
         if bangumi.official_title in torrent.name or (_title_raw and _title_raw in torrent.name):
             torrent.bangumi_id = bangumi.id
@@ -104,7 +104,7 @@ class RSSEngine:
         all_bangumi = await bangumi_repo.get_active()
 
         for bangumi in all_bangumi:
-            # TODO(Task 11): replace direct field reads when RSS engine becomes series-aware
+            # TODO(plan05): replace direct field reads when RSS engine becomes series-aware
             _title_raw = getattr(bangumi, "title_raw", None)
             if bangumi.official_title in torrent.name or (_title_raw and _title_raw in torrent.name):
                 torrent.bangumi_id = bangumi.id
@@ -658,7 +658,7 @@ class RSSEngine:
 
         # Title match: when rss_link is an aggregate feed, only keep torrents
         # whose name contains this bangumi's title to avoid cross-contamination.
-        # TODO(Task 11): replace direct field reads when RSS engine becomes series-aware
+        # TODO(plan05): replace direct field reads when RSS engine becomes series-aware
         _title_raw = getattr(bangumi, "title_raw", None)
         title_matched = []
         for torrent in all_torrents:

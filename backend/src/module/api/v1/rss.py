@@ -137,7 +137,7 @@ async def add_rss(
                     settings.downloader.path, data.official_title, data.season,
                     getattr(data, "year", None),
                 )
-                # TODO(Task 11): title_raw/season_raw Pydantic field reads will be removed when create() path is series-aware
+                # TODO(plan05): title_raw/season_raw Pydantic field reads will be removed when create() path is series-aware
                 created = await bangumi_repo.create({
                     "official_title": data.official_title,
                     "title_raw": data.title_raw,
@@ -604,7 +604,7 @@ async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(
 
     bangumi_data = []
     for bangumi in pending_list:
-        # TODO(Task 11): title_raw/season_raw ORM reads will be removed when this path is series-aware
+        # TODO(plan05): title_raw/season_raw ORM reads will be removed when this path is series-aware
         bangumi_data.append({
             "id": bangumi.id,
             "rss_id": bangumi.rss_id,
