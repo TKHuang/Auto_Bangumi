@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import sys
 from typing import Optional
 
@@ -29,33 +28,12 @@ from module.database.engine import AsyncSessionLocal
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent
 from module.domain.text.normalize import normalize_title
-from module.mikan.parser import MikanRef
+from module.mikan.parser import MikanRef, extract_mikan_ids_from_rss
 from module.repositories.series import SeriesRepository
 from module.services.identity_resolver import IdentityResolver
 
 
 logger = logging.getLogger(__name__)
-
-_MIKAN_RSS_RE = re.compile(
-    r"mikan(?:ani|ime)?\.(?:me|tv)/RSS/Bangumi\?bangumiId=(\d+)"
-    r"(?:&subgroupid=(\d+))?",
-    re.IGNORECASE,
-)
-
-
-def extract_mikan_ids_from_rss(
-    rss_link: Optional[str],
-) -> tuple[Optional[int], Optional[int]]:
-    """Return (mikan_bangumi_id, mikan_subgroup_id) extracted from rss_link
-    or (None, None) when the link isn't a Mikan RSS URL."""
-    if not rss_link:
-        return None, None
-    match = _MIKAN_RSS_RE.search(rss_link)
-    if not match:
-        return None, None
-    bangumi_id = int(match.group(1))
-    subgroup_id = int(match.group(2)) if match.group(2) is not None else None
-    return bangumi_id, subgroup_id
 
 
 async def backfill_one_bangumi(session: AsyncSession, bangumi: Bangumi) -> bool:

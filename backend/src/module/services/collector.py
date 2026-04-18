@@ -14,6 +14,7 @@ from module.domain.value_objects import ResponseModel, gen_save_path
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
+from module.mikan.parser import extract_mikan_ids_from_rss
 from module.services.downloader.interface import DownloaderProtocol
 from module.services.rss_engine import RSSEngine
 
@@ -301,14 +302,20 @@ class SeasonCollectorService:
                     await session.flush()
                     logger.debug(f"[Collector] Created new RSS with ID {data.rss_id}")
 
-            # Check if there's a duplicate from a DIFFERENT RSS source
-            # This validation happens BEFORE deletion to prevent conflicts
-            group_name = data.group_name if data.group_name else "Unknown"
-            existing_active = await bangumi_repo.get_by_composite_key(
-                official_title=data.official_title,
-                season=data.season,
-                group_name=group_name,
-            )
+            # Check if there's a duplicate from a DIFFERENT RSS source using
+            # series-based identity (replaces legacy composite-key lookup).
+            _mikan_bangumi_id, _mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
+            _series_id = data.series.id if data.series is not None else None
+            existing_active: Optional[Bangumi] = None
+            if _series_id is not None:
+                if _mikan_subgroup_id is not None:
+                    existing_active = await bangumi_repo.get_by_series_and_subgroup(
+                        _series_id, _mikan_subgroup_id
+                    )
+                else:
+                    existing_active = await bangumi_repo.get_by_series_and_rss(
+                        _series_id, data.rss_id
+                    )
 
             if existing_active and existing_active.rss_id != data.rss_id:
                 # Different RSS source - this is a conflict
@@ -318,6 +325,7 @@ class SeasonCollectorService:
                     else None
                 )
                 existing_rss_url = existing_rss.url if existing_rss else None
+                group_name = data.group_name if data.group_name else "Unknown"
                 logger.warning(
                     f"[Collector] Bangumi already subscribed from different RSS: "
                     f"official_title='{data.official_title}', season={data.season}, group='{group_name}' "
@@ -351,31 +359,22 @@ class SeasonCollectorService:
                     bangumi_ids = [b.id for b in existing_bangumi]
                     await bangumi_repo.delete_many(bangumi_ids)
 
-            save_path = gen_save_path(
-                settings.downloader.path, data.official_title, data.season,
-                getattr(data, "year", None),
-            )
             created_bangumi = await bangumi_repo.create({
-                "official_title": data.official_title,
-                # title_raw/season_raw dropped in 0008; _DROPPED_COLUMNS strips them.
-                # TODO(Task 11): remove these dict entries when collector is rewritten.
-                "title_raw": getattr(data, "title_raw", None),
-                "season": data.season,
-                "season_raw": getattr(data, "season_raw", None),
+                "series_id": _series_id,
+                "mikan_subgroup_id": _mikan_subgroup_id,
                 "group_name": data.group_name or "Unknown",
                 "dpi": data.dpi,
                 "source": data.source,
                 "subtitle": data.subtitle,
                 "rss_link": data.rss_link,
                 "rss_id": data.rss_id,
-                "poster_link": data.poster_link or "",
                 "filter": data.filter or "",
                 "eps_collect": True,
                 "offset": data.offset,
                 "added": True,
                 "deleted": False,
                 "pending_review": False,
-                "save_path": save_path,
+                "active": True,
             })
 
             # Insert manually-excluded torrents as "downloaded" so they are
@@ -563,31 +562,25 @@ class SeasonCollectorService:
                     data.eps_collect = True
                     data.rss_id = rss_id
 
-                    save_path = gen_save_path(
-                        settings.downloader.path, data.official_title, data.season,
-                        getattr(data, "year", None),
-                    )
+                    _b_mikan_bangumi_id, _b_mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
+                    _b_series_id = data.series.id if data.series is not None else None
+
                     await bangumi_repo.create({
-                        "official_title": data.official_title,
-                        # title_raw/season_raw dropped in 0008; _DROPPED_COLUMNS strips them.
-                        # TODO(Task 11): remove these dict entries when collector is rewritten.
-                        "title_raw": getattr(data, "title_raw", None),
-                        "season": data.season,
-                        "season_raw": getattr(data, "season_raw", None),
+                        "series_id": _b_series_id,
+                        "mikan_subgroup_id": _b_mikan_subgroup_id,
                         "group_name": data.group_name or "Unknown",
                         "dpi": data.dpi,
                         "source": data.source,
                         "subtitle": data.subtitle,
                         "rss_link": data.rss_link,
                         "rss_id": rss_id,
-                        "poster_link": data.poster_link or "",
                         "filter": data.filter or "",
                         "eps_collect": True,
                         "offset": data.offset,
                         "added": True,
                         "deleted": False,
                         "pending_review": False,
-                        "save_path": save_path,
+                        "active": True,
                     })
                     success_count += 1
                     logger.debug(f"[Collector] Batch insert: {data.official_title}")

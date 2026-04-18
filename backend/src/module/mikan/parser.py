@@ -8,6 +8,10 @@ poster_url from a fetched episode page. Uses three-tier fallback:
   Tier C: RSS URL ?bangumiId=&subgroupid=
 
 Returns None if no tier matches (treat as non_mikan or parse_failed upstream).
+
+Also provides `extract_mikan_ids_from_rss`, a lightweight utility that parses
+(mikan_bangumi_id, mikan_subgroup_id) directly from a Mikan RSS URL without
+fetching the page, used by the bangumi creation pipeline.
 """
 from __future__ import annotations
 
@@ -22,6 +26,33 @@ class MikanRef:
     mikan_subgroup_id: int
     canonical_title: Optional[str] = None
     poster_url: Optional[str] = None
+
+
+# Matches Mikan RSS URLs of the form:
+#   https://mikanani.me/RSS/Bangumi?bangumiId=3437&subgroupid=583
+# The subgroupid parameter is optional.
+_MIKAN_RSS_RE = re.compile(
+    r"mikan(?:ani|ime)?\.(?:me|tv)/RSS/Bangumi\?bangumiId=(\d+)"
+    r"(?:&subgroupid=(\d+))?",
+    re.IGNORECASE,
+)
+
+
+def extract_mikan_ids_from_rss(
+    rss_link: Optional[str],
+) -> tuple[Optional[int], Optional[int]]:
+    """Return (mikan_bangumi_id, mikan_subgroup_id) extracted from *rss_link*.
+
+    Returns (None, None) when the link is empty or is not a Mikan RSS URL.
+    """
+    if not rss_link:
+        return None, None
+    match = _MIKAN_RSS_RE.search(rss_link)
+    if not match:
+        return None, None
+    bangumi_id = int(match.group(1))
+    subgroup_id = int(match.group(2)) if match.group(2) is not None else None
+    return bangumi_id, subgroup_id
 
 
 _TIER_A = re.compile(

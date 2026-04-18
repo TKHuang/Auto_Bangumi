@@ -2,6 +2,7 @@ from typing import Optional
 
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from module.domain.models.bangumi import Bangumi
 from module.repositories.exceptions import ConcurrentModificationError
@@ -12,11 +13,16 @@ class BangumiRepository:
         self.session = session
 
     async def get_by_id(self, id: int) -> Optional[Bangumi]:
-        result = await self.session.get(Bangumi, id)
-        return result
+        stmt = (
+            select(Bangumi)
+            .options(selectinload(Bangumi.series))
+            .where(Bangumi.id == id)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_all(self, include_deleted: bool = False) -> list[Bangumi]:
-        stmt = select(Bangumi)
+        stmt = select(Bangumi).options(selectinload(Bangumi.series))
         if not include_deleted:
             stmt = stmt.where(Bangumi.deleted == False)
         result = await self.session.execute(stmt)
@@ -39,18 +45,6 @@ class BangumiRepository:
         await self.session.flush()
         await self.session.refresh(bangumi)
         return bangumi
-
-    async def get_by_composite_key(
-        self,
-        official_title: str,
-        season: int,
-        group_name: str,
-    ) -> Optional[Bangumi]:
-        """Compat shim: composite key (title, season, group) was dropped in 0008.
-        Always returns None — callers that relied on this lookup should migrate to
-        get_by_series_and_subgroup / get_by_series_and_rss.
-        """
-        return None
 
     async def update(
         self, id: int, data: dict, expected_version: int
@@ -79,10 +73,14 @@ class BangumiRepository:
         await self.session.flush()
 
     async def get_active(self) -> list[Bangumi]:
-        stmt = select(Bangumi).where(
-            and_(
-                Bangumi.deleted == False,
-                Bangumi.pending_review == False,
+        stmt = (
+            select(Bangumi)
+            .options(selectinload(Bangumi.series))
+            .where(
+                and_(
+                    Bangumi.deleted == False,
+                    Bangumi.pending_review == False,
+                )
             )
         )
         result = await self.session.execute(stmt)

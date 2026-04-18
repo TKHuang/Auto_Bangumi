@@ -13,12 +13,16 @@ from module.domain.models.bangumi import Bangumi
 from module.domain.models.rss import RSSItem
 from module.domain.models.torrent import Torrent
 from module.domain.parser.title_parser import TitleParser
+from module.domain.text.normalize import normalize_title
 from module.domain.value_objects import BangumiParsingError, gen_save_path
+from module.mikan.parser import MikanRef, extract_mikan_ids_from_rss
 from module.network.request_contents import RequestContent
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
+from module.repositories.series import SeriesRepository
 from module.repositories.torrent import TorrentRepository
 from module.services.downloader.interface import DownloaderProtocol
+from module.services.identity_resolver import IdentityResolver
 
 logger = logging.getLogger(__name__)
 
@@ -151,8 +155,54 @@ class RSSEngine:
         group_name = bangumi_data.group_name or "Unknown"
         composite_key = (bangumi_data.official_title, bangumi_data.season, group_name)
 
+        # Mikan enrichment: fetch poster + canonical title from episode page.
+        parsed_rss_link = bangumi_data.rss_link
+        if torrent.homepage and rss_item.parser == "mikan":
+            try:
+                result = await asyncio.to_thread(parser.mikan_parser_with_rss, torrent.homepage)
+                if result.poster_link:
+                    bangumi_data.poster_link = result.poster_link
+                if result.official_title:
+                    bangumi_data.official_title = re.sub(r"[/:.\\]", " ", result.official_title)
+                if result.season_rss_link:
+                    bangumi_data.rss_link = result.season_rss_link
+                    parsed_rss_link = bangumi_data.rss_link
+            except Exception as e:
+                logger.debug(f"[Engine] Mikan enrichment failed for {torrent.name}: {e}")
+
+        # Resolve series identity (or find existing bangumi) via series-based keys.
+        effective_rss_link = parsed_rss_link or rss_item.url
+        mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(effective_rss_link)
+
+        # Check in-memory cache first (avoids repeated DB round trips for same key).
         if composite_key in auto_created_keys:
-            existing = await bangumi_repo.get_by_composite_key(*composite_key)
+            # Cache says we created/found a bangumi for this key — look it up.
+            norm, cour = normalize_title(bangumi_data.official_title)
+            resolver = IdentityResolver(SeriesRepository(session))
+            mikan_ref: Optional[MikanRef] = None
+            if mikan_bangumi_id is not None:
+                mikan_ref = MikanRef(
+                    mikan_bangumi_id=mikan_bangumi_id,
+                    mikan_subgroup_id=mikan_subgroup_id or 0,
+                    canonical_title=bangumi_data.official_title,
+                    poster_url=getattr(bangumi_data, "poster_link", None),
+                )
+            resolved = await resolver.resolve(
+                mikan_ref=mikan_ref,
+                normalized_title=norm,
+                season=bangumi_data.season,
+                cour_part=cour,
+                raw_title_for_root=bangumi_data.official_title,
+            )
+            existing = (
+                await bangumi_repo.get_by_series_and_subgroup(
+                    resolved.series.id, mikan_subgroup_id
+                )
+                if mikan_subgroup_id is not None
+                else await bangumi_repo.get_by_series_and_rss(
+                    resolved.series.id, rss_item.id
+                )
+            )
             if existing:
                 if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
                     logger.debug(
@@ -164,7 +214,35 @@ class RSSEngine:
             auto_created_keys.discard(composite_key)
             logger.debug(f"[Engine] Cached key {composite_key} not in DB, will re-create")
 
-        existing = await bangumi_repo.get_by_composite_key(*composite_key)
+        # Resolve series for new or uncached bangumi.
+        norm, cour = normalize_title(bangumi_data.official_title)
+        resolver = IdentityResolver(SeriesRepository(session))
+        mikan_ref = None
+        if mikan_bangumi_id is not None:
+            mikan_ref = MikanRef(
+                mikan_bangumi_id=mikan_bangumi_id,
+                mikan_subgroup_id=mikan_subgroup_id or 0,
+                canonical_title=bangumi_data.official_title,
+                poster_url=getattr(bangumi_data, "poster_link", None),
+            )
+        resolved = await resolver.resolve(
+            mikan_ref=mikan_ref,
+            normalized_title=norm,
+            season=bangumi_data.season,
+            cour_part=cour,
+            raw_title_for_root=bangumi_data.official_title,
+        )
+
+        # Check if bangumi already exists for this series+subgroup/rss.
+        existing = (
+            await bangumi_repo.get_by_series_and_subgroup(
+                resolved.series.id, mikan_subgroup_id
+            )
+            if mikan_subgroup_id is not None
+            else await bangumi_repo.get_by_series_and_rss(
+                resolved.series.id, rss_item.id
+            )
+        )
         if existing:
             auto_created_keys.add(composite_key)
             if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
@@ -174,44 +252,25 @@ class RSSEngine:
                 return None
             return existing
 
-        if torrent.homepage and rss_item.parser == "mikan":
-            try:
-                result = await asyncio.to_thread(parser.mikan_parser_with_rss, torrent.homepage)
-                if result.poster_link:
-                    bangumi_data.poster_link = result.poster_link
-                if result.official_title:
-                    bangumi_data.official_title = re.sub(r"[/:.\\]", " ", result.official_title)
-                if result.season_rss_link:
-                    bangumi_data.rss_link = result.season_rss_link
-            except Exception as e:
-                logger.debug(f"[Engine] Mikan enrichment failed for {torrent.name}: {e}")
-
-        save_path = gen_save_path(
-            settings.downloader.path, bangumi_data.official_title, bangumi_data.season,
-        )
         bangumi_filter = bangumi_data.filter or ""
 
         try:
-            # TODO(Task 11): title_raw/season_raw ORM reads will be removed when engine is series-aware
             created = await bangumi_repo.create({
-                "official_title": bangumi_data.official_title,
-                "title_raw": getattr(bangumi_data, "title_raw", None),
-                "season": bangumi_data.season,
-                "season_raw": getattr(bangumi_data, "season_raw", None),
+                "series_id": resolved.series.id,
+                "mikan_subgroup_id": mikan_subgroup_id,
                 "group_name": group_name,
                 "dpi": bangumi_data.dpi,
                 "source": bangumi_data.source,
                 "subtitle": bangumi_data.subtitle,
-                "rss_link": bangumi_data.rss_link or rss_item.url,
+                "rss_link": effective_rss_link,
                 "rss_id": rss_item.id,
-                "poster_link": bangumi_data.poster_link or "",
                 "filter": bangumi_filter,
                 "eps_collect": bangumi_data.eps_collect,
                 "offset": bangumi_data.offset,
                 "added": True,
                 "deleted": False,
                 "pending_review": False,
-                "save_path": save_path,
+                "active": True,
             })
             auto_created_keys.add(composite_key)
             newly_created_ids.add(created.id)
@@ -230,7 +289,15 @@ class RSSEngine:
             logger.debug(
                 f"[Engine] Bangumi already exists (race): {bangumi_data.official_title}"
             )
-            found = await bangumi_repo.get_by_composite_key(*composite_key)
+            found = (
+                await bangumi_repo.get_by_series_and_subgroup(
+                    resolved.series.id, mikan_subgroup_id
+                )
+                if mikan_subgroup_id is not None
+                else await bangumi_repo.get_by_series_and_rss(
+                    resolved.series.id, rss_item.id
+                )
+            )
             if found and RSSEngine._torrent_excluded_by_filter(torrent.name, found.filter):
                 return None
             return found
@@ -494,10 +561,36 @@ class RSSEngine:
                 "message": "Failed to parse torrent name",
             }
 
-        existing = await bangumi_repo.get_by_composite_key(
-            bangumi_data.official_title,
-            bangumi_data.season,
-            bangumi_data.group_name,
+        bangumi_data.rss_link = rss.url
+        bangumi_data.rss_id = rss.id
+
+        mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(rss.url)
+        norm, cour = normalize_title(bangumi_data.official_title)
+        resolver = IdentityResolver(SeriesRepository(session))
+        mikan_ref_obj: Optional[MikanRef] = None
+        if mikan_bangumi_id is not None:
+            mikan_ref_obj = MikanRef(
+                mikan_bangumi_id=mikan_bangumi_id,
+                mikan_subgroup_id=mikan_subgroup_id or 0,
+                canonical_title=bangumi_data.official_title,
+                poster_url=getattr(bangumi_data, "poster_link", None),
+            )
+        resolved = await resolver.resolve(
+            mikan_ref=mikan_ref_obj,
+            normalized_title=norm,
+            season=bangumi_data.season,
+            cour_part=cour,
+            raw_title_for_root=bangumi_data.official_title,
+        )
+
+        existing = (
+            await bangumi_repo.get_by_series_and_subgroup(
+                resolved.series.id, mikan_subgroup_id
+            )
+            if mikan_subgroup_id is not None
+            else await bangumi_repo.get_by_series_and_rss(
+                resolved.series.id, rss.id
+            )
         )
 
         if existing:
@@ -506,32 +599,22 @@ class RSSEngine:
                 "message": f"Bangumi already exists: {existing.official_title}",
             }
 
-        bangumi_data.rss_link = rss.url
-        bangumi_data.rss_id = rss.id
-
-        save_path = gen_save_path(
-            settings.downloader.path, bangumi_data.official_title, bangumi_data.season,
-        )
-        # TODO(Task 11): title_raw/season_raw ORM reads will be removed when engine is series-aware
         created_bangumi = await bangumi_repo.create({
-            "official_title": bangumi_data.official_title,
-            "title_raw": getattr(bangumi_data, "title_raw", None),
-            "season": bangumi_data.season,
-            "season_raw": getattr(bangumi_data, "season_raw", None),
-            "group_name": bangumi_data.group_name,
+            "series_id": resolved.series.id,
+            "mikan_subgroup_id": mikan_subgroup_id,
+            "group_name": bangumi_data.group_name or "Unknown",
             "dpi": bangumi_data.dpi,
             "source": bangumi_data.source,
             "subtitle": bangumi_data.subtitle,
             "rss_link": bangumi_data.rss_link,
             "rss_id": bangumi_data.rss_id,
-            "poster_link": bangumi_data.poster_link or "",
             "filter": bangumi_data.filter or "",
             "eps_collect": bangumi_data.eps_collect,
             "offset": bangumi_data.offset,
             "added": False,
             "deleted": False,
             "pending_review": False,
-            "save_path": save_path,
+            "active": True,
         })
 
         await session.flush()
