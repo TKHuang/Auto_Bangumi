@@ -62,7 +62,9 @@ async def backfill_one_bangumi(session: AsyncSession, bangumi: Bangumi) -> bool:
             poster_url=bangumi.poster_link,
         )
 
-    raw_title = bangumi.official_title or bangumi.title_raw or "Untitled"
+    # post-migration 0008: official_title always resolves through series shim;
+    # title_raw column is dropped — do not reference it.
+    raw_title = bangumi.official_title or "Untitled"
     norm, cour = normalize_title(raw_title)
 
     resolver = IdentityResolver(SeriesRepository(session))

@@ -147,7 +147,11 @@ class BangumiRepository:
         return list(result.scalars().all())
 
     async def get_by_rss(self, rss_id: int) -> list[Bangumi]:
-        stmt = select(Bangumi).where(Bangumi.rss_id == rss_id)
+        stmt = (
+            select(Bangumi)
+            .options(selectinload(Bangumi.series))
+            .where(Bangumi.rss_id == rss_id)
+        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -198,6 +202,7 @@ class BangumiRepository:
         from module.domain.models.series import Series as SeriesModel
         stmt = (
             select(Bangumi)
+            .options(selectinload(Bangumi.series))
             .join(SeriesModel, Bangumi.series_id == SeriesModel.id)
             .where(func.instr(bangumi_name, SeriesModel.canonical_title) > 0)
         )
@@ -213,6 +218,7 @@ class BangumiRepository:
         from module.domain.models.series import Series as SeriesModel
         stmt = (
             select(Bangumi)
+            .options(selectinload(Bangumi.series))
             .join(SeriesModel, Bangumi.series_id == SeriesModel.id)
             .where(
                 and_(
