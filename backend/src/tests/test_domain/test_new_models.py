@@ -21,7 +21,12 @@ class TestSeriesModel:
         uq_names = {c.name for c in Series.__table__.constraints
                     if c.__class__.__name__ == "UniqueConstraint"}
         assert "uq_series_mikan" in uq_names
-        assert "uq_series_fallback" in uq_names
+        # uq_series_fallback became a partial Index in migration 0006 (scoped
+        # to mikan_bangumi_id IS NULL). It now lives on Series.__table__.indexes,
+        # not on .constraints.
+        index_names = {ix.name for ix in Series.__table__.indexes}
+        assert "uq_series_fallback" in index_names
+        assert "uq_series_fallback_null_cour" in index_names
 
 
 @pytest.mark.unit
