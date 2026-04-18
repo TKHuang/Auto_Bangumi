@@ -355,15 +355,13 @@ class SeasonCollectorService:
                 settings.downloader.path, data.official_title, data.season,
                 getattr(data, "year", None),
             )
-            # series_id: prefer explicit field, fall back to loaded relationship.
-            _series_id = getattr(data, "series_id", None) or (
-                data.series.id if getattr(data, "series", None) is not None else None
-            )
             created_bangumi = await bangumi_repo.create({
                 "official_title": data.official_title,
-                "title_raw": data.title_raw,
+                # title_raw/season_raw dropped in 0008; _DROPPED_COLUMNS strips them.
+                # TODO(Task 11): remove these dict entries when collector is rewritten.
+                "title_raw": getattr(data, "title_raw", None),
                 "season": data.season,
-                "season_raw": data.season_raw,
+                "season_raw": getattr(data, "season_raw", None),
                 "group_name": data.group_name or "Unknown",
                 "dpi": data.dpi,
                 "source": data.source,
@@ -378,7 +376,6 @@ class SeasonCollectorService:
                 "deleted": False,
                 "pending_review": False,
                 "save_path": save_path,
-                "series_id": _series_id,
             })
 
             # Insert manually-excluded torrents as "downloaded" so they are
@@ -570,15 +567,13 @@ class SeasonCollectorService:
                         settings.downloader.path, data.official_title, data.season,
                         getattr(data, "year", None),
                     )
-                    # series_id: prefer explicit field, fall back to loaded relationship.
-                    _series_id = getattr(data, "series_id", None) or (
-                        data.series.id if getattr(data, "series", None) is not None else None
-                    )
                     await bangumi_repo.create({
                         "official_title": data.official_title,
-                        "title_raw": data.title_raw,
+                        # title_raw/season_raw dropped in 0008; _DROPPED_COLUMNS strips them.
+                        # TODO(Task 11): remove these dict entries when collector is rewritten.
+                        "title_raw": getattr(data, "title_raw", None),
                         "season": data.season,
-                        "season_raw": data.season_raw,
+                        "season_raw": getattr(data, "season_raw", None),
                         "group_name": data.group_name or "Unknown",
                         "dpi": data.dpi,
                         "source": data.source,
@@ -593,7 +588,6 @@ class SeasonCollectorService:
                         "deleted": False,
                         "pending_review": False,
                         "save_path": save_path,
-                        "series_id": _series_id,
                     })
                     success_count += 1
                     logger.debug(f"[Collector] Batch insert: {data.official_title}")

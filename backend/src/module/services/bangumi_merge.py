@@ -34,7 +34,6 @@ def _serialize_bangumi(b: Bangumi) -> dict:
         "id": b.id,
         "rss_id": b.rss_id,
         "official_title": b.official_title,
-        "title_raw": b.title_raw,
         "season": b.season,
         "group_name": b.group_name,
         "rss_link": b.rss_link,

@@ -25,7 +25,7 @@ class BangumiRepository:
     # Legacy column names dropped in migration 0008.  Services and older
     # callers may still pass them; strip silently so we don't break them.
     _DROPPED_COLUMNS: frozenset[str] = frozenset(
-        {"official_title", "title_raw", "season", "season_raw",
+        {"official_title", "title_raw", "year", "season", "season_raw",
          "save_path", "poster_link"}
     )
 

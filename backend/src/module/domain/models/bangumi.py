@@ -110,15 +110,3 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
     def poster_link(self) -> Optional[str]:
         return self.series.poster_url if self.series is not None else None
 
-    @property
-    def title_raw(self) -> Optional[str]:
-        """Compat shim: title_raw was a parser intermediate dropped in 0008.
-        Callers (e.g. BangumiMergeService snapshot) get None; Plan 05 removes
-        them.
-        """
-        return None
-
-    @property
-    def season_raw(self) -> Optional[str]:
-        """Compat shim: season_raw was dropped in 0008; Plan 05 removes this."""
-        return None
