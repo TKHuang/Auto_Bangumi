@@ -178,7 +178,6 @@ async def add_rss(
                 )
                 _series_id = _resolved.series.id
 
-                # TODO(plan05): title_raw/season_raw Pydantic field reads will be removed when create() path is series-aware
                 created = await bangumi_repo.create({
                     "series_id": _series_id,
                     "group_name": data.group_name or "Unknown",

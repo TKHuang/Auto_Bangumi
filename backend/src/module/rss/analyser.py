@@ -117,9 +117,8 @@ class RSSAnalyser(TitleParser):
         new_data = []
         for torrent in torrents:
             bangumi = self.raw_parser(raw=torrent.name)
-            # TODO(plan05): title_raw ORM reads will be removed when analyser is series-aware
-            _b_title_raw = getattr(bangumi, "title_raw", None)
-            if bangumi and _b_title_raw not in [getattr(i, "title_raw", None) for i in new_data]:
+            _b_title_raw = bangumi.title_raw if bangumi else None
+            if bangumi and _b_title_raw not in [i.title_raw for i in new_data]:
                 self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)
                 # Ensure rss_link is set (fallback to aggregate URL if not set by parser)
                 if not bangumi.rss_link:

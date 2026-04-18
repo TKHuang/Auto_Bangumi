@@ -25,6 +25,5 @@ class SearchTorrent(RequestContent, RSSAnalyser):
     def search_season(self, data: Bangumi, site: str = "mikan") -> list[Torrent]:
         rss_item = self.special_url(data, site)
         torrents = self.search_torrents(rss_item)
-        # TODO(plan05): title_raw ORM read will be removed when searcher is series-aware
-        _title_raw = getattr(data, "title_raw", None)
+        _title_raw = data.title_raw
         return [torrent for torrent in torrents if _title_raw and _title_raw in torrent.name]
