@@ -28,10 +28,9 @@ class BangumiRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    # Fields the bangumi.create() filter must drop because they were removed
-    # in migration 0008 — callers are still passing them as Plan 05 catches up.
-    # NOTE: save_path and poster_link are handled specially in _apply_update_dict
-    # rather than stripped here (they map to path_override / series.poster_url).
+    # Fields stripped during create() — callers are still passing them as Plan 05 catches up.
+    # save_path / poster_link are also listed here (no Series exists yet on create), but on
+    # update() they are remapped by _apply_update_dict to path_override / series.poster_url.
     _DROPPED_COLUMNS: frozenset[str] = frozenset(
         {"official_title", "title_raw", "year", "season", "season_raw",
          "save_path", "poster_link"}
@@ -71,11 +70,11 @@ class BangumiRepository:
                 if bangumi.series is not None:
                     bangumi.series.canonical_title = value
             elif key == "season":
-                if bangumi.series is not None:
-                    bangumi.series.season = int(value) if value is not None else value
+                if bangumi.series is not None and value is not None:
+                    bangumi.series.season = int(value)
             elif key == "year":
-                if bangumi.series is not None:
-                    bangumi.series.year = int(value) if value else None
+                if bangumi.series is not None and value is not None:
+                    bangumi.series.year = int(value)
             elif key in self._SILENT_DROP_ON_WRITE:
                 # Parser intermediates — no longer stored on any model
                 pass

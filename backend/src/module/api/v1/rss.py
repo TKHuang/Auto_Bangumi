@@ -103,17 +103,9 @@ async def add_rss(
                 return u_response(data)
 
             if isinstance(data, Bangumi) and not official_title:
-                # TODO(plan05): replace with series-aware duplicate check when
-                # SeriesRepository has a find_by_canonical_title method.
-                # find_by_official_title was removed in migration 0008.
-                existing_by_title = None
-                if existing_by_title:
-                    return u_response(ResponseModel(
-                        status=False,
-                        status_code=409,
-                        msg_en=f"A bangumi with title '{data.official_title}' already exists. Please use manual input to specify a different title.",
-                        msg_zh=f"已存在标题为「{data.official_title}」的番剧。请使用手动输入指定不同的标题。",
-                    ))
+                # TODO(plan05): re-enable duplicate-by-title check via SeriesRepository.
+                # Currently disabled — find_by_official_title() was removed in migration 0008.
+                pass
 
             if isinstance(data, Bangumi) and data.rss_link:
                 rss_links = data.rss_link.split(",") if data.rss_link else []
