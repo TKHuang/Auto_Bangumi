@@ -180,8 +180,10 @@ class BangumiRepository:
         for rss_link in rss_links:
             if not rss_link:
                 continue
-            stmt = select(Bangumi).where(
-                and_(func.instr(Bangumi.rss_link, rss_link) > 0, Bangumi.deleted == False)
+            stmt = (
+                select(Bangumi)
+                .options(selectinload(Bangumi.series))
+                .where(and_(func.instr(Bangumi.rss_link, rss_link) > 0, Bangumi.deleted == False))
             )
             result = await self.session.execute(stmt)
             found = result.scalar_one_or_none()

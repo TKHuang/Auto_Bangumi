@@ -22,6 +22,7 @@ from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
 from module.services.collector import SeasonCollectorService
 from module.services.downloader.factory import create_downloader
+from module.services.identity_resolver import resolve_series_for_rss
 from module.network.request_contents import RequestContent
 from module.services.rss_engine import RSSEngine as AsyncRSSEngine
 from module.services.search_adapter import AsyncRSSAnalyserAdapter
@@ -33,16 +34,40 @@ analyser = AsyncRSSAnalyserAdapter()
 
 
 def _sqlmodel_to_domain_bangumi(data: Bangumi) -> DomainBangumi:
-    domain = DomainBangumi()
-    for field in [
-        "id", "rss_id", "official_title", "year", "title_raw", "season",
-        "season_raw", "group_name", "dpi", "source", "subtitle",
-        "eps_collect", "offset", "filter", "rss_link", "poster_link",
-        "added", "rule_name", "save_path", "deleted", "pending_review",
-        "global_filter_matches",
-    ]:
+    """Map a Pydantic Bangumi schema onto an ORM Bangumi instance.
+
+    Post-0008: official_title, season, year, save_path, poster_link are
+    read-only properties on the ORM model (delegated to Series). We skip
+    those here; callers of collect_season / subscribe_season that need
+    these values should fetch the ORM Bangumi from DB directly by id.
+
+    Fields mapped to their ORM equivalents:
+      save_path → path_override  (stored per-bangumi override)
+    Fields silently skipped (read-only properties on ORM):
+      official_title, year, season, poster_link
+    Fields dropped (no longer on ORM after 0008):
+      title_raw, season_raw
+    """
+    # Direct ORM columns safe to set
+    _DIRECT_FIELDS = frozenset({
+        "id", "rss_id", "group_name", "dpi", "source", "subtitle",
+        "eps_collect", "offset", "filter", "rss_link", "added",
+        "rule_name", "deleted", "pending_review", "global_filter_matches",
+        "active",
+    })
+    domain = DomainBangumi.__new__(DomainBangumi)
+    for field in _DIRECT_FIELDS:
         if hasattr(data, field):
-            setattr(domain, field, getattr(data, field))
+            try:
+                setattr(domain, field, getattr(data, field))
+            except (AttributeError, TypeError):
+                pass
+    # Map save_path → path_override
+    if hasattr(data, "save_path") and data.save_path is not None:
+        try:
+            domain.path_override = data.save_path
+        except AttributeError:
+            pass
     return domain
 
 
@@ -125,31 +150,33 @@ async def add_rss(
             await session.flush()
 
             if isinstance(data, Bangumi):
-                save_path = gen_save_path(
-                    settings.downloader.path, data.official_title, data.season,
-                    getattr(data, "year", None),
+                # Resolve or create Series — required since migration 0008
+                # (Bangumi.series_id is NOT NULL).
+                _resolved = await resolve_series_for_rss(
+                    session,
+                    rss_link=data.rss_link or rss.url,
+                    parsed_title=data.official_title or "",
+                    parsed_season=data.season,
+                    parsed_poster=data.poster_link,
                 )
+                _series_id = _resolved.series.id
+
                 # TODO(plan05): title_raw/season_raw Pydantic field reads will be removed when create() path is series-aware
                 created = await bangumi_repo.create({
-                    "official_title": data.official_title,
-                    "title_raw": data.title_raw,
-                    "season": data.season,
-                    "season_raw": data.season_raw,
+                    "series_id": _series_id,
                     "group_name": data.group_name or "Unknown",
                     "dpi": data.dpi,
                     "source": data.source,
                     "subtitle": data.subtitle,
                     "rss_link": data.rss_link,
                     "rss_id": new_rss.id,
-                    "poster_link": data.poster_link or "",
                     "filter": data.filter or "",
-                    "eps_collect": data.eps_collect,
+                    "eps_collect": False,
                     "offset": data.offset,
                     "added": False,
                     "deleted": False,
                     "pending_review": False,
-                    "year": data.year,
-                    "save_path": save_path,
+                    "active": True,
                 })
                 await session.commit()
 
@@ -498,8 +525,9 @@ async def analysis_torrents(rss: RSSItem, _filter: str | None = None, title_raw:
 )
 async def download_collection(data: Bangumi, session: AsyncSession = Depends(get_db_session)):
     downloader = create_downloader(settings, session)
-    domain_bangumi = _sqlmodel_to_domain_bangumi(data)
-    result = await SeasonCollectorService.collect_season(session, downloader, domain_bangumi, data.rss_link)
+    # Pass the Pydantic schema directly — collect_season only reads attributes,
+    # it does not require an ORM-tracked instance.
+    result = await SeasonCollectorService.collect_season(session, downloader, data, data.rss_link)  # type: ignore[arg-type]
     return u_response(result)
 
 
@@ -512,10 +540,10 @@ async def subscribe(
     session: AsyncSession = Depends(get_db_session),
 ):
     downloader = create_downloader(settings, session)
-    domain_data = _sqlmodel_to_domain_bangumi(data)
+    # Pass the Pydantic schema directly — subscribe_season uses it as a DTO.
     try:
         result = await SeasonCollectorService.subscribe_season(
-            session, downloader, domain_data, parser=rss.parser, delete_files=file,
+            session, downloader, data, parser=rss.parser, delete_files=file,  # type: ignore[arg-type]
             excluded_hashes=excluded_hashes,
         )
         return u_response(result)
@@ -535,10 +563,10 @@ async def subscribe_batch(
     session: AsyncSession = Depends(get_db_session),
 ):
     downloader = create_downloader(settings, session)
-    domain_list = [_sqlmodel_to_domain_bangumi(b) for b in bangumi_list]
+    # Pass Pydantic schemas directly — subscribe_batch uses them as DTOs.
     try:
         result = await SeasonCollectorService.subscribe_batch(
-            session, downloader, domain_list, rss.id, parser=rss.parser, delete_files=file,
+            session, downloader, bangumi_list, rss.id, parser=rss.parser, delete_files=file,  # type: ignore[arg-type]
         )
         return u_response(result)
     except Exception as e:

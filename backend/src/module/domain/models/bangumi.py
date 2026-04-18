@@ -104,7 +104,12 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
     def save_path(self) -> Optional[str]:
         if self.path_override:
             return self.path_override
-        return self.series.root_path if self.series is not None else None
+        if self.series is None:
+            return None
+        # root_path is <base>/<safe_title[ (year)]> — append Season N to
+        # produce the full per-season save path callers expect.
+        from pathlib import PurePosixPath
+        return str(PurePosixPath(self.series.root_path) / f"Season {self.series.season}")
 
     @property
     def poster_link(self) -> Optional[str]:
