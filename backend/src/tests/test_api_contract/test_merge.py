@@ -295,7 +295,7 @@ class TestUndoMerge:
         svc.undo.assert_awaited_once_with(history_id=7, undone_by="api")
 
     @pytest.mark.asyncio
-    async def test_undo_not_found_returns_400(self, client):
+    async def test_undo_not_found_returns_404(self, client):
         with patch("module.api.v1.merge.BangumiMergeService") as mock_cls:
             svc = AsyncMock()
             mock_cls.return_value = svc
@@ -303,7 +303,7 @@ class TestUndoMerge:
 
             resp = client.post("/api/v1/merge-history/999/undo")
 
-        assert resp.status_code == 400
+        assert resp.status_code == 404
         assert "not found" in resp.json()["detail"]
 
     @pytest.mark.asyncio

@@ -15,6 +15,17 @@ from module.services.bangumi_merge import BangumiMergeService
 router = APIRouter(tags=["merge"])
 
 
+def _status_for_merge_error(exc: ValueError) -> int:
+    """Map merge-service ValueError messages to HTTP status codes.
+
+    Missing rows → 404; validation/state errors → 400.
+    """
+    msg = str(exc).lower()
+    if "not found" in msg or "missing" in msg:
+        return 404
+    return 400
+
+
 # ---------------------------------------------------------------------------
 # Request / response schemas
 # ---------------------------------------------------------------------------
@@ -74,7 +85,7 @@ async def merge_bangumi(
             merged_by="api",
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=_status_for_merge_error(exc), detail=str(exc))
     await session.commit()
     return MergeResponse(
         history_id=history.id,
@@ -125,6 +136,6 @@ async def undo_merge(
     try:
         await svc.undo(history_id=history_id, undone_by="api")
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=_status_for_merge_error(exc), detail=str(exc))
     await session.commit()
     return {"undone": True, "history_id": history_id}
