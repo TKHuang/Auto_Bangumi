@@ -24,9 +24,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from module.conf import settings
 from module.domain.models.series import Series
-from module.mikan.parser import MikanRef
+from module.mikan.parser import MikanRef, extract_mikan_ids_from_rss
 from module.repositories.series import SeriesRepository
 
 
@@ -114,3 +116,38 @@ class IdentityResolver:
             newly_created=True,
             merge_candidates=[c.id for c in candidates],
         )
+
+
+async def resolve_series_for_rss(
+    session: AsyncSession,
+    *,
+    rss_link: str,
+    parsed_title: str,
+    parsed_season: int,
+    parsed_poster: Optional[str] = None,
+) -> ResolvedIdentity:
+    """Convenience wrapper: extract Mikan IDs from rss_link, build MikanRef
+    when applicable, normalize the title, then run IdentityResolver.
+
+    Returns the ResolvedIdentity from IdentityResolver.resolve().
+    """
+    from module.domain.text.normalize import normalize_title
+
+    mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(rss_link)
+    mikan_ref: Optional[MikanRef] = None
+    if mikan_bangumi_id is not None:
+        mikan_ref = MikanRef(
+            mikan_bangumi_id=mikan_bangumi_id,
+            mikan_subgroup_id=mikan_subgroup_id or 0,
+            canonical_title=parsed_title,
+            poster_url=parsed_poster,
+        )
+    norm, cour = normalize_title(parsed_title)
+    resolver = IdentityResolver(SeriesRepository(session))
+    return await resolver.resolve(
+        mikan_ref=mikan_ref,
+        normalized_title=norm,
+        season=parsed_season,
+        cour_part=cour,
+        raw_title_for_root=parsed_title,
+    )

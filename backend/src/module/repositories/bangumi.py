@@ -87,10 +87,14 @@ class BangumiRepository:
         return list(result.scalars().all())
 
     async def get_pending_review(self, rss_id: Optional[int] = None) -> list[Bangumi]:
-        stmt = select(Bangumi).where(
-            and_(
-                Bangumi.deleted == False,
-                Bangumi.pending_review == True,
+        stmt = (
+            select(Bangumi)
+            .options(selectinload(Bangumi.series))
+            .where(
+                and_(
+                    Bangumi.deleted == False,
+                    Bangumi.pending_review == True,
+                )
             )
         )
         if rss_id is not None:

@@ -39,9 +39,11 @@ def sample_rss():
 # ---------------------------------------------------------------------------
 
 async def _add_series(session, title: str = "Test Anime", season: int = 1) -> Series:
+    from module.domain.text.normalize import normalize_title as _normalize
+    norm, _cour = _normalize(title)
     s = Series(
         canonical_title=title,
-        normalized_title=title.lower().replace(" ", "_"),
+        normalized_title=norm,
         season=season,
         root_path=f"/mnt/{title.replace(' ', '_')}",
         pending_review=False,

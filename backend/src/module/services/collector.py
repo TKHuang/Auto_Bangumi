@@ -11,11 +11,12 @@ from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.value_objects import ResponseModel, gen_save_path
+from module.mikan.parser import extract_mikan_ids_from_rss
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
-from module.mikan.parser import extract_mikan_ids_from_rss
 from module.services.downloader.interface import DownloaderProtocol
+from module.services.identity_resolver import resolve_series_for_rss
 from module.services.rss_engine import RSSEngine
 
 logger = logging.getLogger(__name__)
@@ -304,18 +305,24 @@ class SeasonCollectorService:
 
             # Check if there's a duplicate from a DIFFERENT RSS source using
             # series-based identity (replaces legacy composite-key lookup).
-            _mikan_bangumi_id, _mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
-            _series_id = data.series.id if data.series is not None else None
+            _resolved = await resolve_series_for_rss(
+                session,
+                rss_link=data.rss_link,
+                parsed_title=data.official_title or "",
+                parsed_season=data.season,
+                parsed_poster=data.poster_link,
+            )
+            _series_id = _resolved.series.id
+            _, _mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
             existing_active: Optional[Bangumi] = None
-            if _series_id is not None:
-                if _mikan_subgroup_id is not None:
-                    existing_active = await bangumi_repo.get_by_series_and_subgroup(
-                        _series_id, _mikan_subgroup_id
-                    )
-                else:
-                    existing_active = await bangumi_repo.get_by_series_and_rss(
-                        _series_id, data.rss_id
-                    )
+            if _mikan_subgroup_id is not None:
+                existing_active = await bangumi_repo.get_by_series_and_subgroup(
+                    _series_id, _mikan_subgroup_id
+                )
+            else:
+                existing_active = await bangumi_repo.get_by_series_and_rss(
+                    _series_id, data.rss_id
+                )
 
             if existing_active and existing_active.rss_id != data.rss_id:
                 # Different RSS source - this is a conflict
@@ -562,8 +569,15 @@ class SeasonCollectorService:
                     data.eps_collect = True
                     data.rss_id = rss_id
 
-                    _b_mikan_bangumi_id, _b_mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
-                    _b_series_id = data.series.id if data.series is not None else None
+                    _b_resolved = await resolve_series_for_rss(
+                        session,
+                        rss_link=data.rss_link,
+                        parsed_title=data.official_title or "",
+                        parsed_season=data.season,
+                        parsed_poster=data.poster_link,
+                    )
+                    _b_series_id = _b_resolved.series.id
+                    _, _b_mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
 
                     await bangumi_repo.create({
                         "series_id": _b_series_id,
