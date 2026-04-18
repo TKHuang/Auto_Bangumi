@@ -45,8 +45,11 @@ declare module 'vue-router/auto/routes' {
     'Config': RouteRecordInfo<'Config', '/config', Record<never, never>, Record<never, never>>,
     'Downloader': RouteRecordInfo<'Downloader', '/downloader', Record<never, never>, Record<never, never>>,
     'Log': RouteRecordInfo<'Log', '/log', Record<never, never>, Record<never, never>>,
+    'MergeHistory': RouteRecordInfo<'MergeHistory', '/merge-history', Record<never, never>, Record<never, never>>,
+    'PendingResolution': RouteRecordInfo<'PendingResolution', '/pending-resolution', Record<never, never>, Record<never, never>>,
     'Player': RouteRecordInfo<'Player', '/player', Record<never, never>, Record<never, never>>,
     'RSS': RouteRecordInfo<'RSS', '/rss', Record<never, never>, Record<never, never>>,
+    'Series': RouteRecordInfo<'Series', '/series', Record<never, never>, Record<never, never>>,
     'Login': RouteRecordInfo<'Login', '/login', Record<never, never>, Record<never, never>>,
   }
 }

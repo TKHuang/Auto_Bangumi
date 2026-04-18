@@ -221,6 +221,62 @@
       "subtitle": "Subtitle"
     }
   },
+  "common": {
+    "refresh": "Refresh",
+    "actions": "Actions"
+  },
+  "series": {
+    "loading": "Loading…",
+    "empty": "No series yet.",
+    "detail": {
+      "title": "Series Detail"
+    },
+    "col": {
+      "title": "Title",
+      "season": "Season",
+      "year": "Year",
+      "root": "Root Path",
+      "status": "Status"
+    },
+    "status": {
+      "active": "Active",
+      "pending": "Pending Review"
+    },
+    "field": {
+      "title": "Canonical Title",
+      "root": "Root Path",
+      "filter": "Default Filter",
+      "offset": "Episode Offset",
+      "season": "Season",
+      "year": "Year"
+    }
+  },
+  "pending": {
+    "loading": "Loading…",
+    "empty": "No pending items.",
+    "items": "pending",
+    "col": {
+      "name": "Torrent Name",
+      "attempts": "Attempts",
+      "last_error": "Last Error",
+      "first_seen": "First Seen"
+    },
+    "retry": "Retry"
+  },
+  "merge": {
+    "records": "merge records",
+    "empty": "No merge history.",
+    "undo_confirm": "Undo this merge?",
+    "col": {
+      "when": "Merged At",
+      "winner": "Winner ID",
+      "loser": "Loser ID",
+      "reason": "Reason",
+      "by": "By"
+    },
+    "undo": "Undo",
+    "undone": "Undone"
+  },
   "sidebar": {
     "calendar": "Calendar",
     "config": "Config",

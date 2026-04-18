@@ -221,6 +221,62 @@
       "subtitle": "字幕"
     }
   },
+  "common": {
+    "refresh": "刷新",
+    "actions": "操作"
+  },
+  "series": {
+    "loading": "載入中…",
+    "empty": "暫無 Series。",
+    "detail": {
+      "title": "Series 詳情"
+    },
+    "col": {
+      "title": "標題",
+      "season": "季數",
+      "year": "年份",
+      "root": "根路徑",
+      "status": "狀態"
+    },
+    "status": {
+      "active": "正常",
+      "pending": "待審核"
+    },
+    "field": {
+      "title": "規範標題",
+      "root": "根路徑",
+      "filter": "預設過濾",
+      "offset": "集數偏移",
+      "season": "季數",
+      "year": "年份"
+    }
+  },
+  "pending": {
+    "loading": "載入中…",
+    "empty": "無待解析項目。",
+    "items": "待處理",
+    "col": {
+      "name": "種子名稱",
+      "attempts": "嘗試次數",
+      "last_error": "最後錯誤",
+      "first_seen": "首次出現"
+    },
+    "retry": "重試"
+  },
+  "merge": {
+    "records": "合併記錄",
+    "empty": "無合併歷史。",
+    "undo_confirm": "確定要撤銷此合併？",
+    "col": {
+      "when": "合併時間",
+      "winner": "保留 ID",
+      "loser": "移除 ID",
+      "reason": "原因",
+      "by": "操作者"
+    },
+    "undo": "撤銷",
+    "undone": "已撤銷"
+  },
   "sidebar": {
     "calendar": "番剧日历",
     "config": "设置",
