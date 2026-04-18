@@ -88,6 +88,43 @@ async def test_list_by_series_returns_only_undeleted(db_session):
 
 
 @pytest.mark.integration
+async def test_get_by_series_and_rss_returns_undeleted_fallback_match(db_session):
+    """Positive + negative paths for fallback identity:
+    - When mikan_subgroup_id IS NULL and rss_id matches -> returns row.
+    - When mikan_subgroup_id is set -> NOT a fallback row, returns None for that sibling.
+    """
+    from module.domain.models.rss import RSSItem
+
+    repo = BangumiRepository(db_session)
+    s = await _seed_series(db_session, normalized_title="fallback")
+
+    rss = RSSItem(name="r", url="https://example.com/rss", parser="mikan")
+    db_session.add(rss)
+    await db_session.flush()
+
+    # Positive: fallback row (mikan_subgroup_id IS NULL)
+    fallback_b = await _seed_bangumi(
+        db_session,
+        series_id=s.id,
+        rss_id=rss.id,
+        mikan_subgroup_id=None,
+    )
+    # Negative sibling: same series + rss but mikan_subgroup_id is set ->
+    # should NOT be returned by get_by_series_and_rss.
+    await _seed_bangumi(
+        db_session,
+        series_id=s.id,
+        rss_id=rss.id,
+        mikan_subgroup_id=42,
+    )
+
+    hit = await repo.get_by_series_and_rss(s.id, rss.id)
+    assert hit is not None
+    assert hit.id == fallback_b.id
+    assert hit.mikan_subgroup_id is None
+
+
+@pytest.mark.integration
 async def test_deactivate_siblings_in_series(db_session):
     repo = BangumiRepository(db_session)
     s = await _seed_series(db_session, mikan_bangumi_id=4)
