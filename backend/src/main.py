@@ -13,6 +13,7 @@ from module.conf import VERSION, settings, setup_logger
 from module.database.engine import AsyncSessionLocal
 from module.repositories.user import UserRepository
 from module.scheduler.engine import AsyncScheduler
+from module.scheduler.jobs.enrichment_retry import enrichment_retry_job
 from module.scheduler.jobs.rename import rename_job
 from module.scheduler.jobs.rss_refresh import rss_refresh_job
 from module.security.password import hash_password
@@ -77,9 +78,16 @@ async def lifespan(app: FastAPI):
         id="rss_refresh",
         seconds=settings.program.rss_time,
     )
+    await scheduler.add_schedule(
+        enrichment_retry_job,
+        trigger="interval",
+        id="enrichment_retry",
+        seconds=settings.program.enrichment_retry_time,
+    )
     logger.info(
         f"Scheduled jobs: rename ({settings.program.rename_time}s), "
-        f"rss_refresh ({settings.program.rss_time}s)"
+        f"rss_refresh ({settings.program.rss_time}s), "
+        f"enrichment_retry ({settings.program.enrichment_retry_time}s)"
     )
 
     from module.api.v1.program import set_scheduler

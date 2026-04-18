@@ -55,9 +55,10 @@ class TestProgramStop:
 
         await _remove_all_schedules()
 
-        assert mock_scheduler.remove_schedule.call_count == 2
+        assert mock_scheduler.remove_schedule.call_count == 3
         mock_scheduler.remove_schedule.assert_any_call("rename")
         mock_scheduler.remove_schedule.assert_any_call("rss_refresh")
+        mock_scheduler.remove_schedule.assert_any_call("enrichment_retry")
 
     async def test_stop_ignores_missing_schedules(self, mock_scheduler):
         set_scheduler(mock_scheduler)
@@ -74,7 +75,7 @@ class TestProgramStart:
 
         await _add_all_schedules()
 
-        assert mock_scheduler.add_schedule.call_count == 2
+        assert mock_scheduler.add_schedule.call_count == 3
 
     async def test_start_idempotent_when_already_active(self, mock_scheduler):
         set_scheduler(mock_scheduler)
@@ -91,8 +92,8 @@ class TestProgramRestart:
         await _remove_all_schedules()
         await _add_all_schedules()
 
-        assert mock_scheduler.remove_schedule.call_count == 2
-        assert mock_scheduler.add_schedule.call_count == 2
+        assert mock_scheduler.remove_schedule.call_count == 3
+        assert mock_scheduler.add_schedule.call_count == 3
 
 
 class TestSchedulerNotInitialized:

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator as pydantic_field_validat
 class Program(BaseModel):
     rss_time: int = Field(900, description="Sleep time")
     rename_time: int = Field(60, description="Rename times in one loop")
+    enrichment_retry_time: int = Field(300, description="Enrichment retry interval in seconds")
     webui_port: int = Field(7892, description="WebUI port")
 
 

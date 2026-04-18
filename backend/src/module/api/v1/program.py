@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 
 from module.conf import VERSION, settings
 from module.api.middleware.auth import get_current_user
+from module.scheduler.jobs.enrichment_retry import enrichment_retry_job
 from module.scheduler.jobs.rename import rename_job
 from module.scheduler.jobs.rss_refresh import rss_refresh_job
 
@@ -29,7 +30,7 @@ router = APIRouter(tags=["program"])
 # Global scheduler instance - will be set by main.py
 _scheduler: AsyncScheduler | None = None
 
-_SCHEDULE_IDS = ["rename", "rss_refresh"]
+_SCHEDULE_IDS = ["rename", "rss_refresh", "enrichment_retry"]
 
 
 def set_scheduler(scheduler: AsyncScheduler) -> None:
@@ -70,6 +71,12 @@ async def _add_all_schedules() -> None:
         id="rss_refresh",
         seconds=settings.program.rss_time,
     )
+    await scheduler.add_schedule(
+        enrichment_retry_job,
+        trigger="interval",
+        id="enrichment_retry",
+        seconds=settings.program.enrichment_retry_time,
+    )
 
 
 async def _has_active_schedules() -> bool:
@@ -89,7 +96,8 @@ async def restart():
         await _add_all_schedules()
         logger.info(
             f"Schedules restarted: rename ({settings.program.rename_time}s), "
-            f"rss_refresh ({settings.program.rss_time}s)"
+            f"rss_refresh ({settings.program.rss_time}s), "
+            f"enrichment_retry ({settings.program.enrichment_retry_time}s)"
         )
         return {
             "msg_en": "Program restarted successfully.",
