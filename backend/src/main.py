@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from module.api.v1 import auth, bangumi, check, config, log, merge, pending_resolution, program, rss, search, series
+from module.api.v1 import auth, bangumi, check, config, health, log, merge, pending_resolution, program, rss, search, series
 from module.conf import VERSION, settings, setup_logger
 from module.database.engine import AsyncSessionLocal
 from module.repositories.user import UserRepository
@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
     app.include_router(series.router, prefix="/api/v1")
     app.include_router(merge.router, prefix="/api/v1")
     app.include_router(pending_resolution.router, prefix="/api/v1")
+    app.include_router(health.router, prefix="/api/v1")
 
     os.makedirs("data/posters", exist_ok=True)
     app.mount("/posters", StaticFiles(directory="data/posters"), name="posters")
