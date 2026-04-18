@@ -109,3 +109,64 @@ class TestRateLimiterDegradation:
         for _ in range(10):
             rl.record_result(status=200)
         assert rl.is_degraded() is False
+
+    async def test_429_during_inflight_still_bounds_after_degrade(self):
+        """Regression for review H-3: when 429 arrives while holders are
+        still executing, subsequent acquires must honour the new
+        (degraded) concurrency. Earlier implementation swapped the
+        semaphore and silently raised the effective limit because in-flight
+        releases went to a fresh semaphore that no one was waiting on."""
+        rl = RateLimiter(max_concurrent=3, min_interval_ms=0)
+
+        gate = asyncio.Event()
+        in_flight = 0
+
+        async def initial_holder():
+            nonlocal in_flight
+            async with rl:
+                in_flight += 1
+                await gate.wait()
+                in_flight -= 1
+
+        holders = [asyncio.create_task(initial_holder()) for _ in range(3)]
+        # Wait until all three have entered.
+        for _ in range(100):
+            if in_flight == 3:
+                break
+            await asyncio.sleep(0.005)
+        assert in_flight == 3
+
+        # Degrade to 1 while all three are inside.
+        rl.record_result(status=429)
+
+        gate.set()
+        await asyncio.gather(*holders)
+
+        # Now measure peak concurrency of four new acquires.
+        release = asyncio.Event()
+        start = asyncio.Event()
+        seen = 0
+        in_flight2 = 0
+        peak2 = 0
+
+        async def probe():
+            nonlocal in_flight2, peak2, seen
+            async with rl:
+                in_flight2 += 1
+                peak2 = max(peak2, in_flight2)
+                seen += 1
+                if seen == 1:
+                    start.set()
+                await release.wait()
+                in_flight2 -= 1
+
+        probes = [asyncio.create_task(probe()) for _ in range(4)]
+        await start.wait()
+        await asyncio.sleep(0.02)
+        release.set()
+        await asyncio.gather(*probes)
+
+        assert peak2 == 1, (
+            f"after 429 during in-flight, effective concurrency should be 1, "
+            f"got peak={peak2}"
+        )

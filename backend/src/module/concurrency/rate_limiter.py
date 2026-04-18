@@ -8,6 +8,14 @@ State machine:
   - 10 consecutive 2xx while degraded: max_concurrent = base_concurrent
 
 Used as an async context manager. Not thread-safe; single-worker assumption.
+
+Implementation note: we track in-flight callers with a counter guarded by
+an ``asyncio.Condition`` rather than swapping an ``asyncio.Semaphore`` on
+resize.  Swapping left stale semaphores around and allowed in-flight
+``__aexit__`` releases to land on a fresh semaphore, silently raising the
+effective concurrency (review H-3).  The condition-based design lets us
+change ``_current_concurrent`` atomically from a synchronous caller and
+wake waiters on the next scheduler turn.
 """
 from __future__ import annotations
 
@@ -24,7 +32,8 @@ class RateLimiter:
         assert min_interval_ms >= 0
         self._base_concurrent = max_concurrent
         self._current_concurrent = max_concurrent
-        self._sem = asyncio.Semaphore(max_concurrent)
+        self._in_flight = 0
+        self._cv = asyncio.Condition()
         self._min_interval = min_interval_ms / 1000.0
         self._gate = asyncio.Lock()
         self._last_at: float = 0.0
@@ -47,35 +56,54 @@ class RateLimiter:
         if status in _DEGRADE_STATUSES:
             self._success_counter = 0
             new = max(1, self._current_concurrent // 2)
-            self._resize(new)
+            self._set_concurrent(new)
             return
 
         if 200 <= status < 300 and self.is_degraded():
             self._success_counter += 1
             if self._success_counter >= _SUCCESS_THRESHOLD:
                 self._success_counter = 0
-                self._resize(self._base_concurrent)
+                self._set_concurrent(self._base_concurrent)
 
-    def _resize(self, new_concurrent: int) -> None:
-        """Swap the internal semaphore for one with a new concurrency budget.
+    def _set_concurrent(self, new_concurrent: int) -> None:
+        """Change the concurrency limit and wake any waiters.
 
-        In-flight permits (acquired by callers currently inside the critical
-        section) remain valid against the old semaphore — they'll release into
-        a semaphore that no one waits on, which is fine. New waiters will use
-        the new semaphore.
+        Safe to call from sync context: schedules a notify coroutine when an
+        event loop is running.  If no loop is running we just update the
+        counter — waiters, by definition, don't exist in that case.
         """
         self._current_concurrent = new_concurrent
-        self._sem = asyncio.Semaphore(new_concurrent)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._notify_waiters())
+
+    async def _notify_waiters(self) -> None:
+        async with self._cv:
+            self._cv.notify_all()
 
     async def __aenter__(self) -> "RateLimiter":
-        await self._sem.acquire()
-        async with self._gate:
-            now = time.monotonic()
-            wait = self._last_at + self._min_interval - now
-            if wait > 0:
-                await asyncio.sleep(wait)
-            self._last_at = time.monotonic()
+        async with self._cv:
+            while self._in_flight >= self._current_concurrent:
+                await self._cv.wait()
+            self._in_flight += 1
+        try:
+            async with self._gate:
+                now = time.monotonic()
+                wait = self._last_at + self._min_interval - now
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                self._last_at = time.monotonic()
+        except BaseException:
+            # Roll back the in-flight slot if gating itself fails.
+            async with self._cv:
+                self._in_flight -= 1
+                self._cv.notify()
+            raise
         return self
 
     async def __aexit__(self, *exc) -> None:
-        self._sem.release()
+        async with self._cv:
+            self._in_flight -= 1
+            self._cv.notify()
