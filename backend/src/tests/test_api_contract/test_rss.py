@@ -375,7 +375,10 @@ class TestGetRSSTorrent:
             with patch("module.api.v1.rss.create_downloader") as mock_dl:
                 mock_t = AsyncMock()
                 mock_t_cls.return_value = mock_t
-                mock_t.get_by_rss.return_value = [db_torrent1, db_torrent2]
+                # endpoint uses get_visible_by_rss (not get_by_rss)
+                db_torrent1.pikpak_cloud_path = None
+                db_torrent2.pikpak_cloud_path = None
+                mock_t.get_visible_by_rss.return_value = [db_torrent1, db_torrent2]
 
                 mock_downloader = AsyncMock()
                 mock_dl.return_value = mock_downloader
@@ -392,10 +395,12 @@ class TestGetRSSTorrent:
     async def test_get_rss_torrent_empty(self, client):
         """Test retrieval when no torrents exist for RSS."""
         with patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
-            with patch("module.api.v1.rss.create_downloader"):
+            with patch("module.api.v1.rss.create_downloader") as mock_dl:
                 mock_t = AsyncMock()
                 mock_t_cls.return_value = mock_t
-                mock_t.get_by_rss.return_value = []
+                # endpoint uses get_visible_by_rss (not get_by_rss)
+                mock_t.get_visible_by_rss.return_value = []
+                mock_dl.return_value = AsyncMock()
 
                 response = client.get("/api/v1/rss/torrent", params={"rss_id": 1})
 

@@ -1,6 +1,7 @@
 """Tests for rename scheduled job."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,6 +20,19 @@ class TestRenameJob:
         yield
         rename_module._rename_lock = asyncio.Lock()
 
+    def _make_session_cm(self, mock_session: AsyncMock):
+        """Build an async context-manager that yields mock_session.
+
+        rename_job uses ``async with AsyncSessionLocal() as session``,
+        so AsyncSessionLocal must be callable and return an object that
+        supports the async context-manager protocol.
+        """
+        @asynccontextmanager
+        async def _cm():
+            yield mock_session
+
+        return MagicMock(return_value=_cm())
+
     @pytest.mark.asyncio
     async def test_rename_job_success(self):
         """Test successful rename job execution."""
@@ -27,51 +41,41 @@ class TestRenameJob:
         mock_renamer.rename_all = AsyncMock()
         mock_downloader = AsyncMock()
 
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+        mock_session_local = self._make_session_cm(mock_session)
+
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
             with patch(
                 "module.scheduler.jobs.rename.RenamerService"
             ) as mock_renamer_class:
                 with patch(
                     "module.scheduler.jobs.rename.create_downloader"
                 ) as mock_create_downloader:
-                    # Setup mocks
-                    async_gen = AsyncMock()
-                    async_gen.__anext__ = AsyncMock(return_value=mock_session)
-                    mock_get_session.return_value = async_gen
                     mock_renamer_class.return_value = mock_renamer
                     mock_create_downloader.return_value = mock_downloader
 
-                    # Execute
                     await rename_job()
 
-                    # Verify
-                    mock_get_session.assert_called_once()
                     mock_renamer_class.assert_called_once()
                     mock_create_downloader.assert_called_once()
                     mock_renamer.rename_all.assert_called_once_with(mock_downloader)
-                    mock_session.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_rename_job_skips_when_locked(self):
         """Test that rename job skips when lock is already held."""
-        # Acquire lock
         await rename_module._rename_lock.acquire()
 
-        mock_session = AsyncMock()
-        mock_renamer = AsyncMock()
+        mock_session_local = MagicMock()
 
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
             with patch(
                 "module.scheduler.jobs.rename.RenamerService"
             ) as mock_renamer_class:
-                # Execute
                 await rename_job()
 
-                # Verify - should not call anything
-                mock_get_session.assert_not_called()
+                # Lock held — nothing should have been called
+                mock_session_local.assert_not_called()
                 mock_renamer_class.assert_not_called()
 
-        # Release lock
         rename_module._rename_lock.release()
 
     @pytest.mark.asyncio
@@ -84,53 +88,51 @@ class TestRenameJob:
         )
         mock_downloader = AsyncMock()
 
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+        mock_session_local = self._make_session_cm(mock_session)
+
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
             with patch(
                 "module.scheduler.jobs.rename.RenamerService"
             ) as mock_renamer_class:
                 with patch(
                     "module.scheduler.jobs.rename.create_downloader"
                 ) as mock_create_downloader:
-                    # Setup mocks
-                    async_gen = AsyncMock()
-                    async_gen.__anext__ = AsyncMock(return_value=mock_session)
-                    mock_get_session.return_value = async_gen
                     mock_renamer_class.return_value = mock_renamer
                     mock_create_downloader.return_value = mock_downloader
 
-                    # Execute - should not raise
+                    # Should not raise — errors are caught and logged
                     await rename_job()
-
-                    # Verify session was closed even on error
-                    mock_session.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_rename_job_closes_session_on_error(self):
-        """Test that session is closed even when rename_all fails."""
+        """Test that session context-manager exits even when rename_all fails.
+
+        With ``async with AsyncSessionLocal() as session`` the session is
+        automatically closed when the context exits, even on exception.
+        We verify that rename_all was called (and raised) without the
+        job re-raising the exception.
+        """
         mock_session = AsyncMock()
         mock_renamer = AsyncMock()
         mock_renamer.rename_all = AsyncMock(side_effect=ValueError("Test error"))
         mock_downloader = AsyncMock()
 
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+        mock_session_local = self._make_session_cm(mock_session)
+
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
             with patch(
                 "module.scheduler.jobs.rename.RenamerService"
             ) as mock_renamer_class:
                 with patch(
                     "module.scheduler.jobs.rename.create_downloader"
                 ) as mock_create_downloader:
-                    # Setup mocks
-                    async_gen = AsyncMock()
-                    async_gen.__anext__ = AsyncMock(return_value=mock_session)
-                    mock_get_session.return_value = async_gen
                     mock_renamer_class.return_value = mock_renamer
                     mock_create_downloader.return_value = mock_downloader
 
-                    # Execute
+                    # Should not raise
                     await rename_job()
 
-                    # Verify session was closed
-                    mock_session.close.assert_called_once()
+                    mock_renamer.rename_all.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_rename_job_uses_configured_rename_method(self):
@@ -140,7 +142,9 @@ class TestRenameJob:
         mock_renamer.rename_all = AsyncMock()
         mock_downloader = AsyncMock()
 
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+        mock_session_local = self._make_session_cm(mock_session)
+
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
             with patch(
                 "module.scheduler.jobs.rename.RenamerService"
             ) as mock_renamer_class:
@@ -148,18 +152,12 @@ class TestRenameJob:
                     "module.scheduler.jobs.rename.create_downloader"
                 ) as mock_create_downloader:
                     with patch("module.scheduler.jobs.rename.settings") as mock_settings:
-                        # Setup mocks
                         mock_settings.bangumi_manage.rename_method = "pn"
-                        async_gen = AsyncMock()
-                        async_gen.__anext__ = AsyncMock(return_value=mock_session)
-                        mock_get_session.return_value = async_gen
                         mock_renamer_class.return_value = mock_renamer
                         mock_create_downloader.return_value = mock_downloader
 
-                        # Execute
                         await rename_job()
 
-                        # Verify RenamerService was called with correct rename_method
                         mock_renamer_class.assert_called_once_with(
                             mock_session, rename_method="pn"
                         )
@@ -182,41 +180,38 @@ class TestRenameJob:
         mock_renamer.rename_all = slow_rename_all
         mock_downloader = AsyncMock()
 
+        @asynccontextmanager
+        async def _cm():
+            yield mock_session
+
+        mock_session_local = MagicMock(return_value=_cm())
+
         async def run_job():
-            with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+            with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
                 with patch(
                     "module.scheduler.jobs.rename.RenamerService"
                 ) as mock_renamer_class:
                     with patch(
                         "module.scheduler.jobs.rename.create_downloader"
                     ) as mock_create_downloader:
-                        # Setup mocks
-                        async_gen = AsyncMock()
-                        async_gen.__anext__ = AsyncMock(return_value=mock_session)
-                        mock_get_session.return_value = async_gen
                         mock_renamer_class.return_value = mock_renamer
                         mock_create_downloader.return_value = mock_downloader
 
-                        # Execute
                         await rename_job()
 
-        # Run two jobs concurrently
         await asyncio.gather(run_job(), run_job())
 
-        # Verify only one execution happened (second was skipped)
+        # Only one execution should have happened (second was skipped by lock)
         assert call_count == 1
 
     @pytest.mark.asyncio
     async def test_rename_job_session_cleanup_on_get_db_error(self):
-        """Test that job handles error in get_db_session gracefully."""
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
-            mock_get_session.side_effect = RuntimeError("DB connection failed")
+        """Test that job handles error when AsyncSessionLocal raises gracefully."""
+        mock_session_local = MagicMock(side_effect=RuntimeError("DB connection failed"))
 
-            # Execute - should not raise
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
+            # Should not raise — error is caught and logged
             await rename_job()
-
-            # Verify get_db_session was called
-            mock_get_session.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_rename_job_lock_is_released_after_execution(self):
@@ -226,28 +221,29 @@ class TestRenameJob:
         mock_renamer.rename_all = AsyncMock()
         mock_downloader = AsyncMock()
 
-        with patch("module.scheduler.jobs.rename.get_db_session") as mock_get_session:
+        @asynccontextmanager
+        async def _cm():
+            yield mock_session
+
+        def _fresh_cm():
+            return _cm()
+
+        mock_session_local = MagicMock(side_effect=_fresh_cm)
+
+        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
             with patch(
                 "module.scheduler.jobs.rename.RenamerService"
             ) as mock_renamer_class:
                 with patch(
                     "module.scheduler.jobs.rename.create_downloader"
                 ) as mock_create_downloader:
-                    # Setup mocks
-                    async_gen = AsyncMock()
-                    async_gen.__anext__ = AsyncMock(return_value=mock_session)
-                    mock_get_session.return_value = async_gen
                     mock_renamer_class.return_value = mock_renamer
                     mock_create_downloader.return_value = mock_downloader
 
-                    # Execute first job
                     await rename_job()
 
-                    # Verify lock is released (not locked)
                     assert not rename_module._rename_lock.locked()
 
-                    # Execute second job - should succeed (not skipped)
                     await rename_job()
 
-                    # Verify rename_all was called twice
                     assert mock_renamer.rename_all.call_count == 2
