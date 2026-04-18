@@ -130,6 +130,7 @@ async def update_rule(
     if match_list:
         await downloader.move_torrent(match_list, path)
 
+    # TODO(Task 11): title_raw/season_raw Pydantic field reads will be removed when update() path is series-aware
     update_dict = {
         "official_title": data.official_title,
         "title_raw": data.title_raw,

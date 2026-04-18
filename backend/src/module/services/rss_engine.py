@@ -47,7 +47,9 @@ def _match_torrent_in_list(
 ) -> Optional[Bangumi]:
     """In-memory torrent-to-bangumi matching (no DB call)."""
     for bangumi in bangumi_list:
-        if bangumi.official_title in torrent.name or bangumi.title_raw in torrent.name:
+        # TODO(Task 11): replace direct field reads when RSS engine becomes series-aware
+        _title_raw = getattr(bangumi, "title_raw", None)
+        if bangumi.official_title in torrent.name or (_title_raw and _title_raw in torrent.name):
             torrent.bangumi_id = bangumi.id
             if not bangumi.filter:
                 return bangumi
@@ -100,7 +102,9 @@ class RSSEngine:
         all_bangumi = await bangumi_repo.get_active()
 
         for bangumi in all_bangumi:
-            if bangumi.official_title in torrent.name or bangumi.title_raw in torrent.name:
+            # TODO(Task 11): replace direct field reads when RSS engine becomes series-aware
+            _title_raw = getattr(bangumi, "title_raw", None)
+            if bangumi.official_title in torrent.name or (_title_raw and _title_raw in torrent.name):
                 torrent.bangumi_id = bangumi.id
 
                 if bangumi.filter == "":
@@ -188,11 +192,12 @@ class RSSEngine:
         bangumi_filter = bangumi_data.filter or ""
 
         try:
+            # TODO(Task 11): title_raw/season_raw ORM reads will be removed when engine is series-aware
             created = await bangumi_repo.create({
                 "official_title": bangumi_data.official_title,
-                "title_raw": bangumi_data.title_raw,
+                "title_raw": getattr(bangumi_data, "title_raw", None),
                 "season": bangumi_data.season,
-                "season_raw": bangumi_data.season_raw,
+                "season_raw": getattr(bangumi_data, "season_raw", None),
                 "group_name": group_name,
                 "dpi": bangumi_data.dpi,
                 "source": bangumi_data.source,
@@ -507,11 +512,12 @@ class RSSEngine:
         save_path = gen_save_path(
             settings.downloader.path, bangumi_data.official_title, bangumi_data.season,
         )
+        # TODO(Task 11): title_raw/season_raw ORM reads will be removed when engine is series-aware
         created_bangumi = await bangumi_repo.create({
             "official_title": bangumi_data.official_title,
-            "title_raw": bangumi_data.title_raw,
+            "title_raw": getattr(bangumi_data, "title_raw", None),
             "season": bangumi_data.season,
-            "season_raw": bangumi_data.season_raw,
+            "season_raw": getattr(bangumi_data, "season_raw", None),
             "group_name": bangumi_data.group_name,
             "dpi": bangumi_data.dpi,
             "source": bangumi_data.source,
@@ -601,10 +607,12 @@ class RSSEngine:
 
         # Title match: when rss_link is an aggregate feed, only keep torrents
         # whose name contains this bangumi's title to avoid cross-contamination.
+        # TODO(Task 11): replace direct field reads when RSS engine becomes series-aware
+        _title_raw = getattr(bangumi, "title_raw", None)
         title_matched = []
         for torrent in all_torrents:
             if (bangumi.official_title and bangumi.official_title in torrent.name) or \
-               (bangumi.title_raw and bangumi.title_raw in torrent.name):
+               (_title_raw and _title_raw in torrent.name):
                 title_matched.append(torrent)
         # If title matching yields nothing, fall back to all (non-aggregate single-bangumi feeds)
         if not title_matched:
