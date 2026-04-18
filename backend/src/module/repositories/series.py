@@ -80,6 +80,21 @@ class SeriesRepository:
         await self.session.refresh(series)
         return series
 
+    async def list_paginated(
+        self, *, limit: int, offset: int
+    ) -> tuple[list[Series], int]:
+        total_stmt = select(func.count(Series.id))
+        total = (await self.session.execute(total_stmt)).scalar() or 0
+
+        stmt = (
+            select(Series)
+            .order_by(Series.canonical_title)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return list(rows), int(total)
+
     async def list_pending_review(self) -> list[Series]:
         stmt = select(Series).where(Series.pending_review == True)  # noqa: E712
         result = await self.session.execute(stmt)
