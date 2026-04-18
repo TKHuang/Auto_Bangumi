@@ -48,15 +48,15 @@ target_metadata = Base.metadata
 
 
 def _include_object(obj, name, type_, reflected, compare_to):
-    """Exclude objects managed outside SQLAlchemy metadata.
+    """Exclude objects managed outside SQLAlchemy metadata via op.execute().
 
-    idx_torrent_hash_bangumi is a partial unique index created via op.execute()
-    in 0001_baseline because SQLAlchemy metadata cannot express the WHERE clause.
-    Exclude it from autogenerate diffs so subsequent revisions stay clean.
-    Similarly for uq_series_fallback_null_cour added in 0002_add_series.
+    These partial indexes are encoded as Index(..., sqlite_where=text(...))
+    in the ORM, but Alembic autogenerate cannot reliably round-trip them.
+    Excluding them keeps revisions clean.
     """
     if type_ == "index" and name in (
         "idx_torrent_hash_bangumi",
+        "uq_series_fallback",
         "uq_series_fallback_null_cour",
     ):
         return False

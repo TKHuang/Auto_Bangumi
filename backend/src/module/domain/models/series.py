@@ -18,19 +18,26 @@ class Series(Base, TimestampMixin, VersionMixin):
 
     __table_args__ = (
         UniqueConstraint("mikan_bangumi_id", name="uq_series_mikan"),
-        UniqueConstraint(
-            "normalized_title", "season", "cour_part", name="uq_series_fallback"
+        # Fallback identity is only meaningful for non-Mikan rows.
+        # Mikan-sourced series are uniquely identified by mikan_bangumi_id;
+        # forcing them to also satisfy (normalized_title, season, cour_part)
+        # uniqueness blocks legitimate Tier-3 cross-source candidates.
+        Index(
+            "uq_series_fallback",
+            "normalized_title",
+            "season",
+            "cour_part",
+            unique=True,
+            sqlite_where=text("mikan_bangumi_id IS NULL"),
         ),
-        # Partial unique index for the NULL cour_part case.
-        # SQL UNIQUE constraints treat NULLs as distinct, so two rows with
-        # (normalized_title='x', season=1, cour_part=NULL) would not violate
-        # uq_series_fallback. This partial index closes that gap.
         Index(
             "uq_series_fallback_null_cour",
             "normalized_title",
             "season",
             unique=True,
-            sqlite_where=text("cour_part IS NULL"),
+            sqlite_where=text(
+                "mikan_bangumi_id IS NULL AND cour_part IS NULL"
+            ),
         ),
     )
 

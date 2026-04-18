@@ -67,7 +67,7 @@ async def test_run_migrations_on_fresh_db_creates_schema(tmp_path, monkeypatch):
     with engine.begin() as conn:
         row = conn.execute(sa.text("SELECT version_num FROM alembic_version")).first()
     assert row is not None
-    assert row[0] == "0005_add_merge_history"
+    assert row[0] == "0006_series_fallback_partial"
 
 
 @pytest.mark.integration
@@ -106,11 +106,11 @@ async def test_run_migrations_on_legacy_db_stamps_then_upgrades(tmp_path, monkey
     monkeypatch.setenv("AB_ALEMBIC_DB_URL", f"sqlite+aiosqlite:///{db}")
     await run_migrations()
 
-    # Verify alembic_version exists and is at head (0005_add_merge_history after upgrade)
+    # Verify alembic_version exists and is at head (0006_series_fallback_partial after upgrade)
     engine = sa.create_engine(f"sqlite:///{db}")
     with engine.begin() as conn:
         row = conn.execute(sa.text("SELECT version_num FROM alembic_version")).first()
-        assert row is not None and row[0] == "0005_add_merge_history"
+        assert row is not None and row[0] == "0006_series_fallback_partial"
         # Legacy data survived
         user_row = conn.execute(
             sa.text("SELECT username FROM user WHERE username='legacy_admin'")
