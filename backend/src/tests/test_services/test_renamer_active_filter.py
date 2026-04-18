@@ -34,6 +34,5 @@ async def test_get_unrenamed_filters_inactive_bangumi(db_session):
 
     repo = TorrentRepository(db_session)
     rows = await repo.get_unrenamed()
-    ids = {t.id for t in rows}
     assert any(t.bangumi_id == active.id for t in rows)
     assert not any(t.bangumi_id == inactive.id for t in rows)

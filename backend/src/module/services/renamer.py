@@ -201,6 +201,7 @@ class RenamerService:
                     media_files[0],
                     bangumi,
                     downloader,
+                    all_torrent_info,
                 )
                 if conflict_target is not None:
                     rename_conflicts.append((db_torrent.id, conflict_target))
@@ -376,6 +377,7 @@ class RenamerService:
                     media_files[0],
                     bangumi,
                     downloader,
+                    all_torrent_info,
                 )
                 if conflict_target is not None:
                     rename_conflicts.append((db_torrent.id, conflict_target))
@@ -460,6 +462,7 @@ class RenamerService:
         media_path: str,
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
+        all_torrent_info: list,
     ) -> tuple[bool, int, Optional[str]]:
         """Returns (success, file_count, conflict_target).
 
@@ -490,8 +493,8 @@ class RenamerService:
             logger.debug(f"[Renamer] Skipped (same path): {media_path}")
             return True, 1, None
 
-        if await self._target_exists_with_different_hash(
-            downloader, torrent_info.hash, new_path,
+        if self._target_exists_with_different_hash(
+            all_torrent_info, torrent_info.hash, new_path,
         ):
             logger.warning(
                 f"[Renamer] Conflict: '{new_path}' already exists for a "
@@ -510,6 +513,8 @@ class RenamerService:
 
     @staticmethod
     def effective_root(bangumi: Bangumi) -> Optional[str]:
+        # Defined here so Plan 05's renamer rewrite has a single semantic anchor;
+        # Bangumi.save_path returns the same value via the @property shim.
         """Return path_override when set, else the linked series root_path."""
         if bangumi.path_override:
             return bangumi.path_override
@@ -517,19 +522,17 @@ class RenamerService:
             return bangumi.series.root_path
         return None
 
-    async def _target_exists_with_different_hash(
-        self,
-        downloader: "DownloaderProtocol",
+    @staticmethod
+    def _target_exists_with_different_hash(
+        all_torrent_info: list,
         torrent_hash: str,
         target_path: str,
     ) -> bool:
-        """Best-effort collision probe. Returns True when the downloader
-        reports `target_path` already exists for a different hash."""
-        try:
-            all_info = await downloader.torrents_info(status_filter="completed")
-        except Exception:
-            return False
-        for info in all_info:
+        """Check the cached torrents_info for a hash≠ entry that already
+        owns target_path. The caller is responsible for passing the same
+        list it used in Phase 1, so the probe doesn't hit the downloader
+        again per file."""
+        for info in all_torrent_info:
             if info.hash and info.hash.lower() == torrent_hash.lower():
                 continue
             for f in getattr(info, "files", []) or []:

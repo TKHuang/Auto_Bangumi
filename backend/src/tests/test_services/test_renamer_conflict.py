@@ -53,7 +53,7 @@ async def test_rename_records_conflict_when_target_exists(db_session, monkeypatc
 
     svc = RenamerService(db_session)
     monkeypatch.setattr(svc, "_target_exists_with_different_hash",
-                        AsyncMock(return_value=True))
+                        MagicMock(return_value=True))
 
     result = await svc.rename_all(downloader)
 
