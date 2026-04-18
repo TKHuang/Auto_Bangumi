@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
@@ -30,9 +30,28 @@ def _gen_save_path(data) -> str:
     return gen_save_path(settings.downloader.path, data.official_title, data.season, getattr(data, "year", None))
 
 
+def _orm_title(bangumi) -> str:
+    """Extract display title from an ORM Bangumi (reads through series relationship)."""
+    _series = getattr(bangumi, "series", None)
+    if _series is not None:
+        return _series.canonical_title or ""
+    return ""
+
+
+def _bangumi_save_path(bangumi) -> Optional[str]:
+    """Compute full per-season save path from ORM Bangumi."""
+    if bangumi.path_override:
+        return bangumi.path_override
+    if bangumi.series is None:
+        return None
+    from pathlib import PurePosixPath
+    return str(PurePosixPath(bangumi.series.root_path) / f"Season {bangumi.series.season}")
+
+
 async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
+    _sp = _bangumi_save_path(bangumi)
     torrents = await downloader.torrents_info(status_filter=None)
-    matched = [t.hash for t in torrents if t.save_path == bangumi.save_path]
+    matched = [t.hash for t in torrents if t.save_path == _sp]
     if not matched and bangumi.id:
         db_torrents = await torrent_repo.get_visible_by_bangumi(bangumi.id)
         matched = [t.hash for t in db_torrents if t.hash]
@@ -119,8 +138,10 @@ async def update_rule(
             content={"msg_en": f"Can't find data with {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id} 的数据"},
         )
 
+    _old_season = old_data.series.season if old_data.series is not None else 1
+    _old_title = old_data.series.canonical_title if old_data.series is not None else ""
     rename_fields_changed = (
-        old_data.season != data.season or old_data.official_title != data.official_title
+        _old_season != data.season or _old_title != data.official_title
     )
 
     downloader = create_downloader(settings, session)
@@ -170,11 +191,12 @@ async def update_rule(
 
     msg_suffix_en = f" (renamed {renamed_count} files)" if renamed_count else ""
     msg_suffix_zh = f"（重命名了 {renamed_count} 个文件）" if renamed_count else ""
+    _title = _orm_title(old_data)
     return JSONResponse(
         status_code=200,
         content={
-            "msg_en": f"Update rule for {data.official_title}{msg_suffix_en}",
-            "msg_zh": f"更新 {data.official_title} 规则{msg_suffix_zh}",
+            "msg_en": f"Update rule for {_title}{msg_suffix_en}",
+            "msg_zh": f"更新 {_title} 规則{msg_suffix_zh}",
         },
     )
 
@@ -194,6 +216,7 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
+    _title = _orm_title(data)
     torrent_msg_en = ""
     torrent_msg_zh = ""
     if file:
@@ -201,8 +224,8 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
         hash_list = await _match_torrents_list(downloader, torrent_repo, data)
         if hash_list:
             await downloader.torrents_delete(hash_list, delete_files=True)
-            torrent_msg_en = f"Delete rule and torrents for {data.official_title}"
-            torrent_msg_zh = f"删除 {data.official_title} 规则和种子"
+            torrent_msg_en = f"Delete rule and torrents for {_title}"
+            torrent_msg_zh = f"删除 {_title} 规则和种子"
 
     await bangumi_repo.delete_one(bangumi_id)
     await session.commit()
@@ -210,8 +233,8 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
     return JSONResponse(
         status_code=200,
         content={
-            "msg_en": f"Delete rule for {data.official_title}. {torrent_msg_en}",
-            "msg_zh": f"删除 {data.official_title} 规则。{torrent_msg_zh}",
+            "msg_en": f"Delete rule for {_title}. {torrent_msg_en}",
+            "msg_zh": f"删除 {_title} 规则。{torrent_msg_zh}",
         },
     )
 
@@ -266,6 +289,7 @@ async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSessio
     await bangumi_repo.update_simple(bangumi_id, {"deleted": True})
     await session.commit()
 
+    _title = _orm_title(data)
     if file:
         downloader = create_downloader(settings, session)
         hash_list = await _match_torrents_list(downloader, torrent_repo, data)
@@ -274,14 +298,14 @@ async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSessio
             return JSONResponse(
                 status_code=200,
                 content={
-                    "msg_en": f"Delete rule and torrents for {data.official_title}",
-                    "msg_zh": f"删除 {data.official_title} 规则和种子",
+                    "msg_en": f"Delete rule and torrents for {_title}",
+                    "msg_zh": f"删除 {_title} 规则和种子",
                 },
             )
 
     return JSONResponse(
         status_code=200,
-        content={"msg_en": f"Disable rule for {data.official_title}", "msg_zh": f"禁用 {data.official_title} 规则"},
+        content={"msg_en": f"Disable rule for {_title}", "msg_zh": f"禁用 {_title} 规则"},
     )
 
 
@@ -333,9 +357,10 @@ async def enable_rule(bangumi_id: int, session: AsyncSession = Depends(get_db_se
     await bangumi_repo.update_simple(bangumi_id, {"deleted": False})
     await session.commit()
 
+    _title = _orm_title(data)
     return JSONResponse(
         status_code=200,
-        content={"msg_en": f"Enable rule for {data.official_title}", "msg_zh": f"启用 {data.official_title} 规则"},
+        content={"msg_en": f"Enable rule for {_title}", "msg_zh": f"启用 {_title} 规则"},
     )
 
 
@@ -365,7 +390,9 @@ async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
     parser = TitleParser()
 
     for bangumi in bangumis:
-        if not bangumi.poster_link:
+        _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _poster = bangumi.series.poster_url if bangumi.series is not None else None
+        if not _poster:
             poster_fetched = False
 
             if bangumi.rss_id:
@@ -379,12 +406,14 @@ async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
                                 await bangumi_repo.update_simple(bangumi.id, {"poster_link": result.poster_link})
                                 poster_fetched = True
                         except Exception as e:
-                            logger.warning(f"[Poster] Mikan parser failed for {bangumi.official_title}: {e}")
+                            logger.warning(f"[Poster] Mikan parser failed for {_canonical}: {e}")
 
             if not poster_fetched:
-                await asyncio.to_thread(parser.tmdb_poster_parser, bangumi)
-                if bangumi.poster_link:
-                    await bangumi_repo.update_simple(bangumi.id, {"poster_link": bangumi.poster_link})
+                from module.domain.parser.analyser.tmdb_parser import tmdb_parser
+                _language = settings.rss_parser.language
+                _tmdb_info = await asyncio.to_thread(tmdb_parser, _canonical, _language)
+                if _tmdb_info and _tmdb_info.poster_link:
+                    await bangumi_repo.update_simple(bangumi.id, {"poster_link": _tmdb_info.poster_link})
 
     await session.commit()
     return JSONResponse(
@@ -409,6 +438,7 @@ async def refresh_poster_by_id(bangumi_id: int, session: AsyncSession = Depends(
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
+    _bg_canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
     poster_fetched = False
     parser = TitleParser()
 
@@ -423,12 +453,14 @@ async def refresh_poster_by_id(bangumi_id: int, session: AsyncSession = Depends(
                         await bangumi_repo.update_simple(bangumi.id, {"poster_link": result.poster_link})
                         poster_fetched = True
                 except Exception as e:
-                    logger.warning(f"[Poster] Mikan parser failed for {bangumi.official_title}: {e}")
+                    logger.warning(f"[Poster] Mikan parser failed for {_bg_canonical}: {e}")
 
     if not poster_fetched:
-        await asyncio.to_thread(parser.tmdb_poster_parser, bangumi)
-        if bangumi.poster_link:
-            await bangumi_repo.update_simple(bangumi.id, {"poster_link": bangumi.poster_link})
+        from module.domain.parser.analyser.tmdb_parser import tmdb_parser
+        _language = settings.rss_parser.language
+        _tmdb_info = await asyncio.to_thread(tmdb_parser, _bg_canonical, _language)
+        if _tmdb_info and _tmdb_info.poster_link:
+            await bangumi_repo.update_simple(bangumi.id, {"poster_link": _tmdb_info.poster_link})
 
     await session.commit()
     return JSONResponse(
@@ -529,7 +561,8 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
         )
 
     downloader = create_downloader(settings, session)
-    save_path_before = bangumi.save_path
+    _redl_sp = _bangumi_save_path(bangumi)
+    save_path_before = _redl_sp
 
     if torrent.hash:
         try:
@@ -539,7 +572,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
 
     success = await downloader.add_torrents(
         urls=[torrent.url],
-        save_path=bangumi.save_path or "",
+        save_path=_redl_sp or "",
         torrent_files=None,
     )
 
@@ -547,11 +580,11 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
         torrent.downloaded = True
         torrent.renamed_at = None
         torrent.renamed_file_count = None
-        torrent.pikpak_cloud_path = bangumi.save_path
+        torrent.pikpak_cloud_path = _redl_sp
         if torrent.bangumi_id != bangumi.id:
             torrent.bangumi_id = bangumi.id
-        if not save_path_before and bangumi.save_path:
-            await bangumi_repo.update_simple(bangumi.id, {"save_path": bangumi.save_path})
+        if not save_path_before and _redl_sp:
+            await bangumi_repo.update_simple(bangumi.id, {"save_path": _redl_sp})
         await session.commit()
         return JSONResponse(
             status_code=200,

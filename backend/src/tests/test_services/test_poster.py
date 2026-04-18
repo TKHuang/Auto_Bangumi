@@ -21,6 +21,26 @@ def poster_service(mock_session):
     return PosterService(mock_session)
 
 
+def _make_bangumi_mock(
+    id: int = 1,
+    title: str = "Anime",
+    season: int = 1,
+    poster_url: str | None = None,
+    version: int = 1,
+) -> MagicMock:
+    """Create a MagicMock bangumi with a properly configured series sub-mock."""
+    series_mock = MagicMock()
+    series_mock.canonical_title = title
+    series_mock.season = season
+    series_mock.poster_url = poster_url
+
+    bangumi = MagicMock()
+    bangumi.id = id
+    bangumi.version = version
+    bangumi.series = series_mock
+    return bangumi
+
+
 class TestFetchPoster:
     """Tests for fetch_poster method."""
 
@@ -122,21 +142,8 @@ class TestRefreshAllPosters:
     @pytest.mark.asyncio
     async def test_refresh_all_posters_success(self, poster_service):
         """Test successful refresh of all posters."""
-        # Create mock bangumi
-        bangumi1 = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
-        bangumi2 = MagicMock(
-            id=2,
-            official_title="Anime 2",
-            season=1,
-            poster_link="posters/existing.jpg",
-            version=1,
-        )
+        bangumi1 = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
+        bangumi2 = _make_bangumi_mock(id=2, title="Anime 2", poster_url="posters/existing.jpg")
 
         with patch.object(
             poster_service.bangumi_repo, "get_active"
@@ -175,13 +182,7 @@ class TestRefreshAllPosters:
     @pytest.mark.asyncio
     async def test_refresh_all_posters_fetch_failure(self, poster_service):
         """Test refresh when poster fetch fails."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_active"
@@ -199,13 +200,7 @@ class TestRefreshAllPosters:
     @pytest.mark.asyncio
     async def test_refresh_all_posters_exception_handling(self, poster_service):
         """Test refresh handles exceptions gracefully."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_active"
@@ -223,13 +218,7 @@ class TestRefreshAllPosters:
     @pytest.mark.asyncio
     async def test_refresh_all_posters_skips_existing(self, poster_service):
         """Test refresh skips bangumi that already have posters."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link="posters/existing.jpg",
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url="posters/existing.jpg")
 
         with patch.object(
             poster_service.bangumi_repo, "get_active"
@@ -248,20 +237,8 @@ class TestRefreshAllPosters:
     @pytest.mark.asyncio
     async def test_refresh_all_posters_multiple_updates(self, poster_service):
         """Test refresh updates multiple bangumi."""
-        bangumi1 = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
-        bangumi2 = MagicMock(
-            id=2,
-            official_title="Anime 2",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi1 = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
+        bangumi2 = _make_bangumi_mock(id=2, title="Anime 2", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_active"
@@ -292,13 +269,7 @@ class TestRefreshPoster:
     @pytest.mark.asyncio
     async def test_refresh_poster_success(self, poster_service):
         """Test successful refresh of single poster."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_by_id"
@@ -332,13 +303,7 @@ class TestRefreshPoster:
     @pytest.mark.asyncio
     async def test_refresh_poster_fetch_failure(self, poster_service):
         """Test refresh when poster fetch fails."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_by_id"
@@ -355,13 +320,7 @@ class TestRefreshPoster:
     @pytest.mark.asyncio
     async def test_refresh_poster_exception_handling(self, poster_service):
         """Test refresh handles exceptions gracefully."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Anime 1",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_by_id"
@@ -378,13 +337,7 @@ class TestRefreshPoster:
     @pytest.mark.asyncio
     async def test_refresh_poster_returns_message(self, poster_service):
         """Test refresh returns appropriate messages."""
-        bangumi = MagicMock(
-            id=1,
-            official_title="Test Anime",
-            season=1,
-            poster_link=None,
-            version=1,
-        )
+        bangumi = _make_bangumi_mock(id=1, title="Test Anime", poster_url=None)
 
         with patch.object(
             poster_service.bangumi_repo, "get_by_id"

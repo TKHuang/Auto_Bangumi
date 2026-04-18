@@ -31,14 +31,23 @@ from module.repositories.torrent import TorrentRepository
 
 
 def _serialize_bangumi(b: Bangumi) -> dict:
+    from pathlib import PurePosixPath
+    _series = b.series
+    _title = _series.canonical_title if _series is not None else None
+    _season = _series.season if _series is not None else 1
+    _root = _series.root_path if _series is not None else None
+    _save_path = (
+        b.path_override
+        or (str(PurePosixPath(_root) / f"Season {_season}") if _root else None)
+    )
     return {
         "id": b.id,
         "rss_id": b.rss_id,
-        "official_title": b.official_title,
-        "season": b.season,
+        "official_title": _title,
+        "season": _season,
         "group_name": b.group_name,
         "rss_link": b.rss_link,
-        "save_path": b.save_path,
+        "save_path": _save_path,
         "series_id": b.series_id,
         "mikan_subgroup_id": b.mikan_subgroup_id,
         "active": b.active,

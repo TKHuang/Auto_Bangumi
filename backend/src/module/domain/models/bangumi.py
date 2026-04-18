@@ -2,10 +2,8 @@
 
 Identity is driven by (series_id, mikan_subgroup_id) for Mikan-sourced rows
 and (series_id, rss_id) for fallback rows. Display-side fields like
-canonical_title, save_path, year, poster_url live on Series; the @property
-accessors below delegate so that read-side callers (API routes, search,
-poster) keep compiling. Plan 05 rewrites those callers to read from
-`bangumi.series` directly and these shims will be removed.
+canonical_title, save_path, year, poster_url live on Series and are accessed
+via bangumi.series directly.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -85,33 +83,4 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
     observed_groups: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     series: Mapped["Series"] = relationship("Series", lazy="select")
-
-    # ---- Read-side compat shims (delegated to series, removed in Plan 05) ----
-
-    @property
-    def official_title(self) -> Optional[str]:
-        return self.series.canonical_title if self.series is not None else None
-
-    @property
-    def season(self) -> int:
-        return self.series.season if self.series is not None else 1
-
-    @property
-    def year(self) -> Optional[int]:
-        return self.series.year if self.series is not None else None
-
-    @property
-    def save_path(self) -> Optional[str]:
-        if self.path_override:
-            return self.path_override
-        if self.series is None:
-            return None
-        # root_path is <base>/<safe_title[ (year)]> — append Season N to
-        # produce the full per-season save path callers expect.
-        from pathlib import PurePosixPath
-        return str(PurePosixPath(self.series.root_path) / f"Season {self.series.season}")
-
-    @property
-    def poster_link(self) -> Optional[str]:
-        return self.series.poster_url if self.series is not None else None
 

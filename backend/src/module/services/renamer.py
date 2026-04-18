@@ -317,7 +317,7 @@ class RenamerService:
         )
 
         # --- Phase 2: NETWORK I/O (move + rename, no DB transaction held) ---
-        target_save_path = bangumi.save_path
+        target_save_path = RenamerService.full_save_path(bangumi)
         hashes_to_move = []
         if target_save_path:
             for info in torrents_to_process:
@@ -469,10 +469,12 @@ class RenamerService:
         conflict_target is a non-None target path string when a rename was
         skipped due to a collision (spec §10.3).
         """
+        _season = bangumi.series.season if bangumi.series is not None else 1
+        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
         ep = self.parser.torrent_parser(
             torrent_name=torrent_info.name,
             torrent_path=media_path,
-            season=bangumi.season,
+            season=_season,
         )
         if not ep:
             logger.warning(
@@ -482,11 +484,11 @@ class RenamerService:
             return False, 0, None
 
         new_path = self.generate_rename_path(
-            ep, bangumi.official_title, self.rename_method
+            ep, _title, self.rename_method
         )
         logger.info(
             f"[Renamer] Rename check: '{media_path}' -> '{new_path}' "
-            f"(parsed season={ep.season}, target season={bangumi.season})"
+            f"(parsed season={ep.season}, target season={_season})"
         )
 
         if media_path == new_path:
@@ -513,14 +515,28 @@ class RenamerService:
 
     @staticmethod
     def effective_root(bangumi: Bangumi) -> Optional[str]:
-        # Defined here so Plan 05's renamer rewrite has a single semantic anchor;
-        # Bangumi.save_path returns the same value via the @property shim.
         """Return path_override when set, else the linked series root_path."""
         if bangumi.path_override:
             return bangumi.path_override
         if bangumi.series is not None:
             return bangumi.series.root_path
         return None
+
+    @staticmethod
+    def full_save_path(bangumi: Bangumi) -> Optional[str]:
+        """Return the full per-season save path.
+
+        Uses path_override directly when set; otherwise appends
+        ``Season {season}`` to the series root_path.
+        """
+        if bangumi.path_override:
+            return bangumi.path_override
+        if bangumi.series is None:
+            return None
+        from pathlib import PurePosixPath
+        return str(
+            PurePosixPath(bangumi.series.root_path) / f"Season {bangumi.series.season}"
+        )
 
     @staticmethod
     def _target_exists_with_different_hash(
@@ -547,6 +563,8 @@ class RenamerService:
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
     ) -> tuple[bool, int]:
+        _season = bangumi.series.season if bangumi.series is not None else 1
+        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
         renamed_count = 0
         for media_path in media_files:
             if not self._is_media_file(media_path):
@@ -554,13 +572,13 @@ class RenamerService:
 
             ep = self.parser.torrent_parser(
                 torrent_path=media_path,
-                season=bangumi.season,
+                season=_season,
             )
             if not ep:
                 logger.warning(f"[Renamer] Failed to parse: {media_path}")
                 continue
 
-            new_path = self.generate_rename_path(ep, bangumi.official_title, self.rename_method)
+            new_path = self.generate_rename_path(ep, _title, self.rename_method)
             if media_path == new_path:
                 continue
 
@@ -582,18 +600,20 @@ class RenamerService:
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
     ) -> None:
+        _season = bangumi.series.season if bangumi.series is not None else 1
+        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
         subtitle_method = "subtitle_" + self.rename_method
         for subtitle_path in subtitle_files:
             sub = self.parser.torrent_parser(
                 torrent_path=subtitle_path,
-                season=bangumi.season,
+                season=_season,
                 file_type="subtitle",
             )
             if not sub:
                 logger.warning(f"[Renamer] Failed to parse subtitle: {subtitle_path}")
                 continue
 
-            new_path = self.generate_rename_path(sub, bangumi.official_title, subtitle_method)
+            new_path = self.generate_rename_path(sub, _title, subtitle_method)
             if subtitle_path == new_path:
                 continue
 

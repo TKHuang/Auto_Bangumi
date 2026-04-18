@@ -169,8 +169,8 @@ class TestBangumi:
         assert bangumi.pending_review is False
         assert bangumi.active is True
 
-    def test_bangumi_property_shims_delegate_to_series(self, session):
-        """@property accessors return series values when series is loaded."""
+    def test_bangumi_reads_from_series(self, session):
+        """Direct series attribute reads return correct values."""
         s = Series(
             canonical_title="Shim Anime",
             normalized_title="shim_anime",
@@ -190,21 +190,23 @@ class TestBangumi:
         loaded = session.execute(select(Bangumi).where(Bangumi.id == b.id)).scalar_one()
         session.refresh(loaded, ["series"])
 
-        assert loaded.official_title == "Shim Anime"
-        assert loaded.season == 2
-        assert loaded.year == 2024
-        assert loaded.poster_link == "https://example.com/poster.jpg"
-        # save_path = root_path / "Season {season}" (post-0008 shim behaviour)
-        assert loaded.save_path == "/downloads/Shim/Season 2"
+        assert loaded.series.canonical_title == "Shim Anime"
+        assert loaded.series.season == 2
+        assert loaded.series.year == 2024
+        assert loaded.series.poster_url == "https://example.com/poster.jpg"
+        # Full save path: root_path / "Season {season}"
+        from pathlib import PurePosixPath
+        expected_sp = str(PurePosixPath(loaded.series.root_path) / f"Season {loaded.series.season}")
+        assert expected_sp == "/downloads/Shim/Season 2"
 
-    def test_bangumi_save_path_prefers_path_override(self, session):
+    def test_bangumi_path_override_takes_priority(self, session):
         s = _make_series(session)
         b = Bangumi(series_id=s.id, group_name="G", path_override="/custom/path")
         session.add(b)
         session.commit()
         session.refresh(b, ["series"])
 
-        assert b.save_path == "/custom/path"
+        assert b.path_override == "/custom/path"
 
 
 class TestTorrent:

@@ -22,6 +22,31 @@ from module.services.rss_engine import RSSEngine
 logger = logging.getLogger(__name__)
 
 
+def _resolve_title(data) -> str:
+    """Extract canonical title from an ORM Bangumi or a Pydantic Bangumi DTO."""
+    series = getattr(data, "series", None)
+    if series is not None:
+        return series.canonical_title or ""
+    # Pydantic DTO path: has official_title directly
+    return getattr(data, "official_title", "") or ""
+
+
+def _resolve_season(data) -> int:
+    """Extract season from an ORM Bangumi or a Pydantic Bangumi DTO."""
+    series = getattr(data, "series", None)
+    if series is not None:
+        return series.season if series.season is not None else 1
+    return getattr(data, "season", 1) or 1
+
+
+def _resolve_poster(data) -> str | None:
+    """Extract poster URL from an ORM Bangumi or a Pydantic Bangumi DTO."""
+    series = getattr(data, "series", None)
+    if series is not None:
+        return series.poster_url
+    return getattr(data, "poster_link", None)
+
+
 def _is_mikan_season_rss(rss_link: str) -> bool:
     """Check if the RSS link is a Mikan season-specific RSS.
 
@@ -60,9 +85,9 @@ class SeasonCollectorService:
         Returns:
             ResponseModel with collection status
         """
-        logger.info(
-            f"Start collecting {bangumi.official_title} Season {bangumi.season}..."
-        )
+        _title = _resolve_title(bangumi)
+        _season = _resolve_season(bangumi)
+        logger.info(f"Start collecting {_title} Season {_season}...")
 
         bangumi_repo = BangumiRepository(session)
         torrent_repo = TorrentRepository(session)
@@ -100,13 +125,13 @@ class SeasonCollectorService:
 
         if not new_torrents:
             logger.info(
-                f"No new torrents for {bangumi.official_title} (all duplicates filtered by database)."
+                f"No new torrents for {_title} (all duplicates filtered by database)."
             )
             return ResponseModel(
                 status=False,
                 status_code=404,
-                msg_en=f"No new episodes found for {bangumi.official_title}.",
-                msg_zh=f"{bangumi.official_title} 没有找到新剧集。",
+                msg_en=f"No new episodes found for {_title}.",
+                msg_zh=f"{_title} 没有找到新剧集。",
             )
 
         # Pre-filter against downloader existing hashes
@@ -127,16 +152,14 @@ class SeasonCollectorService:
             if already_in_qb_torrents:
                 logger.info(
                     f"[Collector] Found {len(already_in_qb_torrents)} torrents already in downloader "
-                    f"for {bangumi.official_title}, will sync to database"
+                    f"for {_title}, will sync to database"
                 )
             new_torrents = truly_new_torrents
 
         if not new_torrents:
             # All torrents already exist in downloader
             # Add them to database for tracking, mark as collected
-            logger.info(
-                f"All episodes for {bangumi.official_title} already in downloader."
-            )
+            logger.info(f"All episodes for {_title} already in downloader.")
             bangumi.eps_collect = True
             await bangumi_repo.update_simple(bangumi.id, {"eps_collect": True})
             await session.flush()
@@ -146,22 +169,33 @@ class SeasonCollectorService:
                 await session.flush()
                 logger.info(
                     f"[Collector] Synced {len(already_in_qb_torrents)} existing torrents to database "
-                    f"for {bangumi.official_title}"
+                    f"for {_title}"
                 )
 
             await session.commit()
             return ResponseModel(
                 status=True,
                 status_code=200,
-                msg_en=f"All episodes for {bangumi.official_title} already in download client.",
-                msg_zh=f"{bangumi.official_title} 的所有剧集已在下载客户端中。",
+                msg_en=f"All episodes for {_title} already in download client.",
+                msg_zh=f"{_title} 的所有剧集已在下载客户端中。",
             )
 
         all_torrents_to_add = new_torrents + already_in_qb_torrents
         await torrent_repo.add_all_or_ignore(all_torrents_to_add)
 
-        save_path = bangumi.save_path or gen_save_path(
-            settings.downloader.path, bangumi.official_title, bangumi.season,
+        from pathlib import PurePosixPath
+        _b_series = getattr(bangumi, "series", None)
+        _series_root = _b_series.root_path if _b_series is not None else None
+        _path_override = getattr(bangumi, "path_override", None)
+        # Fall back to Pydantic save_path if no ORM series
+        _pydantic_save_path = getattr(bangumi, "save_path", None) if _b_series is None else None
+        _full_save_path = (
+            _path_override
+            or (str(PurePosixPath(_series_root) / f"Season {_season}") if _series_root else None)
+            or _pydantic_save_path
+        )
+        save_path = _full_save_path or gen_save_path(
+            settings.downloader.path, _title, _season,
         )
 
         await session.commit()
@@ -178,9 +212,7 @@ class SeasonCollectorService:
             )
 
             if success:
-                logger.info(
-                    f"Collections of {bangumi.official_title} Season {bangumi.season} completed."
-                )
+                logger.info(f"Collections of {_title} Season {_season} completed.")
                 for torrent in new_torrents:
                     if torrent.hash:
                         successfully_added_hashes.append(torrent.hash)
@@ -199,18 +231,16 @@ class SeasonCollectorService:
                 return ResponseModel(
                     status=True,
                     status_code=200,
-                    msg_en=f"Collections of {bangumi.official_title} Season {bangumi.season} completed.",
-                    msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季完成。",
+                    msg_en=f"Collections of {_title} Season {_season} completed.",
+                    msg_zh=f"收集 {_title} 第 {_season} 季完成。",
                 )
             else:
-                logger.warning(
-                    f"Already collected {bangumi.official_title} Season {bangumi.season}."
-                )
+                logger.warning(f"Already collected {_title} Season {_season}.")
                 return ResponseModel(
                     status=False,
                     status_code=409,
-                    msg_en=f"Collection of {bangumi.official_title} Season {bangumi.season} failed.",
-                    msg_zh=f"收集 {bangumi.official_title} 第 {bangumi.season} 季失败, 种子已经添加。",
+                    msg_en=f"Collection of {_title} Season {_season} failed.",
+                    msg_zh=f"收集 {_title} 第 {_season} 季失败, 种子已经添加。",
                 )
 
         except Exception as e:
@@ -261,6 +291,11 @@ class SeasonCollectorService:
         torrent_repo = TorrentRepository(session)
         rss_repo = RSSRepository(session)
 
+        # Resolve series-level display fields (works for both ORM and Pydantic DTO).
+        _data_title = _resolve_title(data)
+        _data_season = _resolve_season(data)
+        _data_poster = _resolve_poster(data)
+
         successfully_added_hashes: list[str] = []
 
         try:
@@ -278,13 +313,13 @@ class SeasonCollectorService:
                         existing_rss_item = rss_item
                         data.rss_id = rss_item.id
                         # Update RSS name if it doesn't match the resolved title
-                        # (e.g. RSS was created with channel title "搜索结果:X"
+                        # (e.g. RSS was created with channel title "搜索結果:X"
                         # before the actual bangumi title was parsed)
-                        if data.official_title and rss_item.name != data.official_title:
-                            rss_item.name = data.official_title
+                        if _data_title and rss_item.name != _data_title:
+                            rss_item.name = _data_title
                             await session.flush()
                             logger.debug(
-                                f"[Collector] Updated RSS name to '{data.official_title}'"
+                                f"[Collector] Updated RSS name to '{_data_title}'"
                             )
                         logger.debug(f"[Collector] Found existing RSS with ID {data.rss_id}")
                         break
@@ -294,7 +329,7 @@ class SeasonCollectorService:
                     # Add the RSS feed (can fail - better to fail before deletion)
                     new_rss = await rss_repo.create({
                         "url": data.rss_link,
-                        "name": data.official_title,
+                        "name": _data_title,
                         "aggregate": False,
                         "parser": parser,
                         "enabled": True,
@@ -308,9 +343,9 @@ class SeasonCollectorService:
             _resolved = await resolve_series_for_rss(
                 session,
                 rss_link=data.rss_link,
-                parsed_title=data.official_title or "",
-                parsed_season=data.season,
-                parsed_poster=data.poster_link,
+                parsed_title=_data_title,
+                parsed_season=_data_season,
+                parsed_poster=_data_poster,
             )
             _series_id = _resolved.series.id
             _, _mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
@@ -335,11 +370,11 @@ class SeasonCollectorService:
                 group_name = data.group_name if data.group_name else "Unknown"
                 logger.warning(
                     f"[Collector] Bangumi already subscribed from different RSS: "
-                    f"official_title='{data.official_title}', season={data.season}, group='{group_name}' "
+                    f"official_title='{_data_title}', season={_data_season}, group='{group_name}' "
                     f"(existing RSS ID: {existing_active.rss_id}, new RSS ID: {data.rss_id})"
                 )
                 raise ValueError(
-                    f"Bangumi '{data.official_title}' (group: {group_name}) is already subscribed "
+                    f"Bangumi '{_data_title}' (group: {group_name}) is already subscribed "
                     f"from another RSS source (ID: {existing_active.rss_id}). Delete the existing subscription first."
                 )
 
@@ -353,15 +388,16 @@ class SeasonCollectorService:
                 if existing_bangumi:
                     logger.info(
                         f"[Collector] Deleting {len(existing_bangumi)} existing bangumi "
-                        f"from RSS ID {data.rss_id} before inserting: {data.official_title}"
+                        f"from RSS ID {data.rss_id} before inserting: {_data_title}"
                     )
                     for bangumi in existing_bangumi:
                         db_torrents = await torrent_repo.get_by_bangumi(bangumi.id)
                         if db_torrents:
                             hash_list = [t.hash for t in db_torrents if t.hash]
                             if hash_list:
+                                _existing_title = bangumi.series.canonical_title if bangumi.series is not None else ""
                                 hashes_to_delete_from_downloader.append(
-                                    (hash_list, bangumi.official_title)
+                                    (hash_list, _existing_title)
                                 )
                     bangumi_ids = [b.id for b in existing_bangumi]
                     await bangumi_repo.delete_many(bangumi_ids)
@@ -403,12 +439,12 @@ class SeasonCollectorService:
                 await torrent_repo.add_all_or_ignore(excluded_torrents)
                 logger.info(
                     f"[Collector] Inserted {len(excluded_hashes)} excluded torrents "
-                    f"for {data.official_title}"
+                    f"for {_data_title}"
                 )
 
             await session.commit()
             logger.info(
-                f"[Collector] Successfully committed bangumi for {data.official_title} "
+                f"[Collector] Successfully committed bangumi for {_data_title} "
                 f"(RSS ID: {data.rss_id})"
             )
 
@@ -446,7 +482,7 @@ class SeasonCollectorService:
                 )
                 await session.commit()
                 logger.info(
-                    f"[Collector] Bangumi {data.official_title} set to pending review "
+                    f"[Collector] Bangumi {_data_title} set to pending review "
                     f"(all torrents filtered by: {data.filter})"
                 )
 
@@ -487,7 +523,7 @@ class SeasonCollectorService:
                 except Exception as rss_err:
                     logger.warning(f"[Collector] Failed to set RSS status to Error: {rss_err}")
             logger.error(
-                f"[Collector] Failed to subscribe bangumi {data.official_title}: {e}. "
+                f"[Collector] Failed to subscribe bangumi {_data_title}: {e}. "
                 f"All changes rolled back."
             )
             raise
@@ -553,8 +589,9 @@ class SeasonCollectorService:
                     if db_torrents:
                         hash_list = [t.hash for t in db_torrents if t.hash]
                         if hash_list:
+                            _b_title = bangumi.series.canonical_title if bangumi.series is not None else ""
                             hashes_to_delete_from_downloader.append(
-                                (hash_list, bangumi.official_title)
+                                (hash_list, _b_title)
                             )
                 bangumi_ids = [b.id for b in existing_bangumi]
                 deleted_count = await bangumi_repo.delete_many(bangumi_ids)
@@ -564,6 +601,9 @@ class SeasonCollectorService:
             failed_titles = []
 
             for data in bangumi_list:
+                _d_title = _resolve_title(data)
+                _d_season = _resolve_season(data)
+                _d_poster = _resolve_poster(data)
                 try:
                     data.added = True
                     data.eps_collect = True
@@ -572,9 +612,9 @@ class SeasonCollectorService:
                     _b_resolved = await resolve_series_for_rss(
                         session,
                         rss_link=data.rss_link,
-                        parsed_title=data.official_title or "",
-                        parsed_season=data.season,
-                        parsed_poster=data.poster_link,
+                        parsed_title=_d_title,
+                        parsed_season=_d_season,
+                        parsed_poster=_d_poster,
                     )
                     _b_series_id = _b_resolved.series.id
                     _, _b_mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
@@ -597,10 +637,10 @@ class SeasonCollectorService:
                         "active": True,
                     })
                     success_count += 1
-                    logger.debug(f"[Collector] Batch insert: {data.official_title}")
+                    logger.debug(f"[Collector] Batch insert: {_d_title}")
                 except Exception as e:
-                    logger.error(f"[Collector] Failed to insert {data.official_title}: {e}")
-                    failed_titles.append(data.official_title)
+                    logger.error(f"[Collector] Failed to insert {_d_title}: {e}")
+                    failed_titles.append(_d_title)
 
             await session.commit()
             logger.info(
@@ -622,12 +662,13 @@ class SeasonCollectorService:
             download_results = []
 
             for bangumi in all_bangumi:
-                if bangumi.official_title not in failed_titles:
+                _b_canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
+                if _b_canonical not in failed_titles:
                     try:
                         result = await RSSEngine.download_bangumi(
                             session, downloader, bangumi.id
                         )
-                        download_results.append((bangumi.official_title, result))
+                        download_results.append((_b_canonical, result))
 
                         # Track hashes of torrents added by download_bangumi
                         if isinstance(result, dict) and result.get("count", 0) > 0:
@@ -647,12 +688,12 @@ class SeasonCollectorService:
                             )
                             await session.commit()
                             logger.info(
-                                f"[Collector] Bangumi {bangumi.official_title} set to pending review "
+                                f"[Collector] Bangumi {_b_canonical} set to pending review "
                                 f"(all torrents filtered by: {bangumi.filter})"
                             )
                     except Exception as e:
                         logger.error(
-                            f"[Collector] Failed to download torrents for {bangumi.official_title}: {e}"
+                            f"[Collector] Failed to download torrents for {_b_canonical}: {e}"
                         )
 
             await rss_repo.set_status(rss_id, "Success")

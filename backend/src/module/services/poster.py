@@ -91,33 +91,30 @@ class PosterService:
         failed = 0
 
         for bangumi in bangumis:
-            if bangumi.poster_link:
-                logger.debug(f"Skipping {bangumi.official_title} - already has poster")
+            _poster = bangumi.series.poster_url if bangumi.series is not None else None
+            _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+            _season = bangumi.series.season if bangumi.series is not None else 1
+            if _poster:
+                logger.debug(f"Skipping {_title} - already has poster")
                 continue
 
             try:
-                poster_link = await self.fetch_poster(
-                    bangumi.official_title, bangumi.season
-                )
+                poster_link = await self.fetch_poster(_title, _season)
                 if poster_link:
-                    # Update bangumi with new poster link via series (Task 12: poster_link → series.poster_url)
+                    # Update bangumi with new poster link via series
                     await self.bangumi_repo.update(
                         bangumi.id,
                         {"poster_link": poster_link},
                         expected_version=bangumi.version,
                     )
                     updated += 1
-                    logger.info(
-                        f"Updated poster for {bangumi.official_title}: {poster_link}"
-                    )
+                    logger.info(f"Updated poster for {_title}: {poster_link}")
                 else:
                     failed += 1
-                    logger.warning(f"No poster found for {bangumi.official_title}")
+                    logger.warning(f"No poster found for {_title}")
             except Exception as e:
                 failed += 1
-                logger.error(
-                    f"Error fetching poster for {bangumi.official_title}: {e}"
-                )
+                logger.error(f"Error fetching poster for {_title}: {e}")
 
         logger.info(
             f"refresh_all_posters completed: total={total}, updated={updated}, failed={failed}"
@@ -149,10 +146,10 @@ class PosterService:
             logger.error(f"Bangumi not found: {bangumi_id}")
             raise ValueError(f"Bangumi not found: {bangumi_id}")
 
+        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _season = bangumi.series.season if bangumi.series is not None else 1
         try:
-            poster_link = await self.fetch_poster(
-                bangumi.official_title, bangumi.season
-            )
+            poster_link = await self.fetch_poster(_title, _season)
             if poster_link:
                 # Update bangumi with new poster link
                 await self.bangumi_repo.update(
@@ -160,20 +157,18 @@ class PosterService:
                     {"poster_link": poster_link},
                     expected_version=bangumi.version,
                 )
-                logger.info(
-                    f"Updated poster for {bangumi.official_title}: {poster_link}"
-                )
+                logger.info(f"Updated poster for {_title}: {poster_link}")
                 return {
                     "success": True,
                     "poster_link": poster_link,
-                    "message": f"Poster updated for {bangumi.official_title}",
+                    "message": f"Poster updated for {_title}",
                 }
             else:
-                logger.warning(f"No poster found for {bangumi.official_title}")
+                logger.warning(f"No poster found for {_title}")
                 return {
                     "success": False,
                     "poster_link": None,
-                    "message": f"No poster found for {bangumi.official_title}",
+                    "message": f"No poster found for {_title}",
                 }
         except Exception as e:
             logger.error(f"Error refreshing poster for {bangumi_id}: {e}")

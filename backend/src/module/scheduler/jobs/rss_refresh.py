@@ -154,23 +154,37 @@ async def _trigger_downloads(
     if not bangumi_ids:
         return
 
-    bangumi_stmt = select(Bangumi).where(Bangumi.id.in_(bangumi_ids))
+    from sqlalchemy.orm import selectinload
+    bangumi_stmt = (
+        select(Bangumi)
+        .options(selectinload(Bangumi.series))
+        .where(Bangumi.id.in_(bangumi_ids))
+    )
     bangumi_result = await session.execute(bangumi_stmt)
     bangumi_map: dict[int, Bangumi] = {
         b.id: b for b in bangumi_result.scalars().all()
     }
 
     # Phase 2: NETWORK — submit each torrent to the downloader.
+    from pathlib import PurePosixPath
     torrent_repo = TorrentRepository(session)
     for torrent in pending_torrents:
         bangumi = bangumi_map.get(torrent.bangumi_id)
         if bangumi is None:
             continue
 
-        save_path = bangumi.save_path or gen_save_path(
+        _rr_series = bangumi.series
+        _rr_title = _rr_series.canonical_title if _rr_series is not None else ""
+        _rr_season = _rr_series.season if _rr_series is not None else 1
+        _rr_root = _rr_series.root_path if _rr_series is not None else None
+        _rr_full = (
+            bangumi.path_override
+            or (str(PurePosixPath(_rr_root) / f"Season {_rr_season}") if _rr_root else None)
+        )
+        save_path = _rr_full or gen_save_path(
             settings.downloader.path,
-            bangumi.official_title,
-            bangumi.season,
+            _rr_title,
+            _rr_season,
         )
 
         try:

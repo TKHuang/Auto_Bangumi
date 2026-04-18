@@ -49,9 +49,9 @@ def _match_torrent_in_list(
 ) -> Optional[Bangumi]:
     """In-memory torrent-to-bangumi matching (no DB call)."""
     for bangumi in bangumi_list:
-        # TODO(plan05): replace direct field reads when RSS engine becomes series-aware
+        _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
         _title_raw = getattr(bangumi, "title_raw", None)
-        if bangumi.official_title in torrent.name or (_title_raw and _title_raw in torrent.name):
+        if _canonical and (_canonical in torrent.name or (_title_raw and _title_raw in torrent.name)):
             torrent.bangumi_id = bangumi.id
             if not bangumi.filter:
                 return bangumi
@@ -104,9 +104,9 @@ class RSSEngine:
         all_bangumi = await bangumi_repo.get_active()
 
         for bangumi in all_bangumi:
-            # TODO(plan05): replace direct field reads when RSS engine becomes series-aware
+            _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
             _title_raw = getattr(bangumi, "title_raw", None)
-            if bangumi.official_title in torrent.name or (_title_raw and _title_raw in torrent.name):
+            if _canonical and (_canonical in torrent.name or (_title_raw and _title_raw in torrent.name)):
                 torrent.bangumi_id = bangumi.id
 
                 if bangumi.filter == "":
@@ -253,8 +253,8 @@ class RSSEngine:
             auto_created_keys.add(composite_key)
             newly_created_ids.add(created.id)
             logger.info(
-                f"[Engine] Auto-created bangumi from aggregate RSS: {created.official_title} "
-                f"S{created.season} [{group_name}]"
+                f"[Engine] Auto-created bangumi from aggregate RSS: {bangumi_data.official_title} "
+                f"S{bangumi_data.season} [{group_name}]"
             )
             if RSSEngine._torrent_excluded_by_filter(torrent.name, bangumi_filter):
                 logger.debug(
@@ -395,8 +395,9 @@ class RSSEngine:
                                 await bangumi_repo.update_pending_review(
                                     bangumi_id, True, bangumi.filter
                                 )
+                                _b_title = bangumi.series.canonical_title if bangumi.series is not None else ""
                                 logger.info(
-                                    f"[Engine] Bangumi {bangumi.official_title} set to pending review "
+                                    f"[Engine] Bangumi {_b_title} set to pending review "
                                     f"(all torrents filtered by: {bangumi.filter})"
                                 )
                     except Exception as e:
@@ -426,8 +427,17 @@ class RSSEngine:
                                 torrent, all_active_bangumi
                             )
                             if matched_bangumi:
-                                save_path = matched_bangumi.save_path or gen_save_path(
-                                    settings.downloader.path, matched_bangumi.official_title, matched_bangumi.season,
+                                _m_series = matched_bangumi.series
+                                _m_title = _m_series.canonical_title if _m_series is not None else ""
+                                _m_season = _m_series.season if _m_series is not None else 1
+                                _m_root = _m_series.root_path if _m_series is not None else None
+                                from pathlib import PurePosixPath
+                                _m_full = (
+                                    matched_bangumi.path_override
+                                    or (str(PurePosixPath(_m_root) / f"Season {_m_season}") if _m_root else None)
+                                )
+                                save_path = _m_full or gen_save_path(
+                                    settings.downloader.path, _m_title, _m_season,
                                 )
                                 urls = [torrent.url]
                                 success = await downloader.add_torrents(
@@ -562,9 +572,10 @@ class RSSEngine:
         )
 
         if existing:
+            _ex_title = existing.series.canonical_title if existing.series is not None else ""
             return {
                 "status": False,
-                "message": f"Bangumi already exists: {existing.official_title}",
+                "message": f"Bangumi already exists: {_ex_title}",
             }
 
         created_bangumi = await bangumi_repo.create({
@@ -591,23 +602,33 @@ class RSSEngine:
         await session.flush()
 
         urls = [torrent.url]
+        _cr_series = created_bangumi.series
+        _cr_title = _cr_series.canonical_title if _cr_series is not None else ""
+        _cr_season = _cr_series.season if _cr_series is not None else 1
+        _cr_root = _cr_series.root_path if _cr_series is not None else None
+        from pathlib import PurePosixPath
+        _cr_full = (
+            created_bangumi.path_override
+            or (str(PurePosixPath(_cr_root) / f"Season {_cr_season}") if _cr_root else None)
+        )
+        _cr_save_path = _cr_full or gen_save_path(
+            settings.downloader.path, _cr_title, _cr_season,
+        )
         await downloader.add_torrents(
             urls=urls,
-            save_path=created_bangumi.save_path or gen_save_path(
-                settings.downloader.path, created_bangumi.official_title, created_bangumi.season,
-            ),
+            save_path=_cr_save_path,
             torrent_files=None,
         )
 
         await torrent_repo.mark_downloaded_by_hash(
-            torrent.hash, created_bangumi.id, created_bangumi.save_path
+            torrent.hash, created_bangumi.id, _cr_save_path
         )
 
         await session.commit()
 
         return {
             "status": True,
-            "message": f"Successfully created bangumi: {created_bangumi.official_title}",
+            "message": f"Successfully created bangumi: {_cr_title}",
             "bangumi_id": created_bangumi.id,
         }
 
@@ -658,11 +679,11 @@ class RSSEngine:
 
         # Title match: when rss_link is an aggregate feed, only keep torrents
         # whose name contains this bangumi's title to avoid cross-contamination.
-        # TODO(plan05): replace direct field reads when RSS engine becomes series-aware
+        _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
         _title_raw = getattr(bangumi, "title_raw", None)
         title_matched = []
         for torrent in all_torrents:
-            if (bangumi.official_title and bangumi.official_title in torrent.name) or \
+            if (_canonical and _canonical in torrent.name) or \
                (_title_raw and _title_raw in torrent.name):
                 title_matched.append(torrent)
         # If title matching yields nothing, fall back to all (non-aggregate single-bangumi feeds)
@@ -706,8 +727,17 @@ class RSSEngine:
                 "count": 0,
             }
 
-        save_path = bangumi.save_path or gen_save_path(
-            settings.downloader.path, bangumi.official_title, bangumi.season,
+        _dl_series = bangumi.series
+        _dl_title = _dl_series.canonical_title if _dl_series is not None else ""
+        _dl_season = _dl_series.season if _dl_series is not None else 1
+        _dl_root = _dl_series.root_path if _dl_series is not None else None
+        from pathlib import PurePosixPath
+        _dl_full = (
+            bangumi.path_override
+            or (str(PurePosixPath(_dl_root) / f"Season {_dl_season}") if _dl_root else None)
+        )
+        save_path = _dl_full or gen_save_path(
+            settings.downloader.path, _dl_title, _dl_season,
         )
 
         # --- Phase 2: NETWORK I/O (downloader call, no DB transaction) ---

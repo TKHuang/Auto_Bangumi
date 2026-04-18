@@ -147,11 +147,17 @@ async def add_rss(
                 rss_links = data.rss_link.split(",") if data.rss_link else []
                 existing_by_rss = await bangumi_repo.find_by_any_rss_link(rss_links)
                 if existing_by_rss:
+                    _exist_series = getattr(existing_by_rss, "series", None)
+                    _exist_title = (
+                        _exist_series.canonical_title
+                        if _exist_series is not None
+                        else ""
+                    )
                     return u_response(ResponseModel(
                         status=False,
                         status_code=409,
-                        msg_en=f"This RSS link is already subscribed in bangumi '{existing_by_rss.official_title}'.",
-                        msg_zh=f"此 RSS 链接已在番剧「{existing_by_rss.official_title}」中订阅。",
+                        msg_en=f"This RSS link is already subscribed in bangumi '{_exist_title}'.",
+                        msg_zh=f"此 RSS 链接已在番剧「{_exist_title}」中訂閱。",
                     ))
 
             new_rss = await rss_repo.create({
@@ -635,14 +641,18 @@ async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(
 
     bangumi_data = []
     for bangumi in pending_list:
-        # TODO(plan05): title_raw/season_raw ORM reads will be removed when this path is series-aware
+        _b_series = bangumi.series
+        _b_title = _b_series.canonical_title if _b_series is not None else None
+        _b_year = _b_series.year if _b_series is not None else None
+        _b_season = _b_series.season if _b_series is not None else 1
+        _b_poster = _b_series.poster_url if _b_series is not None else None
         bangumi_data.append({
             "id": bangumi.id,
             "rss_id": bangumi.rss_id,
-            "official_title": bangumi.official_title,
-            "year": bangumi.year,
+            "official_title": _b_title,
+            "year": _b_year,
             "title_raw": getattr(bangumi, "title_raw", None),
-            "season": bangumi.season,
+            "season": _b_season,
             "season_raw": getattr(bangumi, "season_raw", None),
             "group_name": bangumi.group_name,
             "dpi": bangumi.dpi,
@@ -650,7 +660,7 @@ async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(
             "subtitle": bangumi.subtitle,
             "filter": bangumi.filter,
             "rss_link": bangumi.rss_link,
-            "poster_link": bangumi.poster_link,
+            "poster_link": _b_poster,
             "pending_review": bangumi.pending_review,
             "global_filter_matches": (
                 [m.strip() for m in bangumi.global_filter_matches.split(",")]

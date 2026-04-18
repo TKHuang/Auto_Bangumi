@@ -28,34 +28,25 @@ class BangumiRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    # Fields stripped during create() — callers are still passing them as Plan 05 catches up.
-    # save_path / poster_link are also listed here (no Series exists yet on create), but on
-    # update() they are remapped by _apply_update_dict to path_override / series.poster_url.
-    _DROPPED_COLUMNS: frozenset[str] = frozenset(
-        {"official_title", "title_raw", "year", "season", "season_raw",
-         "save_path", "poster_link"}
+    # Fields that map to Series or path_override (not direct Bangumi columns).
+    # These are translated during update; legacy callers may still pass them.
+    _SERIES_MAPPED_KEYS: frozenset[str] = frozenset(
+        {"official_title", "season", "year", "poster_link", "save_path"}
     )
-
-    # Fields silently dropped on update() — parser intermediates that no
-    # longer persist. (Other dropped columns like official_title are
-    # delegated to series, not silently dropped.)
-    _SILENT_DROP_ON_WRITE: frozenset[str] = frozenset(
-        {"title_raw", "season_raw"}
-    )
+    # Parser intermediates that are silently dropped (not stored anywhere).
+    _DROPPED_INTERMEDIATES: frozenset[str] = frozenset({"title_raw", "season_raw"})
 
     def _apply_update_dict(self, bangumi: "Bangumi", data: dict) -> None:
-        """Apply an update dict to a Bangumi ORM instance, translating legacy
-        field names to their v2 equivalents and silently dropping fields that
-        Plan 05 will own.
+        """Apply an update dict to a Bangumi ORM instance.
 
-        Mapping rules (Task 12):
-        - save_path        → path_override
-        - poster_link      → series.poster_url  (if series is loaded)
-        - official_title   → series.canonical_title  (if series is loaded)
-        - season           → series.season  (if series is loaded)
-        - year             → series.year  (if series is loaded)
+        Mapping:
+        - save_path      → path_override
+        - poster_link    → series.poster_url  (if series is loaded)
+        - official_title → series.canonical_title  (if series is loaded)
+        - season         → series.season  (if series is loaded)
+        - year           → series.year  (if series is loaded)
         - title_raw, season_raw → silently dropped (parser intermediates)
-        - everything else  → setattr if hasattr
+        - everything else → setattr if column exists
         """
         for key, value in data.items():
             if key in ("id", "version"):
@@ -65,7 +56,6 @@ class BangumiRepository:
             elif key == "poster_link":
                 if bangumi.series is not None:
                     bangumi.series.poster_url = value
-                # else: no series loaded, cannot persist — silently drop
             elif key == "official_title":
                 if bangumi.series is not None:
                     bangumi.series.canonical_title = value
@@ -75,8 +65,7 @@ class BangumiRepository:
             elif key == "year":
                 if bangumi.series is not None and value is not None:
                     bangumi.series.year = int(value)
-            elif key in self._SILENT_DROP_ON_WRITE:
-                # Parser intermediates — no longer stored on any model
+            elif key in self._DROPPED_INTERMEDIATES:
                 pass
             elif hasattr(bangumi, key):
                 setattr(bangumi, key, value)
@@ -84,8 +73,9 @@ class BangumiRepository:
     async def create(self, data: dict) -> Bangumi:
         if "group_name" in data and not data["group_name"]:
             data["group_name"] = "Unknown"
-        # Drop any legacy column names that no longer exist on the ORM.
-        filtered = {k: v for k, v in data.items() if k not in self._DROPPED_COLUMNS}
+        # Drop legacy keys that no longer exist as Bangumi columns.
+        _drop = self._SERIES_MAPPED_KEYS | self._DROPPED_INTERMEDIATES
+        filtered = {k: v for k, v in data.items() if k not in _drop}
         bangumi = Bangumi(**filtered)
         self.session.add(bangumi)
         await self.session.flush()
@@ -208,7 +198,9 @@ class BangumiRepository:
         )
         result = await self.session.execute(stmt)
         data = result.scalar_one_or_none()
-        return data.poster_link if data else ""
+        if data is None:
+            return ""
+        return data.series.poster_url if data.series is not None else ""
 
     async def match_torrent(self, torrent_name: str) -> Optional[Bangumi]:
         """Return the first active bangumi whose series canonical_title
