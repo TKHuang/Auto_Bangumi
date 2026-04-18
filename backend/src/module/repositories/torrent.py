@@ -90,10 +90,17 @@ class TorrentRepository:
         return list(result.scalars().all())
 
     def _unrenamed_base_stmt(self):
-        return select(Torrent).where(
-            and_(
-                Torrent.renamed_at.is_(None),
-                Torrent.state != TorrentState.EXCLUDED,
+        from module.domain.models.bangumi import Bangumi
+        return (
+            select(Torrent)
+            .join(Bangumi, Bangumi.id == Torrent.bangumi_id)
+            .where(
+                and_(
+                    Torrent.renamed_at.is_(None),
+                    Torrent.state != TorrentState.EXCLUDED,
+                    Bangumi.active == True,
+                    Bangumi.deleted == False,
+                )
             )
         )
 

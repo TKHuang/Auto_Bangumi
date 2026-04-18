@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -160,6 +160,7 @@ class RenamerService:
 
         # --- Phase 2: NETWORK I/O (no DB transaction held) ---
         rename_successes: list[tuple[int, int]] = []
+        rename_conflicts: list[tuple[int, str]] = []
 
         for torrent_info in torrents_to_rename:
             db_torrent = next(
@@ -192,14 +193,18 @@ class RenamerService:
 
             success = False
             file_count = 0
+            conflict_target: Optional[str] = None
 
             if len(media_files) == 1:
-                success, file_count = await self._rename_single_file(
+                success, file_count, conflict_target = await self._rename_single_file(
                     torrent_info,
                     media_files[0],
                     bangumi,
                     downloader,
                 )
+                if conflict_target is not None:
+                    rename_conflicts.append((db_torrent.id, conflict_target))
+                    continue
                 if success and subtitle_files:
                     await self._rename_subtitles(
                         torrent_info,
@@ -261,6 +266,11 @@ class RenamerService:
                 )
 
             await self.session.commit()
+
+        for torrent_id, target in rename_conflicts:
+            renamed_results.append(
+                {"torrent_id": torrent_id, "file_count": 0, "conflict": target}
+            )
 
         logger.debug(
             f"[Renamer] Rename_all process finished. Renamed {len(renamed_results)} torrents."
@@ -337,6 +347,7 @@ class RenamerService:
                 ]
 
         rename_successes: list[tuple[int, int]] = []
+        rename_conflicts: list[tuple[int, str]] = []
 
         for torrent_info in torrents_to_process:
             db_torrent = next(
@@ -357,14 +368,18 @@ class RenamerService:
 
             success = False
             file_count = 0
+            conflict_target: Optional[str] = None
 
             if len(media_files) == 1:
-                success, file_count = await self._rename_single_file(
+                success, file_count, conflict_target = await self._rename_single_file(
                     torrent_info,
                     media_files[0],
                     bangumi,
                     downloader,
                 )
+                if conflict_target is not None:
+                    rename_conflicts.append((db_torrent.id, conflict_target))
+                    continue
                 if (success or retrigger) and subtitle_files:
                     await self._rename_subtitles(
                         torrent_info,
@@ -428,6 +443,11 @@ class RenamerService:
 
             await self.session.commit()
 
+        for torrent_id, target in rename_conflicts:
+            renamed_results.append(
+                {"torrent_id": torrent_id, "file_count": 0, "conflict": target}
+            )
+
         logger.info(
             f"[Renamer] Rename_bangumi finished for bangumi {bangumi_id}. "
             f"Renamed {len(renamed_results)} torrents."
@@ -440,7 +460,12 @@ class RenamerService:
         media_path: str,
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
-    ) -> tuple[bool, int]:
+    ) -> tuple[bool, int, Optional[str]]:
+        """Returns (success, file_count, conflict_target).
+
+        conflict_target is a non-None target path string when a rename was
+        skipped due to a collision (spec §10.3).
+        """
         ep = self.parser.torrent_parser(
             torrent_name=torrent_info.name,
             torrent_path=media_path,
@@ -451,9 +476,11 @@ class RenamerService:
                 f"[Renamer] Failed to parse: torrent_name={torrent_info.name}, "
                 f"media_path={media_path}"
             )
-            return False, 0
+            return False, 0, None
 
-        new_path = self.generate_rename_path(ep, bangumi.official_title, self.rename_method)
+        new_path = self.generate_rename_path(
+            ep, bangumi.official_title, self.rename_method
+        )
         logger.info(
             f"[Renamer] Rename check: '{media_path}' -> '{new_path}' "
             f"(parsed season={ep.season}, target season={bangumi.season})"
@@ -461,16 +488,54 @@ class RenamerService:
 
         if media_path == new_path:
             logger.debug(f"[Renamer] Skipped (same path): {media_path}")
-            return True, 1
+            return True, 1, None
+
+        if await self._target_exists_with_different_hash(
+            downloader, torrent_info.hash, new_path,
+        ):
+            logger.warning(
+                f"[Renamer] Conflict: '{new_path}' already exists for a "
+                f"different torrent — skipping (spec §10.3)"
+            )
+            return False, 0, new_path
 
         success = await downloader.torrents_rename_file(
             torrent_info.hash, media_path, new_path
         )
         if not success:
             logger.warning(f"[Renamer] rename_torrent_file failed: {media_path}")
-            return False, 0
+            return False, 0, None
 
-        return True, 1
+        return True, 1, None
+
+    @staticmethod
+    def effective_root(bangumi: Bangumi) -> Optional[str]:
+        """Return path_override when set, else the linked series root_path."""
+        if bangumi.path_override:
+            return bangumi.path_override
+        if bangumi.series is not None:
+            return bangumi.series.root_path
+        return None
+
+    async def _target_exists_with_different_hash(
+        self,
+        downloader: "DownloaderProtocol",
+        torrent_hash: str,
+        target_path: str,
+    ) -> bool:
+        """Best-effort collision probe. Returns True when the downloader
+        reports `target_path` already exists for a different hash."""
+        try:
+            all_info = await downloader.torrents_info(status_filter="completed")
+        except Exception:
+            return False
+        for info in all_info:
+            if info.hash and info.hash.lower() == torrent_hash.lower():
+                continue
+            for f in getattr(info, "files", []) or []:
+                if getattr(f, "name", None) == target_path:
+                    return True
+        return False
 
     async def _rename_collection(
         self,

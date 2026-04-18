@@ -1,7 +1,23 @@
 import pytest
 
 from module.domain.models import Torrent, TorrentState
+from module.domain.models.bangumi import Bangumi
+from module.domain.models.series import Series
 from module.repositories.torrent import TorrentRepository
+
+
+async def _create_series_and_bangumi(session) -> int:
+    """Create a minimal Series + Bangumi row and return bangumi.id."""
+    s = Series(
+        canonical_title="Test", normalized_title="test", season=1,
+        root_path="/test", pending_review=False,
+    )
+    session.add(s)
+    await session.flush()
+    b = Bangumi(group_name="G", rss_link="", series_id=s.id, active=True)
+    session.add(b)
+    await session.flush()
+    return b.id
 
 
 @pytest.mark.anyio
@@ -167,12 +183,14 @@ class TestTorrentRepository:
 
     async def test_get_unrenamed_returns_completed_without_renamed_at(self, async_session):
         repo = TorrentRepository(async_session)
-        
+
         async with async_session.begin():
+            bangumi_id = await _create_series_and_bangumi(async_session)
             await repo.create({
                 "name": "Unrenamed",
                 "url": "https://example.com/t1",
                 "hash": "hash1",
+                "bangumi_id": bangumi_id,
                 "state": TorrentState.COMPLETED,
                 "downloaded": True,
                 "renamed_at": None,
@@ -181,14 +199,15 @@ class TestTorrentRepository:
                 "name": "Renamed",
                 "url": "https://example.com/t2",
                 "hash": "hash2",
+                "bangumi_id": bangumi_id,
                 "state": TorrentState.COMPLETED,
                 "downloaded": True,
             })
             await repo.mark_renamed(t2.id, 1)
-        
+
         async with async_session.begin():
             unrenamed = await repo.get_unrenamed()
-        
+
         assert len(unrenamed) == 1
         assert unrenamed[0].name == "Unrenamed"
 
@@ -407,33 +426,34 @@ class TestTorrentRepository:
 
     async def test_get_unrenamed_hashes_returns_set_of_hashes(self, async_session):
         repo = TorrentRepository(async_session)
-        
+
         async with async_session.begin():
-            t1 = await repo.create({
+            bangumi_id = await _create_series_and_bangumi(async_session)
+            await repo.create({
                 "name": "Unrenamed 1",
                 "url": "https://example.com/t1",
                 "hash": "HASH1",
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
                 "renamed_at": None,
             })
             await repo.create({
                 "name": "Unrenamed 2",
                 "url": "https://example.com/t2",
                 "hash": "HASH2",
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
                 "renamed_at": None,
             })
             t3 = await repo.create({
                 "name": "Renamed",
                 "url": "https://example.com/t3",
                 "hash": "HASH3",
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
             })
             await repo.mark_renamed(t3.id, 1)
-        
+
         async with async_session.begin():
             hashes = await repo.get_unrenamed_hashes()
-        
+
         assert len(hashes) == 2
         assert "hash1" in hashes
         assert "hash2" in hashes
@@ -441,19 +461,20 @@ class TestTorrentRepository:
 
     async def test_get_unrenamed_hashes_excludes_null_hashes(self, async_session):
         repo = TorrentRepository(async_session)
-        
+
         async with async_session.begin():
+            bangumi_id = await _create_series_and_bangumi(async_session)
             await repo.create({
                 "name": "No Hash",
                 "url": "https://example.com/t1",
                 "hash": None,
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
             })
             await repo.create({
                 "name": "Has Hash",
                 "url": "https://example.com/t2",
                 "hash": "hash1",
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
             })
         
         async with async_session.begin():
@@ -678,18 +699,19 @@ class TestTorrentRepository:
         repo = TorrentRepository(async_session)
 
         async with async_session.begin():
+            bangumi_id = await _create_series_and_bangumi(async_session)
             await repo.create({
                 "name": "Unrenamed Torrent",
                 "url": "https://example.com/t1",
                 "hash": "hash_unrenamed",
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
                 "downloaded": True,
             })
             await repo.create({
                 "name": "",
                 "url": "",
                 "hash": "hash_excluded",
-                "bangumi_id": 1,
+                "bangumi_id": bangumi_id,
                 "downloaded": True,
                 "state": TorrentState.EXCLUDED,
             })
