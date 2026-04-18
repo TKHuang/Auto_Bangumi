@@ -186,6 +186,61 @@ async def test_resolved_idempotent_on_existing_bangumi(db_session):
 
 
 @pytest.mark.integration
+async def test_resolved_prefers_page_mikan_ref_over_rss_link_ids(db_session):
+    """When the RSS link has no bangumiId (aggregate feed) but the Mikan
+    episode page returns authoritative ids, the pipeline must build a Tier 1
+    (Mikan) series — not fall through to Tier 3 pending_review (review H-2)."""
+    await _seed_rss(db_session)
+    # rss_link has NO bangumiId / subgroupid — aggregate-style feed.
+    # Mikan page gives authoritative (99, 42).
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=42,
+        canonical_title="Mikan Page Title",
+        poster_url="https://mikanani.me/poster.png",
+    )
+
+    item = FeedItem(
+        info_hash="h1",
+        raw_name="[G] Show 01",
+        homepage="https://mikanani.me/Home/Episode/h1",
+        url="magnet:?xt=urn:btih:h1",
+        rss_id=1,
+        published_at=None,
+        rss_link="https://mikanani.me/RSS/MyBangumi?token=abc",  # no ids
+        parsed_title="Show",
+        parsed_season=1,
+        parsed_poster=None,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+    result = await pipeline.run_for_feed(rss_id=1, items=[item])
+
+    assert result.items_resolved == 1
+
+    from sqlalchemy import select
+    from module.domain.models.bangumi import Bangumi
+    from module.domain.models.series import Series
+    from module.domain.models.torrent import Torrent
+
+    series = (await db_session.execute(select(Series))).scalar_one()
+    # Authoritative Mikan identity — NOT pending_review.
+    assert series.mikan_bangumi_id == 99
+    assert series.pending_review is False
+    # Page title should win over parsed title when mikan_ref is supplied.
+    assert series.canonical_title == "Mikan Page Title"
+
+    bangumi = (await db_session.execute(select(Bangumi))).scalar_one()
+    assert bangumi.mikan_subgroup_id == 42
+
+    torrent = (await db_session.execute(select(Torrent))).scalar_one()
+    assert torrent.mikan_subgroup_id == 42
+
+
+@pytest.mark.integration
 async def test_lock_released_even_on_item_failure(db_session):
     """Lock is released even when processing fails mid-way."""
     await _seed_rss(db_session)

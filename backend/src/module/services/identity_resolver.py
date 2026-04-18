@@ -125,23 +125,28 @@ async def resolve_series_for_rss(
     parsed_title: str,
     parsed_season: int,
     parsed_poster: Optional[str] = None,
+    mikan_ref: Optional[MikanRef] = None,
 ) -> ResolvedIdentity:
     """Convenience wrapper: extract Mikan IDs from rss_link, build MikanRef
     when applicable, normalize the title, then run IdentityResolver.
 
-    Returns the ResolvedIdentity from IdentityResolver.resolve().
+    When the caller has already resolved a MikanRef from the authoritative
+    episode page (e.g. RssPipeline.mikan_resolver), it should pass it in
+    via ``mikan_ref`` — that value takes precedence over anything we could
+    derive from the rss_link query string, which may be missing ids (aggregate
+    feeds) or carry a stale subgroup value (review H-2, spec §6.4).
     """
     from module.domain.text.normalize import normalize_title
 
-    mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(rss_link)
-    mikan_ref: Optional[MikanRef] = None
-    if mikan_bangumi_id is not None:
-        mikan_ref = MikanRef(
-            mikan_bangumi_id=mikan_bangumi_id,
-            mikan_subgroup_id=mikan_subgroup_id or 0,
-            canonical_title=parsed_title,
-            poster_url=parsed_poster,
-        )
+    if mikan_ref is None:
+        mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(rss_link)
+        if mikan_bangumi_id is not None:
+            mikan_ref = MikanRef(
+                mikan_bangumi_id=mikan_bangumi_id,
+                mikan_subgroup_id=mikan_subgroup_id or 0,
+                canonical_title=parsed_title,
+                poster_url=parsed_poster,
+            )
     norm, cour = normalize_title(parsed_title)
     resolver = IdentityResolver(SeriesRepository(session))
     return await resolver.resolve(

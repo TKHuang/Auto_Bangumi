@@ -25,6 +25,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.concurrency.rss_lock import RssLockRegistry
+from module.mikan.parser import MikanRef
 from module.mikan.resolver import MikanResolver
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.torrent import TorrentRepository
@@ -138,37 +139,60 @@ class RssPipeline:
             raise _Pending
 
         # Branch C: resolved → ensure Series + Bangumi + Torrent exist.
-        resolved = await resolve_series_for_rss(
-            session=self.session,
-            rss_link=item.rss_link,
-            parsed_title=item.parsed_title,
-            parsed_season=item.parsed_season,
-            parsed_poster=item.parsed_poster,
+        await finalize_resolved_item(
+            self.session, item=item, mikan_ref=mikan_ref
         )
 
-        bangumi = await self._bangumi_repo.get_by_series_and_subgroup(
-            resolved.series.id, mikan_ref.mikan_subgroup_id
-        )
-        if bangumi is None:
-            bangumi = await self._bangumi_repo.create({
-                "series_id": resolved.series.id,
-                "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
-                "rss_id": item.rss_id,
-                "rss_link": item.rss_link,
-                "group_name": "Unknown",
-                "active": True,
-            })
 
-        await self._torrent_repo.create({
-            "bangumi_id": bangumi.id,
-            "rss_id": item.rss_id,
-            "name": item.raw_name,
-            "url": item.url,
-            "hash": item.info_hash,
-            "homepage": item.homepage,
-            "mikan_bangumi_id": mikan_ref.mikan_bangumi_id,
+async def finalize_resolved_item(
+    session: AsyncSession,
+    *,
+    item: FeedItem,
+    mikan_ref: MikanRef,
+) -> None:
+    """Persist the Series → Bangumi → Torrent chain for a resolved feed item.
+
+    Shared by ``RssPipeline._process_item`` (live RSS refresh) and the
+    enrichment_retry drain job. The caller-supplied ``mikan_ref`` (from the
+    Mikan episode page) wins over whatever could be parsed from ``rss_link``
+    query parameters (review H-2). Removes any matching pending_enrichment row
+    on success.
+    """
+    resolved = await resolve_series_for_rss(
+        session=session,
+        rss_link=item.rss_link,
+        parsed_title=item.parsed_title,
+        parsed_season=item.parsed_season,
+        parsed_poster=item.parsed_poster,
+        mikan_ref=mikan_ref,
+    )
+
+    bangumi_repo = BangumiRepository(session)
+    torrent_repo = TorrentRepository(session)
+
+    bangumi = await bangumi_repo.get_by_series_and_subgroup(
+        resolved.series.id, mikan_ref.mikan_subgroup_id
+    )
+    if bangumi is None:
+        bangumi = await bangumi_repo.create({
+            "series_id": resolved.series.id,
             "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
+            "rss_id": item.rss_id,
+            "rss_link": item.rss_link,
+            "group_name": "Unknown",
+            "active": True,
         })
 
-        # Successful resolution clears any prior pending row for this hash.
-        await self._pending.remove(item.info_hash)
+    await torrent_repo.create({
+        "bangumi_id": bangumi.id,
+        "rss_id": item.rss_id,
+        "name": item.raw_name,
+        "url": item.url,
+        "hash": item.info_hash,
+        "homepage": item.homepage,
+        "mikan_bangumi_id": mikan_ref.mikan_bangumi_id,
+        "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
+    })
+
+    # Successful resolution clears any prior pending row for this hash.
+    await PendingEnrichmentService(session).remove(item.info_hash)
