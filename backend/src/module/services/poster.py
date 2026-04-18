@@ -100,8 +100,7 @@ class PosterService:
                     bangumi.official_title, bangumi.season
                 )
                 if poster_link:
-                    # Update bangumi with new poster link
-                    bangumi.poster_link = poster_link
+                    # Update bangumi with new poster link via series (Task 12: poster_link → series.poster_url)
                     await self.bangumi_repo.update(
                         bangumi.id,
                         {"poster_link": poster_link},

@@ -30,10 +30,43 @@ class BangumiRepository:
 
     # Legacy column names dropped in migration 0008.  Services and older
     # callers may still pass them; strip silently so we don't break them.
+    # NOTE: save_path and poster_link are handled specially in _apply_update_dict
+    # rather than stripped here (they map to path_override / series.poster_url).
     _DROPPED_COLUMNS: frozenset[str] = frozenset(
         {"official_title", "title_raw", "year", "season", "season_raw",
          "save_path", "poster_link"}
     )
+
+    # Columns that are silently ignored on write (Plan 05 will rewrite callers).
+    _SILENT_DROP_ON_WRITE: frozenset[str] = frozenset(
+        {"official_title", "title_raw", "year", "season", "season_raw"}
+    )
+
+    def _apply_update_dict(self, bangumi: "Bangumi", data: dict) -> None:
+        """Apply an update dict to a Bangumi ORM instance, translating legacy
+        field names to their v2 equivalents and silently dropping fields that
+        Plan 05 will own.
+
+        Mapping rules (Task 12):
+        - save_path        → path_override
+        - poster_link      → series.poster_url  (if series is loaded)
+        - official_title, title_raw, year, season, season_raw → silently dropped
+        - everything else  → setattr if hasattr
+        """
+        for key, value in data.items():
+            if key in ("id", "version"):
+                continue
+            if key == "save_path":
+                bangumi.path_override = value
+            elif key == "poster_link":
+                if bangumi.series is not None:
+                    bangumi.series.poster_url = value
+                # else: no series loaded, cannot persist — silently drop
+            elif key in self._SILENT_DROP_ON_WRITE:
+                # Plan 05 will rewrite these write paths to go through Series
+                pass
+            elif hasattr(bangumi, key):
+                setattr(bangumi, key, value)
 
     async def create(self, data: dict) -> Bangumi:
         if "group_name" in data and not data["group_name"]:
@@ -56,9 +89,7 @@ class BangumiRepository:
         if bangumi.version != expected_version:
             raise ConcurrentModificationError("Bangumi", id, expected_version)
 
-        for key, value in data.items():
-            if hasattr(bangumi, key) and key not in ["id", "version"]:
-                setattr(bangumi, key, value)
+        self._apply_update_dict(bangumi, data)
 
         await self.session.flush()
         await self.session.refresh(bangumi)
@@ -265,9 +296,7 @@ class BangumiRepository:
         bangumi = await self.get_by_id(id)
         if not bangumi:
             return False
-        for key, value in data.items():
-            if hasattr(bangumi, key) and key not in ["id", "version"]:
-                setattr(bangumi, key, value)
+        self._apply_update_dict(bangumi, data)
         await self.session.flush()
         return True
 

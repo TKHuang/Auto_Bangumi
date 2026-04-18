@@ -103,7 +103,10 @@ async def add_rss(
                 return u_response(data)
 
             if isinstance(data, Bangumi) and not official_title:
-                existing_by_title = await bangumi_repo.find_by_official_title(data.official_title)
+                # TODO(plan05): replace with series-aware duplicate check when
+                # SeriesRepository has a find_by_canonical_title method.
+                # find_by_official_title was removed in migration 0008.
+                existing_by_title = None
                 if existing_by_title:
                     return u_response(ResponseModel(
                         status=False,
