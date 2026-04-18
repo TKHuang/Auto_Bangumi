@@ -215,3 +215,22 @@ class TorrentRepository:
         stmt = delete(Torrent)
         await self.session.execute(stmt)
         await self.session.flush()
+
+    async def backfill_mikan_ids(
+        self,
+        torrent_id: int,
+        mikan_bangumi_id: Optional[int],
+        mikan_subgroup_id: Optional[int],
+    ) -> None:
+        """One-shot setter used by scripts/backfill_series.py. Idempotent —
+        overwrites whatever is currently stored."""
+        stmt = (
+            update(Torrent)
+            .where(Torrent.id == torrent_id)
+            .values(
+                mikan_bangumi_id=mikan_bangumi_id,
+                mikan_subgroup_id=mikan_subgroup_id,
+            )
+        )
+        await self.session.execute(stmt)
+        await self.session.flush()

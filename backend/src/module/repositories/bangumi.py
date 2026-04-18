@@ -263,3 +263,62 @@ class BangumiRepository:
                 setattr(bangumi, key, value)
         await self.session.flush()
         return True
+
+    async def get_by_series_and_subgroup(
+        self, series_id: int, mikan_subgroup_id: int
+    ) -> Optional[Bangumi]:
+        """Identity lookup for Mikan-sourced bangumi (spec §6.2 partial UNIQUE)."""
+        stmt = select(Bangumi).where(
+            and_(
+                Bangumi.series_id == series_id,
+                Bangumi.mikan_subgroup_id == mikan_subgroup_id,
+                Bangumi.deleted == False,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_series_and_rss(
+        self, series_id: int, rss_id: Optional[int]
+    ) -> Optional[Bangumi]:
+        """Fallback identity for non-Mikan bangumi: (series_id, rss_id) when
+        mikan_subgroup_id IS NULL. rss_id None never matches (no fallback key).
+        """
+        if rss_id is None:
+            return None
+        stmt = select(Bangumi).where(
+            and_(
+                Bangumi.series_id == series_id,
+                Bangumi.rss_id == rss_id,
+                Bangumi.mikan_subgroup_id.is_(None),
+                Bangumi.deleted == False,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_by_series(self, series_id: int) -> list[Bangumi]:
+        stmt = select(Bangumi).where(
+            and_(Bangumi.series_id == series_id, Bangumi.deleted == False)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def deactivate_siblings_in_series(
+        self, series_id: int, except_bangumi_id: int
+    ) -> int:
+        """Set active=false on all undeleted siblings of `except_bangumi_id`
+        within the same series. Returns the number of rows updated."""
+        stmt = (
+            update(Bangumi)
+            .where(
+                Bangumi.series_id == series_id,
+                Bangumi.id != except_bangumi_id,
+                Bangumi.deleted == False,
+                Bangumi.active == True,
+            )
+            .values(active=False)
+        )
+        result = await self.session.execute(stmt)
+        await self.session.flush()
+        return result.rowcount

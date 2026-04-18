@@ -762,7 +762,7 @@ class TestTorrentRepository:
 
     async def test_delete_all_removes_all_torrents(self, async_session):
         repo = TorrentRepository(async_session)
-        
+
         async with async_session.begin():
             await repo.create({
                 "name": "Torrent 1",
@@ -776,10 +776,26 @@ class TestTorrentRepository:
                 "hash": "hash2",
                 "bangumi_id": 2,
             })
-            
+
             await repo.delete_all()
-        
+
         async with async_session.begin():
             all_torrents = await repo.get_all()
-        
+
         assert len(all_torrents) == 0
+
+
+@pytest.mark.integration
+async def test_backfill_mikan_ids_persists_both(db_session):
+    from module.repositories.torrent import TorrentRepository
+    from module.domain.models.torrent import Torrent
+
+    repo = TorrentRepository(db_session)
+    t = Torrent(name="x", url="https://e.com", hash="abc", bangumi_id=None, rss_id=None)
+    db_session.add(t)
+    await db_session.flush()
+
+    await repo.backfill_mikan_ids(t.id, mikan_bangumi_id=3906, mikan_subgroup_id=370)
+    await db_session.refresh(t)
+    assert t.mikan_bangumi_id == 3906
+    assert t.mikan_subgroup_id == 370
