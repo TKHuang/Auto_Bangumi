@@ -1,5 +1,5 @@
 """ORM additions for Bangumi (series link, active flag, etc.) and Torrent
-(mikan refs) — additive only, no column drops yet."""
+(mikan refs). Post-0008: official_title/title_raw/season are now @property shims."""
 import pytest
 
 from module.domain.models.bangumi import Bangumi
@@ -46,9 +46,6 @@ async def test_bangumi_can_set_series_id_and_load_relationship(db_session):
     await db_session.flush()
 
     b = Bangumi(
-        official_title="Demo (legacy)",
-        title_raw="Demo",
-        season=1,
         group_name="G",
         rss_link="",
         series_id=s.id,

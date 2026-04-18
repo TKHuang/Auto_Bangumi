@@ -28,13 +28,13 @@ async def _seed(db_session) -> tuple[Series, Bangumi, Bangumi]:
     await db_session.flush()
 
     winner = Bangumi(
-        official_title="X", title_raw="X", season=1, group_name=_grp(),
+        group_name=_grp(),
         rss_link="", series_id=s.id, mikan_subgroup_id=370, active=True,
         observed_groups=json.dumps(["LoliHouse"]),
     )
     loser = Bangumi(
-        official_title="X", title_raw="X", season=1, group_name=_grp(),
-        rss_link="", series_id=s.id, mikan_subgroup_id=370, active=True,
+        group_name=_grp(),
+        rss_link="", series_id=s.id, mikan_subgroup_id=371, active=True,
         observed_groups=json.dumps(["A&LoliHouse"]),
     )
     db_session.add_all([winner, loser])

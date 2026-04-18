@@ -5,9 +5,26 @@ from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 from module.domain.models.bangumi import Bangumi
+from module.domain.models.series import Series
 from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.value_objects import EpisodeFile, EpisodeType, SubtitleFile
 from module.services.renamer import RenamerService
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+async def _add_series(session, *, title: str, season: int = 1, root_path: str | None = None) -> Series:
+    s = Series(
+        canonical_title=title,
+        normalized_title=title.lower().replace(" ", "_"),
+        season=season,
+        root_path=root_path or f"/data/Bangumi/{title}/Season {season}",
+    )
+    session.add(s)
+    await session.flush()
+    return s
 
 
 class TestGenerateRenamePath:
@@ -286,19 +303,19 @@ class TestRenameAll:
 
     @pytest.mark.asyncio
     async def test_rename_all_success(
-        self, async_session, mock_downloader, mock_parser
+        self, db_session, mock_downloader, mock_parser
     ):
         """Test rename_all successfully renames unrenamed torrents."""
-        # Create test data
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test Bangumi/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test Bangumi/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(
+            series_id=series.id,
+            group_name="Group",
+        )
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent = Torrent(
             bangumi_id=bangumi.id,
@@ -309,46 +326,40 @@ class TestRenameAll:
             downloaded=True,
             renamed_at=None,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        # Execute rename_all
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_all(mock_downloader)
 
-        # Verify results
         assert len(result) == 1
         assert result[0]["torrent_id"] == torrent.id
         assert result[0]["file_count"] == 1
 
-        # Verify torrent was marked renamed
-        await async_session.refresh(torrent)
+        await db_session.refresh(torrent)
         assert torrent.renamed_at is not None
         assert torrent.renamed_file_count == 1
         assert torrent.downloaded is True
 
     @pytest.mark.asyncio
-    async def test_rename_all_no_unrenamed(self, async_session, mock_downloader):
+    async def test_rename_all_no_unrenamed(self, db_session, mock_downloader):
         """Test rename_all when no unrenamed torrents exist."""
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_all(mock_downloader)
         assert len(result) == 0
 
     @pytest.mark.asyncio
     async def test_rename_all_compensation_on_failure(
-        self, async_session, mock_parser
+        self, db_session, mock_parser
     ):
         """Test compensation restores COMPLETED state on rename failure."""
-        # Create test data
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent = Torrent(
             bangumi_id=bangumi.id,
@@ -359,10 +370,9 @@ class TestRenameAll:
             downloaded=True,
             renamed_at=None,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        # Mock downloader to fail rename
         mock_downloader = AsyncMock()
         mock_downloader.torrents_info.return_value = [
             Mock(
@@ -374,14 +384,12 @@ class TestRenameAll:
         ]
         mock_downloader.torrents_rename_file = AsyncMock(return_value=False)
 
-        # Execute rename_all
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_all(mock_downloader)
 
-        # Verify no successful renames
         assert len(result) == 0
 
-        await async_session.refresh(torrent)
+        await db_session.refresh(torrent)
         assert torrent.renamed_at is None
 
 
@@ -421,19 +429,16 @@ class TestRenameBangumi:
 
     @pytest.mark.asyncio
     async def test_rename_bangumi_basic(
-        self, async_session, mock_downloader, mock_parser
+        self, db_session, mock_downloader, mock_parser
     ):
         """Test rename_bangumi for specific bangumi."""
-        # Create test data
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test Bangumi/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test Bangumi/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent = Torrent(
             bangumi_id=bangumi.id,
@@ -443,36 +448,30 @@ class TestRenameBangumi:
             state=TorrentState.COMPLETED,
             renamed_at=None,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        # Execute rename_bangumi
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_bangumi(
             mock_downloader, bangumi.id, retrigger=False
         )
 
-        # Verify results
         assert len(result) == 1
         assert result[0]["torrent_id"] == torrent.id
 
     @pytest.mark.asyncio
     async def test_rename_bangumi_with_retrigger(
-        self, async_session, mock_downloader, mock_parser
+        self, db_session, mock_downloader, mock_parser
     ):
         """Test rename_bangumi with retrigger clears rename status first."""
-        # Create test data
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
-        # Torrent already renamed
         torrent = Torrent(
             bangumi_id=bangumi.id,
             name="[Group] Title - 01",
@@ -482,35 +481,30 @@ class TestRenameBangumi:
             renamed_at=datetime.now(),
             renamed_file_count=1,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        # Execute rename_bangumi with retrigger
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_bangumi(
             mock_downloader, bangumi.id, retrigger=True
         )
 
-        # Verify rename status was cleared
-        await async_session.refresh(torrent)
+        await db_session.refresh(torrent)
         assert torrent.renamed_at is not None  # Re-renamed
         assert torrent.renamed_file_count == 1
 
     @pytest.mark.asyncio
     async def test_rename_bangumi_moves_torrents_if_path_changed(
-        self, async_session, mock_downloader, mock_parser
+        self, db_session, mock_downloader, mock_parser
     ):
         """Test rename_bangumi moves torrents when save_path changes."""
-        # Create test data
-        bangumi = Bangumi(
-            official_title="New Title",
-            title_raw="Test",
-            season=2,  # Season changed
-            group_name="Group",
-            save_path="/data/Bangumi/New Title/Season 2",
+        series = await _add_series(
+            db_session, title="New Title", season=2,
+            root_path="/data/Bangumi/New Title/Season 2",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent = Torrent(
             bangumi_id=bangumi.id,
@@ -520,14 +514,12 @@ class TestRenameBangumi:
             state=TorrentState.COMPLETED,
             renamed_at=None,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        # Execute rename_bangumi
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         await service.rename_bangumi(mock_downloader, bangumi.id, retrigger=False)
 
-        # Verify move_torrent was called
         mock_downloader.move_torrent.assert_called_once()
         call_args = mock_downloader.move_torrent.call_args[0]
         assert "abc123" in call_args[0]
@@ -555,17 +547,15 @@ class TestSubtitleRenameNaming:
 
     @pytest.mark.asyncio
     async def test_rename_subtitles_no_torrent_name_kwarg(
-        self, async_session, mock_parser
+        self, db_session, mock_parser
     ):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent_info = Mock(
             hash="abc123",
@@ -577,7 +567,7 @@ class TestSubtitleRenameNaming:
         downloader = AsyncMock()
         downloader.torrents_rename_file = AsyncMock(return_value=True)
 
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         await service._rename_subtitles(
             torrent_info,
             ["[Collection] Folder Name/sub1.ass"],
@@ -628,17 +618,15 @@ class TestRenameAllMediaZero:
 
     @pytest.mark.asyncio
     async def test_rename_all_media_zero_with_subtitles(
-        self, async_session, mock_downloader, mock_parser
+        self, db_session, mock_downloader, mock_parser
     ):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent = Torrent(
             bangumi_id=bangumi.id,
@@ -649,10 +637,10 @@ class TestRenameAllMediaZero:
             downloaded=True,
             renamed_at=None,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         with patch.object(service, "_classify_files", return_value=([], ["sub1.ass"])):
             with patch.object(service, "_rename_subtitles", new_callable=AsyncMock):
                 result = await service.rename_all(mock_downloader)
@@ -661,13 +649,13 @@ class TestRenameAllMediaZero:
         assert result[0]["torrent_id"] == torrent.id
         assert result[0]["file_count"] == 0
 
-        await async_session.refresh(torrent)
+        await db_session.refresh(torrent)
         assert torrent.renamed_at is not None
         assert torrent.renamed_file_count == 0
 
     @pytest.mark.asyncio
     async def test_rename_all_media_zero_no_subtitles(
-        self, async_session, mock_downloader
+        self, db_session, mock_downloader
     ):
         mock_downloader.torrents_info.return_value = [
             Mock(
@@ -678,15 +666,13 @@ class TestRenameAllMediaZero:
             )
         ]
 
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test",
-            season=1,
-            group_name="Group",
-            save_path="/data/Bangumi/Test/Season 1",
+        series = await _add_series(
+            db_session, title="Test Bangumi",
+            root_path="/data/Bangumi/Test/Season 1",
         )
-        async_session.add(bangumi)
-        await async_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
 
         torrent = Torrent(
             bangumi_id=bangumi.id,
@@ -697,16 +683,16 @@ class TestRenameAllMediaZero:
             downloaded=True,
             renamed_at=None,
         )
-        async_session.add(torrent)
-        await async_session.flush()
+        db_session.add(torrent)
+        await db_session.flush()
 
-        service = RenamerService(async_session, rename_method="advance")
+        service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_all(mock_downloader)
 
         assert len(result) == 1
         assert result[0]["torrent_id"] == torrent.id
         assert result[0]["file_count"] == 0
 
-        await async_session.refresh(torrent)
+        await db_session.refresh(torrent)
         assert torrent.renamed_at is not None
         assert torrent.renamed_file_count == 0

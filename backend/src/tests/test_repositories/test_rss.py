@@ -261,20 +261,28 @@ class TestRSSRepository:
 
     async def test_cascade_delete_removes_rss_and_related_data(self, async_session):
         from module.domain.models.bangumi import Bangumi
+        from module.domain.models.series import Series
         from module.domain.models.torrent import Torrent
-        
+
         repo = RSSRepository(async_session)
-        
+
         async with async_session.begin():
             rss = await repo.create({
                 "name": "Test RSS",
                 "url": "https://example.com/rss1",
             })
-            
-            bangumi = Bangumi(
-                official_title="Test Bangumi",
-                title_raw="[Group] Test Bangumi",
+
+            series = Series(
+                canonical_title="Test Bangumi",
+                normalized_title="test_bangumi",
                 season=1,
+                root_path="/downloads/Test",
+            )
+            async_session.add(series)
+            await async_session.flush()
+
+            bangumi = Bangumi(
+                series_id=series.id,
                 group_name="Group",
                 rss_id=rss.id,
                 rss_link=rss.url,

@@ -1,4 +1,10 @@
-"""Tests for scripts/backfill_series.py."""
+"""Tests for scripts/backfill_series.py.
+
+Post-0008: series_id is NOT NULL, so backfill_one_bangumi is a no-op for all
+rows that already have series_id (which is all rows after the migration).
+Tests here verify the idempotency contract and the torrent backfill logic.
+The unit tests for extract_mikan_ids_from_rss remain unchanged.
+"""
 import sys
 from pathlib import Path
 
@@ -57,101 +63,52 @@ def test_extract_mikan_ids_from_rss(link, expected):
 
 
 @pytest.mark.integration
-async def test_backfill_one_bangumi_creates_mikan_series(db_session):
-    repo_s = SeriesRepository(db_session)
+async def test_backfill_one_bangumi_is_noop_when_series_id_set(db_session):
+    """Post-0008: all bangumi have series_id; backfill_one_bangumi returns False."""
+    s = Series(
+        mikan_bangumi_id=100,
+        canonical_title="Demo S2",
+        normalized_title="demo_s2",
+        season=2,
+        root_path="/downloads/Demo",
+    )
+    db_session.add(s)
+    await db_session.flush()
 
     b = Bangumi(
-        official_title="Demo S2", title_raw="Demo S2", season=2,
         group_name=_grp(),
         rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=100&subgroupid=20",
+        series_id=s.id,
+        mikan_subgroup_id=20,
     )
     db_session.add(b)
     await db_session.flush()
 
-    await backfill_one_bangumi(db_session, b)
-    await db_session.refresh(b)
-
-    assert b.series_id is not None
-    assert b.mikan_subgroup_id == 20
-    series = await repo_s.get_by_id(b.series_id)
-    assert series.mikan_bangumi_id == 100
-    assert series.canonical_title == "Demo S2"
-
-
-@pytest.mark.integration
-async def test_backfill_one_bangumi_uses_fallback_for_non_mikan(db_session):
-    repo_s = SeriesRepository(db_session)
-
-    b = Bangumi(
-        official_title="Nyaa Show",
-        title_raw="Nyaa Show 第二季",
-        season=2,
-        group_name=_grp(),
-        rss_link="https://nyaa.si/?page=rss",
-    )
-    db_session.add(b)
-    await db_session.flush()
-
-    await backfill_one_bangumi(db_session, b)
-    await db_session.refresh(b)
-
-    assert b.series_id is not None
-    assert b.mikan_subgroup_id is None
-    series = await repo_s.get_by_id(b.series_id)
-    assert series.mikan_bangumi_id is None
-
-
-@pytest.mark.integration
-async def test_backfill_one_bangumi_is_idempotent(db_session):
-    b = Bangumi(
-        official_title="Idempotent", title_raw="Idempotent", season=1,
-        group_name=_grp(),
-        rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=200&subgroupid=11",
-    )
-    db_session.add(b)
-    await db_session.flush()
-
-    await backfill_one_bangumi(db_session, b)
-    await db_session.refresh(b)
-    first_series_id = b.series_id
-
-    await backfill_one_bangumi(db_session, b)
-    await db_session.refresh(b)
-    assert b.series_id == first_series_id
-
-
-@pytest.mark.integration
-async def test_backfill_two_bangumi_share_series_when_mikan_id_matches(db_session):
-    """Production case: rows 91 + 93 share bangumiId=3906/subgroupid=370."""
-    b1 = Bangumi(
-        official_title="Same", title_raw="Same A", season=1, group_name=_grp(),
-        rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=3906&subgroupid=370",
-    )
-    b2 = Bangumi(
-        official_title="Same", title_raw="Same B", season=1, group_name=_grp(),
-        rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=3906&subgroupid=370",
-    )
-    db_session.add_all([b1, b2])
-    await db_session.flush()
-
-    await backfill_one_bangumi(db_session, b1)
-    await backfill_one_bangumi(db_session, b2)
-    await db_session.refresh(b1)
-    await db_session.refresh(b2)
-
-    assert b1.series_id == b2.series_id
-    assert b1.mikan_subgroup_id == b2.mikan_subgroup_id == 370
+    result = await backfill_one_bangumi(db_session, b)
+    assert result is False  # no-op: series_id already set
 
 
 @pytest.mark.integration
 async def test_backfill_torrents_propagates_mikan_ids(db_session):
+    """backfill_torrents_for_bangumi propagates mikan IDs onto torrents."""
+    s = Series(
+        mikan_bangumi_id=500,
+        canonical_title="X",
+        normalized_title="x",
+        season=1,
+        root_path="/downloads/X",
+    )
+    db_session.add(s)
+    await db_session.flush()
+
     b = Bangumi(
-        official_title="X", title_raw="X", season=1, group_name=_grp(),
+        group_name=_grp(),
         rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=500&subgroupid=99",
+        series_id=s.id,
+        mikan_subgroup_id=99,
     )
     db_session.add(b)
     await db_session.flush()
-    await backfill_one_bangumi(db_session, b)
 
     t = Torrent(name="x", url="u", hash="h1", bangumi_id=b.id)
     db_session.add(t)
@@ -162,3 +119,33 @@ async def test_backfill_torrents_propagates_mikan_ids(db_session):
     assert n == 1
     assert t.mikan_bangumi_id == 500
     assert t.mikan_subgroup_id == 99
+
+
+@pytest.mark.integration
+async def test_backfill_torrents_returns_zero_when_series_has_no_mikan_id(db_session):
+    """Non-Mikan series: backfill_torrents is a no-op (no mikan IDs to propagate)."""
+    s = Series(
+        mikan_bangumi_id=None,
+        canonical_title="Nyaa Show",
+        normalized_title="nyaa_show",
+        season=1,
+        root_path="/downloads/Nyaa",
+    )
+    db_session.add(s)
+    await db_session.flush()
+
+    b = Bangumi(
+        group_name=_grp(),
+        rss_link="https://nyaa.si/?page=rss",
+        series_id=s.id,
+        mikan_subgroup_id=None,
+    )
+    db_session.add(b)
+    await db_session.flush()
+
+    t = Torrent(name="n", url="u", hash="h2", bangumi_id=b.id)
+    db_session.add(t)
+    await db_session.flush()
+
+    n = await backfill_torrents_for_bangumi(db_session, b)
+    assert n == 0

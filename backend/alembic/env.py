@@ -58,6 +58,8 @@ def _include_object(obj, name, type_, reflected, compare_to):
         "idx_torrent_hash_bangumi",
         "uq_series_fallback",
         "uq_series_fallback_null_cour",
+        "uq_bangumi_series_subgroup",
+        "uq_bangumi_series_rss_fallback",
     ):
         return False
     return True

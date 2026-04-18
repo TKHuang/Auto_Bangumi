@@ -355,6 +355,10 @@ class SeasonCollectorService:
                 settings.downloader.path, data.official_title, data.season,
                 getattr(data, "year", None),
             )
+            # series_id: prefer explicit field, fall back to loaded relationship.
+            _series_id = getattr(data, "series_id", None) or (
+                data.series.id if getattr(data, "series", None) is not None else None
+            )
             created_bangumi = await bangumi_repo.create({
                 "official_title": data.official_title,
                 "title_raw": data.title_raw,
@@ -374,6 +378,7 @@ class SeasonCollectorService:
                 "deleted": False,
                 "pending_review": False,
                 "save_path": save_path,
+                "series_id": _series_id,
             })
 
             # Insert manually-excluded torrents as "downloaded" so they are
@@ -565,6 +570,10 @@ class SeasonCollectorService:
                         settings.downloader.path, data.official_title, data.season,
                         getattr(data, "year", None),
                     )
+                    # series_id: prefer explicit field, fall back to loaded relationship.
+                    _series_id = getattr(data, "series_id", None) or (
+                        data.series.id if getattr(data, "series", None) is not None else None
+                    )
                     await bangumi_repo.create({
                         "official_title": data.official_title,
                         "title_raw": data.title_raw,
@@ -584,6 +593,7 @@ class SeasonCollectorService:
                         "deleted": False,
                         "pending_review": False,
                         "save_path": save_path,
+                        "series_id": _series_id,
                     })
                     success_count += 1
                     logger.debug(f"[Collector] Batch insert: {data.official_title}")

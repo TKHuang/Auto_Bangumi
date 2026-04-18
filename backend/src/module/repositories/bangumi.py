@@ -15,21 +15,6 @@ class BangumiRepository:
         result = await self.session.get(Bangumi, id)
         return result
 
-    async def get_by_composite_key(
-        self, official_title: str, season: int, group_name: str
-    ) -> Optional[Bangumi]:
-        normalized_group = group_name if group_name else "Unknown"
-        stmt = select(Bangumi).where(
-            and_(
-                Bangumi.official_title == official_title,
-                Bangumi.season == season,
-                Bangumi.group_name == normalized_group,
-                Bangumi.deleted == False,
-            )
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def get_all(self, include_deleted: bool = False) -> list[Bangumi]:
         stmt = select(Bangumi)
         if not include_deleted:
@@ -37,25 +22,35 @@ class BangumiRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    # Legacy column names dropped in migration 0008.  Services and older
+    # callers may still pass them; strip silently so we don't break them.
+    _DROPPED_COLUMNS: frozenset[str] = frozenset(
+        {"official_title", "title_raw", "season", "season_raw",
+         "save_path", "poster_link"}
+    )
+
     async def create(self, data: dict) -> Bangumi:
         if "group_name" in data and not data["group_name"]:
             data["group_name"] = "Unknown"
-
-        official_title = data.get("official_title")
-        season = data.get("season", 1)
-        group_name = data.get("group_name", "Unknown")
-
-        existing = await self.get_by_composite_key(official_title, season, group_name)
-        if existing:
-            raise ValueError(
-                f"Bangumi with composite key ({official_title}, {season}, {group_name}) already exists"
-            )
-
-        bangumi = Bangumi(**data)
+        # Drop any legacy column names that no longer exist on the ORM.
+        filtered = {k: v for k, v in data.items() if k not in self._DROPPED_COLUMNS}
+        bangumi = Bangumi(**filtered)
         self.session.add(bangumi)
         await self.session.flush()
         await self.session.refresh(bangumi)
         return bangumi
+
+    async def get_by_composite_key(
+        self,
+        official_title: str,
+        season: int,
+        group_name: str,
+    ) -> Optional[Bangumi]:
+        """Compat shim: composite key (title, season, group) was dropped in 0008.
+        Always returns None — callers that relied on this lookup should migrate to
+        get_by_series_and_subgroup / get_by_series_and_rss.
+        """
+        return None
 
     async def update(
         self, id: int, data: dict, expected_version: int
@@ -135,13 +130,6 @@ class BangumiRepository:
         await self.session.execute(stmt)
         await self.session.flush()
 
-    async def find_by_official_title(self, official_title: str) -> Optional[Bangumi]:
-        stmt = select(Bangumi).where(
-            and_(Bangumi.official_title == official_title, Bangumi.deleted == False)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def find_by_any_rss_link(self, rss_links: list[str]) -> Optional[Bangumi]:
         for rss_link in rss_links:
             if not rss_link:
@@ -156,17 +144,34 @@ class BangumiRepository:
         return None
 
     async def match_poster(self, bangumi_name: str) -> str:
-        stmt = select(Bangumi).where(func.instr(bangumi_name, Bangumi.official_title) > 0)
+        """Return poster URL for the first bangumi whose series canonical_title
+        appears within bangumi_name.  Queries via the series join.
+        """
+        from module.domain.models.series import Series as SeriesModel
+        stmt = (
+            select(Bangumi)
+            .join(SeriesModel, Bangumi.series_id == SeriesModel.id)
+            .where(func.instr(bangumi_name, SeriesModel.canonical_title) > 0)
+        )
         result = await self.session.execute(stmt)
         data = result.scalar_one_or_none()
         return data.poster_link if data else ""
 
     async def match_torrent(self, torrent_name: str) -> Optional[Bangumi]:
-        stmt = select(Bangumi).where(
-            and_(
-                func.instr(torrent_name, Bangumi.title_raw) > 0,
-                Bangumi.deleted == False,
-                Bangumi.pending_review == False,
+        """Return the first active bangumi whose series canonical_title
+        appears within torrent_name.  title_raw was dropped in 0008; we fall
+        back to matching on the series canonical title as the closest proxy.
+        """
+        from module.domain.models.series import Series as SeriesModel
+        stmt = (
+            select(Bangumi)
+            .join(SeriesModel, Bangumi.series_id == SeriesModel.id)
+            .where(
+                and_(
+                    func.instr(torrent_name, SeriesModel.canonical_title) > 0,
+                    Bangumi.deleted == False,
+                    Bangumi.pending_review == False,
+                )
             )
         )
         result = await self.session.execute(stmt)

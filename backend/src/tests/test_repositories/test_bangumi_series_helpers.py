@@ -26,11 +26,7 @@ _bangumi_counter = 0
 async def _seed_bangumi(db_session, *, series_id, **overrides) -> Bangumi:
     global _bangumi_counter
     _bangumi_counter += 1
-    # Use unique group_name per call to avoid the (official_title, season, group_name) UNIQUE constraint.
     data = dict(
-        official_title="legacy",
-        title_raw="legacy",
-        season=1,
         group_name=f"G{_bangumi_counter}",
         rss_link="",
         series_id=series_id,

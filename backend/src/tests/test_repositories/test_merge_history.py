@@ -11,8 +11,13 @@ from module.repositories.merge_history import BangumiMergeHistoryRepository
 @pytest_asyncio.fixture
 async def winner_loser(db_session):
     """Create two real bangumi rows to reference as winner/loser."""
-    w = Bangumi(official_title="W", title_raw="W", season=1, group_name="G1")
-    l = Bangumi(official_title="L", title_raw="L", season=1, group_name="G2")
+    from module.domain.models.series import Series
+    s1 = Series(canonical_title="W", normalized_title="w", season=1, root_path="/dl/W")
+    s2 = Series(canonical_title="L", normalized_title="l", season=1, root_path="/dl/L")
+    db_session.add_all([s1, s2])
+    await db_session.flush()
+    w = Bangumi(series_id=s1.id, group_name="G1")
+    l = Bangumi(series_id=s2.id, group_name="G2")
     db_session.add_all([w, l])
     await db_session.flush()
     await db_session.commit()

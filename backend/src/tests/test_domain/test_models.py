@@ -1,8 +1,8 @@
-"""Tests for domain models."""
+"""Tests for domain models (post-0008: Bangumi uses series_id, legacy cols dropped)."""
 
 import pytest
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,11 +14,17 @@ from module.domain.models import (
     TorrentState,
     User,
 )
+from module.domain.models.series import Series
 
 
 @pytest.fixture
 def engine():
     engine = create_engine("sqlite:///:memory:")
+    # Enable FK enforcement for SQLite
+    @event.listens_for(engine, "connect")
+    def set_fk(conn, _):
+        conn.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(engine)
     return engine
 
@@ -27,6 +33,18 @@ def engine():
 def session(engine):
     with Session(engine) as session:
         yield session
+
+
+def _make_series(session: Session, suffix: str = "") -> Series:
+    s = Series(
+        canonical_title=f"Test Bangumi{suffix}",
+        normalized_title=f"test_bangumi{suffix}",
+        season=1,
+        root_path=f"/downloads/Test{suffix}",
+    )
+    session.add(s)
+    session.flush()
+    return s
 
 
 class TestBase:
@@ -40,12 +58,8 @@ class TestBase:
 
 class TestTimestampMixin:
     def test_created_at_auto_set(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
         session.refresh(bangumi)
@@ -54,12 +68,8 @@ class TestTimestampMixin:
         assert isinstance(bangumi.created_at, datetime)
 
     def test_updated_at_auto_set(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
         session.refresh(bangumi)
@@ -68,19 +78,15 @@ class TestTimestampMixin:
         assert isinstance(bangumi.updated_at, datetime)
 
     def test_updated_at_changes_on_update(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
         session.refresh(bangumi)
 
         original_updated_at = bangumi.updated_at
 
-        bangumi.official_title = "Updated Title"
+        bangumi.group_name = "UpdatedGroup"
         session.commit()
         session.refresh(bangumi)
 
@@ -89,12 +95,8 @@ class TestTimestampMixin:
 
 class TestVersionMixin:
     def test_version_starts_at_one(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
         session.refresh(bangumi)
@@ -102,25 +104,21 @@ class TestVersionMixin:
         assert bangumi.version == 1
 
     def test_version_increments_on_update(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
         session.refresh(bangumi)
 
         assert bangumi.version == 1
 
-        bangumi.official_title = "Updated Title"
+        bangumi.group_name = "UpdatedGroup"
         session.commit()
         session.refresh(bangumi)
 
         assert bangumi.version == 2
 
-        bangumi.season = 2
+        bangumi.eps_collect = True
         session.commit()
         session.refresh(bangumi)
 
@@ -128,79 +126,39 @@ class TestVersionMixin:
 
 
 class TestBangumi:
-    def test_unique_constraint_official_title_season_group_name(self, session):
-        bangumi1 = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
-        session.add(bangumi1)
+    def test_bangumi_partial_unique_blocks_dup_subgroup(self, session):
+        """Two active bangumi with same series_id + mikan_subgroup_id must be rejected."""
+        s = _make_series(session)
+        b1 = Bangumi(series_id=s.id, group_name="G1", mikan_subgroup_id=7, deleted=False)
+        session.add(b1)
         session.commit()
 
-        bangumi2 = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
-        session.add(bangumi2)
+        b2 = Bangumi(series_id=s.id, group_name="G2", mikan_subgroup_id=7, deleted=False)
+        session.add(b2)
 
         with pytest.raises(IntegrityError):
             session.commit()
 
-    def test_unique_constraint_allows_different_season(self, session):
-        bangumi1 = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
-        session.add(bangumi1)
+    def test_bangumi_partial_unique_allows_deleted_duplicate(self, session):
+        """Deleted rows do NOT occupy the unique slot."""
+        s = _make_series(session)
+        b1 = Bangumi(series_id=s.id, group_name="G1", mikan_subgroup_id=7, deleted=True)
+        session.add(b1)
         session.commit()
 
-        bangumi2 = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=2,
-            group_name="TestGroup",
-        )
-        session.add(bangumi2)
+        b2 = Bangumi(series_id=s.id, group_name="G2", mikan_subgroup_id=7, deleted=False)
+        session.add(b2)
         session.commit()
 
-        assert bangumi1.id != bangumi2.id
-
-    def test_unique_constraint_allows_different_group(self, session):
-        bangumi1 = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup1",
-        )
-        session.add(bangumi1)
-        session.commit()
-
-        bangumi2 = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup2",
-        )
-        session.add(bangumi2)
-        session.commit()
-
-        assert bangumi1.id != bangumi2.id
+        assert b1.id != b2.id
 
     def test_bangumi_defaults(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id)
         session.add(bangumi)
         session.commit()
         session.refresh(bangumi)
 
-        assert bangumi.season == 1
         assert bangumi.group_name == "Unknown"
         assert bangumi.eps_collect is False
         assert bangumi.offset == 0
@@ -209,6 +167,43 @@ class TestBangumi:
         assert bangumi.added is False
         assert bangumi.deleted is False
         assert bangumi.pending_review is False
+        assert bangumi.active is True
+
+    def test_bangumi_property_shims_delegate_to_series(self, session):
+        """@property accessors return series values when series is loaded."""
+        s = Series(
+            canonical_title="Shim Anime",
+            normalized_title="shim_anime",
+            season=2,
+            year=2024,
+            root_path="/downloads/Shim",
+            poster_url="https://example.com/poster.jpg",
+        )
+        session.add(s)
+        session.flush()
+
+        b = Bangumi(series_id=s.id, group_name="G")
+        session.add(b)
+        session.commit()
+
+        # Load with series relationship
+        loaded = session.execute(select(Bangumi).where(Bangumi.id == b.id)).scalar_one()
+        session.refresh(loaded, ["series"])
+
+        assert loaded.official_title == "Shim Anime"
+        assert loaded.season == 2
+        assert loaded.year == 2024
+        assert loaded.poster_link == "https://example.com/poster.jpg"
+        assert loaded.save_path == "/downloads/Shim"
+
+    def test_bangumi_save_path_prefers_path_override(self, session):
+        s = _make_series(session)
+        b = Bangumi(series_id=s.id, group_name="G", path_override="/custom/path")
+        session.add(b)
+        session.commit()
+        session.refresh(b, ["series"])
+
+        assert b.save_path == "/custom/path"
 
 
 class TestTorrent:
@@ -224,12 +219,8 @@ class TestTorrent:
         assert TorrentState.MISSING == "missing"
 
     def test_unique_constraint_hash_bangumi_id_rejects_duplicate(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
 
@@ -254,18 +245,10 @@ class TestTorrent:
             session.commit()
 
     def test_unique_constraint_allows_same_hash_different_bangumi(self, session):
-        bangumi1 = Bangumi(
-            official_title="Test Bangumi 1",
-            title_raw="Test Raw 1",
-            season=1,
-            group_name="TestGroup1",
-        )
-        bangumi2 = Bangumi(
-            official_title="Test Bangumi 2",
-            title_raw="Test Raw 2",
-            season=1,
-            group_name="TestGroup2",
-        )
+        s1 = _make_series(session, "1")
+        s2 = _make_series(session, "2")
+        bangumi1 = Bangumi(series_id=s1.id, group_name="G1", mikan_subgroup_id=1)
+        bangumi2 = Bangumi(series_id=s2.id, group_name="G2", mikan_subgroup_id=2)
         session.add_all([bangumi1, bangumi2])
         session.commit()
 
@@ -288,12 +271,8 @@ class TestTorrent:
         assert torrent1.hash == torrent2.hash
 
     def test_unique_constraint_allows_null_hash_pairs(self, session):
-        bangumi = Bangumi(
-            official_title="Test Bangumi",
-            title_raw="Test Raw",
-            season=1,
-            group_name="TestGroup",
-        )
+        s = _make_series(session)
+        bangumi = Bangumi(series_id=s.id, group_name="TestGroup")
         session.add(bangumi)
         session.commit()
 
@@ -317,9 +296,7 @@ class TestTorrent:
         assert torrent2.hash is None
 
     def test_torrent_defaults(self, session):
-        torrent = Torrent(
-            name="Test Torrent",
-        )
+        torrent = Torrent(name="Test Torrent")
         session.add(torrent)
         session.commit()
         session.refresh(torrent)
