@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.merge_history import BangumiMergeHistory
@@ -77,6 +77,24 @@ class BangumiMergeHistoryRepository:
         ).limit(1)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def list_paginated(
+        self, *, limit: int, offset: int
+    ) -> tuple[list[BangumiMergeHistory], int]:
+        total = (
+            await self.session.execute(
+                select(func.count(BangumiMergeHistory.id))
+            )
+        ).scalar() or 0
+        rows = (
+            await self.session.execute(
+                select(BangumiMergeHistory)
+                .order_by(desc(BangumiMergeHistory.merged_at))
+                .limit(limit)
+                .offset(offset)
+            )
+        ).scalars().all()
+        return list(rows), int(total)
 
     async def list_all(self, active_only: bool = False) -> list[BangumiMergeHistory]:
         stmt = select(BangumiMergeHistory).order_by(BangumiMergeHistory.merged_at.desc())

@@ -17,6 +17,7 @@ caller decides when to commit.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -157,4 +158,65 @@ class BangumiMergeService:
             merge_reason=merge_reason,
             merged_by=merged_by,
         )
+        return history
+
+    async def undo(
+        self,
+        *,
+        history_id: int,
+        undone_by: str,
+    ) -> BangumiMergeHistory:
+        """Reverse a previous merge by restoring the loser bangumi.
+
+        Raises ValueError if the history row is missing or already undone.
+        The caller is responsible for committing the session.
+        """
+        # --- Prepare: load and validate ---
+        history = await self._history_repo.get_by_id(history_id)
+        if history is None:
+            raise ValueError(f"merge history id={history_id} not found")
+        if history.undone_at is not None:
+            raise ValueError("merge already undone")
+
+        loser = await self._bangumi_repo.get_by_id(history.loser_bangumi_id)
+        if loser is None:
+            raise ValueError(f"loser bangumi id={history.loser_bangumi_id} missing")
+
+        # --- Execute: resurrect loser (inactive — user chooses to re-enable) ---
+        loser.deleted = False
+        loser.active = False
+
+        # Move back torrents we had transferred to the winner.
+        moved_ids: list[int] = json.loads(history.moved_torrent_ids or "[]")
+        for tid in moved_ids:
+            t = await self._torrent_repo.get_by_id(tid)
+            if t is not None and t.bangumi_id == history.winner_bangumi_id:
+                t.bangumi_id = history.loser_bangumi_id
+
+        # Recreate torrents that were dropped (hash-conflict duplicates).
+        dropped: list[dict] = json.loads(history.dropped_torrents or "[]")
+        for t_dict in dropped:
+            from module.domain.models.torrent import TorrentState  # local import to avoid cycles
+            new_t = Torrent(
+                bangumi_id=history.loser_bangumi_id,
+                rss_id=t_dict.get("rss_id"),
+                name=t_dict["name"],
+                url=t_dict["url"],
+                hash=t_dict["hash"],
+                homepage=t_dict.get("homepage"),
+                downloaded=t_dict.get("downloaded", False),
+            )
+            state_str = t_dict.get("state")
+            if state_str is not None:
+                try:
+                    new_t.state = TorrentState(state_str)
+                except ValueError:
+                    pass  # unknown state — keep default
+            self.session.add(new_t)
+
+        # Mark history row as undone.
+        history.undone_at = datetime.now(timezone.utc)
+        history.undone_by = undone_by
+
+        await self.session.flush()
         return history
