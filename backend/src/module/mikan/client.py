@@ -59,3 +59,28 @@ class MikanClient:
                 status=response.status_code,
             )
         return response.text, response.status_code
+
+    async def fetch_image(self, url_or_path: str) -> bytes:
+        """Fetch an image by absolute URL or path (relative to base_url).
+
+        Strips any querystring (Mikan appends ``?width=…&height=…`` for the
+        responsive renderer; the underlying file is the same). Raises
+        MikanFetchError on non-2xx / network errors.
+        """
+        assert self._client is not None, "use MikanClient as an async context manager"
+        clean = url_or_path.split("?", 1)[0]
+        if clean.startswith(("http://", "https://")):
+            url = clean
+        else:
+            url = f"{self._base_url}{clean if clean.startswith('/') else '/' + clean}"
+        try:
+            response = await self._client.get(url)
+        except httpx.HTTPError as exc:
+            raise MikanFetchError(str(exc), status=None) from exc
+
+        if response.status_code >= 400:
+            raise MikanFetchError(
+                f"HTTP {response.status_code} from {url}",
+                status=response.status_code,
+            )
+        return response.content

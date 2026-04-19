@@ -16,12 +16,16 @@ Flow per resolve(info_hash):
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from module.concurrency.rate_limiter import RateLimiter
 from module.mikan.client import MikanClient, MikanFetchError
 from module.mikan.parser import MikanRef, parse_mikan_page
 from module.repositories.mikan_ref import MikanEpisodeRefRepository
+from module.utils import save_image
+
+logger = logging.getLogger(__name__)
 
 
 class MikanResolver:
@@ -73,6 +77,19 @@ class MikanResolver:
             )
             return None
 
+        # The episode page poster_url is a Mikan-relative path
+        # (e.g. /images/Bangumi/202604/ad005695.jpg?width=400…). Cache it
+        # locally so the WebUI can render it directly without a separate
+        # backend proxy and without re-hitting Mikan on every page load.
+        cached_poster = await self._cache_poster(ref.poster_url)
+        if cached_poster is not None:
+            ref = MikanRef(
+                mikan_bangumi_id=ref.mikan_bangumi_id,
+                mikan_subgroup_id=ref.mikan_subgroup_id,
+                canonical_title=ref.canonical_title,
+                poster_url=cached_poster,
+            )
+
         await self._repo.upsert(
             info_hash=info_hash,
             parse_status="ok",
@@ -82,3 +99,25 @@ class MikanResolver:
             poster_url=ref.poster_url,
         )
         return ref
+
+    async def _cache_poster(self, poster_url: Optional[str]) -> Optional[str]:
+        """Download a poster and persist it locally; return the cached path
+        (e.g. ``posters/abc12345.jpg``) or ``None`` if no fetch is possible.
+
+        On any download/IO error the original raw URL is preserved (caller
+        keeps ``ref.poster_url`` as-is).
+        """
+        if not poster_url:
+            return None
+        try:
+            img = await self._client.fetch_image(poster_url)
+        except MikanFetchError as exc:
+            logger.warning("[MikanResolver] poster fetch failed: %s", exc)
+            return None
+        clean = poster_url.split("?", 1)[0]
+        suffix = clean.rsplit(".", 1)[-1] if "." in clean else "jpg"
+        try:
+            return save_image(img, suffix)
+        except OSError as exc:
+            logger.warning("[MikanResolver] poster save failed: %s", exc)
+            return None
