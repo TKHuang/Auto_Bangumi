@@ -166,23 +166,45 @@ function handleActionSelect(key: string | number, rss: RSS) {
   }
 }
 
+interface DeleteDialogState {
+  show: boolean;
+  mode: 'single' | 'batch';
+  target: RSS | null;
+}
+
+const deleteDialog = reactive<DeleteDialogState>({
+  show: false,
+  mode: 'single',
+  target: null,
+});
+
 function handleDeleteRSS(rss: RSS) {
-  dialog.warning({
-    title: t('rss.confirm'),
-    content: t('rss.delete_confirm', { name: rss.name }),
-    positiveText: t('rss.confirm'),
-    negativeText: t('rss.cancel'),
-    onPositiveClick: async () => {
-      try {
-        await apiRSS.delete(rss.id);
-        message.success(t('rss.delete_success'));
-        await getAll();
-        fetchPendingCounts();
-      } catch (e) {
-        message.error(t('rss.delete_failed'));
-      }
-    },
-  });
+  deleteDialog.mode = 'single';
+  deleteDialog.target = rss;
+  deleteDialog.show = true;
+}
+
+function handleBatchDelete() {
+  if (selectedRSS.value.length === 0) return;
+  deleteDialog.mode = 'batch';
+  deleteDialog.target = null;
+  deleteDialog.show = true;
+}
+
+async function executeDelete(deleteFile: boolean) {
+  deleteDialog.show = false;
+  if (deleteDialog.mode === 'single' && deleteDialog.target) {
+    try {
+      await apiRSS.delete(deleteDialog.target.id, deleteFile);
+      message.success(t('rss.delete_success'));
+      await getAll();
+      fetchPendingCounts();
+    } catch (e) {
+      message.error(t('rss.delete_failed'));
+    }
+  } else {
+    deleteSelected(deleteFile);
+  }
 }
 
 onActivated(async () => {
@@ -347,7 +369,7 @@ const RSSTableOptions = computed(() => {
           <ab-button @click="disableSelected">{{
             $t('rss.disable')
           }}</ab-button>
-          <ab-button class="type-warn" @click="deleteSelected">{{
+          <ab-button class="type-warn" @click="handleBatchDelete">{{
             $t('rss.delete')
           }}</ab-button>
         </div>
@@ -375,5 +397,25 @@ const RSSTableOptions = computed(() => {
       @select="handleContextMenuSelect"
       @clickoutside="handleClickOutside"
     />
+
+    <ab-popup
+      v-model:show="deleteDialog.show"
+      :title="
+        deleteDialog.mode === 'single' && deleteDialog.target
+          ? $t('rss.delete_confirm', { name: deleteDialog.target.name })
+          : $t('rss.delete_many_confirm', { count: selectedRSS.length })
+      "
+    >
+      <div>{{ $t('rss.delete_files_confirm') }}</div>
+      <div line my-8></div>
+      <div f-cer gap-x-10>
+        <ab-button size="small" type="warn" @click="executeDelete(true)">
+          {{ $t('rss.delete_with_files') }}
+        </ab-button>
+        <ab-button size="small" @click="executeDelete(false)">
+          {{ $t('rss.delete_keep_files') }}
+        </ab-button>
+      </div>
+    </ab-popup>
   </div>
 </template>

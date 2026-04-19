@@ -42,17 +42,19 @@ export const apiRSS = {
     return data;
   },
 
-  async delete(rss_id: number) {
+  async delete(rss_id: number, file: boolean = false) {
     const { data } = await axios.delete<ApiSuccess>(
-      `api/v1/rss/delete/${rss_id}`
+      `api/v1/rss/delete/${rss_id}`,
+      { params: { file } }
     );
     return data!;
   },
 
-  async deleteMany(rss_list: number[]) {
+  async deleteMany(rss_list: number[], file: boolean = false) {
     const { data } = await axios.post<ApiSuccess>(
       `api/v1/rss/delete/many`,
-      rss_list
+      rss_list,
+      { params: { file } }
     );
     return data!;
   },

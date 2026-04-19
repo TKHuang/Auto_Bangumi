@@ -32,7 +32,7 @@ export const useRSSStore = defineStore('rss', () => {
   const { execute: refreshRSS } = useApi(apiRSS.refresh, opts);
 
   const disableSelected = () => disableRSS(selectedRSS.value);
-  const deleteSelected = () => deleteRSS(selectedRSS.value);
+  const deleteSelected = (file: boolean = false) => deleteRSS(selectedRSS.value, file);
   const enableSelected = () => enableRSS(selectedRSS.value);
 
   return {
