@@ -259,3 +259,49 @@ class TestPatchSeries:
 
         assert resp.status_code == 200
         assert resp.json()["canonical_title"] == "New Title"
+
+    @pytest.mark.asyncio
+    async def test_patch_canonical_title_recomputes_normalized_title(self, client):
+        """Editing canonical_title must refresh normalized_title so the
+        fallback identity key (used by non-Mikan resolution) stays in sync."""
+        mock = _mock_series(
+            id=9,
+            canonical_title="旧 Old Title",
+            normalized_title="stale value",
+        )
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls:
+            repo = AsyncMock()
+            mock_cls.return_value = repo
+            repo.get_by_id.return_value = mock
+
+            resp = client.patch(
+                "/api/v1/series/9",
+                json={"canonical_title": "新作標題 New Title"},
+            )
+
+        assert resp.status_code == 200
+        # normalize_title is deterministic; assert the mock attr was
+        # overwritten to something different from the stale seed.
+        assert mock.normalized_title != "stale value"
+        assert mock.normalized_title  # non-empty
+
+    @pytest.mark.asyncio
+    async def test_patch_root_path_does_not_touch_normalized_title(self, client):
+        """root_path edits must NOT trigger normalized_title recompute."""
+        mock = _mock_series(
+            id=10,
+            canonical_title="Unchanged",
+            normalized_title="unchanged-normalized",
+            root_path="/old",
+        )
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls:
+            repo = AsyncMock()
+            mock_cls.return_value = repo
+            repo.get_by_id.return_value = mock
+
+            resp = client.patch(
+                "/api/v1/series/10", json={"root_path": "/new"}
+            )
+
+        assert resp.status_code == 200
+        assert mock.normalized_title == "unchanged-normalized"

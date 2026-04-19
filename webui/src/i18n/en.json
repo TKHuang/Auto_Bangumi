@@ -249,7 +249,14 @@
       "offset": "Episode Offset",
       "season": "Season",
       "year": "Year"
-    }
+    },
+    "save": "Save",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "confirm_root_title": "Confirm root-path change",
+    "confirm_root_body": "Changing the root path moves ALL downloaded files to the new folder on next rename cycle. External libraries (Jellyfin etc.) pointing at the old path will break until re-scanned. Continue?",
+    "confirm": "Confirm",
+    "save_failed": "Save failed"
   },
   "pending": {
     "loading": "Loading…",

@@ -249,7 +249,14 @@
       "offset": "集數偏移",
       "season": "季數",
       "year": "年份"
-    }
+    },
+    "save": "儲存",
+    "cancel": "取消",
+    "saving": "儲存中…",
+    "confirm_root_title": "確認變更根路徑",
+    "confirm_root_body": "變更根路徑將在下一次 rename 排程把所有已下載檔案搬到新資料夾。指向舊路徑的外部媒體庫（Jellyfin 等）在重新掃描前會失效。要繼續嗎？",
+    "confirm": "確認",
+    "save_failed": "儲存失敗"
   },
   "pending": {
     "loading": "載入中…",

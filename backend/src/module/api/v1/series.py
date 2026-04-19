@@ -79,8 +79,18 @@ async def patch_series(
     s = await repo.get_by_id(series_id)
     if s is None:
         raise HTTPException(status_code=404, detail="series not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
         setattr(s, field, value)
+    # When canonical_title changes, recompute normalized_title so the
+    # fallback identity key (used by non-Mikan resolution in
+    # SeriesRepository.get_by_fallback) stays consistent with the new
+    # display title. Skip if the caller supplied normalized_title directly
+    # (reserved for migrations / admin scripts; not exposed via schema).
+    if "canonical_title" in updates:
+        from module.domain.text.normalize import normalize_title
+        normalized, _cour = normalize_title(updates["canonical_title"])
+        s.normalized_title = normalized
     await session.commit()
     await session.refresh(s)
     return SeriesOut.model_validate(s)

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { SeriesItem } from '@/api/series';
+import type { SeriesItem, SeriesPatch } from '@/api/series';
 
 definePage({ name: 'Series' });
 
@@ -18,10 +18,35 @@ const selectedId = computed(() => {
 const detail = ref<SeriesItem | null>(null);
 const detailLoading = ref(false);
 
+// Editable form — decoupled from `detail` so typo+blur doesn't mutate
+// anything until the user explicitly clicks Save.
+interface FormState {
+  canonical_title: string;
+  root_path: string;
+  default_filter: string;
+  default_offset: number;
+}
+
+const form = ref<FormState | null>(null);
+const saving = ref(false);
+const saveError = ref<string | null>(null);
+const showRootConfirm = ref(false);
+
+function snapshotForm(src: SeriesItem): FormState {
+  return {
+    canonical_title: src.canonical_title,
+    root_path: src.root_path,
+    default_filter: src.default_filter ?? '',
+    default_offset: src.default_offset ?? 0,
+  };
+}
+
 async function loadDetail(id: number) {
   detailLoading.value = true;
+  saveError.value = null;
   try {
     detail.value = await apiSeries.get(id);
+    form.value = snapshotForm(detail.value);
   } finally {
     detailLoading.value = false;
   }
@@ -33,19 +58,77 @@ function openDetail(id: number) {
 
 function closeDetail() {
   detail.value = null;
+  form.value = null;
+  saveError.value = null;
   router.push({ path: '/series' });
 }
 
-async function patchField(key: keyof import('@/api/series').SeriesPatch, value: string) {
-  if (!detail.value) return;
-  const patch: import('@/api/series').SeriesPatch = {};
-  if (key === 'default_offset') {
-    patch[key] = Number(value);
-  } else {
-    (patch as Record<string, string>)[key] = value;
+const isDirty = computed(() => {
+  if (!detail.value || !form.value) return false;
+  return (
+    form.value.canonical_title !== detail.value.canonical_title ||
+    form.value.root_path !== detail.value.root_path ||
+    form.value.default_filter !== (detail.value.default_filter ?? '') ||
+    form.value.default_offset !== (detail.value.default_offset ?? 0)
+  );
+});
+
+const rootChanged = computed(() => {
+  if (!detail.value || !form.value) return false;
+  return form.value.root_path !== detail.value.root_path;
+});
+
+function buildPatch(): SeriesPatch {
+  if (!detail.value || !form.value) return {};
+  const patch: SeriesPatch = {};
+  if (form.value.canonical_title !== detail.value.canonical_title) {
+    patch.canonical_title = form.value.canonical_title;
   }
-  detail.value = await apiSeries.patch(detail.value.id, patch);
-  seriesStore.updateSeries(detail.value.id, patch);
+  if (form.value.root_path !== detail.value.root_path) {
+    patch.root_path = form.value.root_path;
+  }
+  if (form.value.default_filter !== (detail.value.default_filter ?? '')) {
+    patch.default_filter = form.value.default_filter;
+  }
+  if (form.value.default_offset !== (detail.value.default_offset ?? 0)) {
+    patch.default_offset = form.value.default_offset;
+  }
+  return patch;
+}
+
+function cancelEdit() {
+  if (!detail.value) return;
+  form.value = snapshotForm(detail.value);
+  saveError.value = null;
+}
+
+async function commitSave() {
+  if (!detail.value || !form.value) return;
+  const patch = buildPatch();
+  if (Object.keys(patch).length === 0) return;
+
+  saving.value = true;
+  saveError.value = null;
+  try {
+    const updated = await apiSeries.patch(detail.value.id, patch);
+    detail.value = updated;
+    form.value = snapshotForm(updated);
+    seriesStore.updateSeries(updated.id, patch);
+  } catch (err: unknown) {
+    saveError.value = err instanceof Error ? err.message : t('series.save_failed');
+  } finally {
+    saving.value = false;
+    showRootConfirm.value = false;
+  }
+}
+
+async function onSaveClick() {
+  if (!isDirty.value) return;
+  if (rootChanged.value) {
+    showRootConfirm.value = true;
+    return;
+  }
+  await commitSave();
 }
 
 watch(
@@ -55,6 +138,7 @@ watch(
       loadDetail(id);
     } else {
       detail.value = null;
+      form.value = null;
     }
   },
   { immediate: true }
@@ -116,38 +200,44 @@ onMounted(() => seriesStore.refresh());
 
       <div v-if="detailLoading" class="loading">{{ t('series.loading') }}</div>
 
-      <template v-else-if="detail">
+      <template v-else-if="detail && form">
         <div class="field-group">
           <label>{{ t('series.field.title') }}</label>
-          <input
-            :value="detail.canonical_title"
-            @change="patchField('canonical_title', ($event.target as HTMLInputElement).value)"
-          />
+          <input v-model="form.canonical_title" />
         </div>
 
         <div class="field-group">
           <label>{{ t('series.field.root') }}</label>
-          <input
-            :value="detail.root_path"
-            @change="patchField('root_path', ($event.target as HTMLInputElement).value)"
-          />
+          <input v-model="form.root_path" />
         </div>
 
         <div class="field-group">
           <label>{{ t('series.field.filter') }}</label>
-          <input
-            :value="detail.default_filter ?? ''"
-            @change="patchField('default_filter', ($event.target as HTMLInputElement).value)"
-          />
+          <input v-model="form.default_filter" />
         </div>
 
         <div class="field-group">
           <label>{{ t('series.field.offset') }}</label>
-          <input
-            type="number"
-            :value="detail.default_offset ?? 0"
-            @change="patchField('default_offset', ($event.target as HTMLInputElement).value)"
-          />
+          <input v-model.number="form.default_offset" type="number" />
+        </div>
+
+        <div v-if="saveError" class="save-error">{{ saveError }}</div>
+
+        <div class="form-footer">
+          <button
+            class="btn-secondary"
+            :disabled="!isDirty || saving"
+            @click="cancelEdit"
+          >
+            {{ t('series.cancel') }}
+          </button>
+          <button
+            class="btn-primary"
+            :disabled="!isDirty || saving"
+            @click="onSaveClick"
+          >
+            {{ saving ? t('series.saving') : t('series.save') }}
+          </button>
         </div>
 
         <div class="meta">
@@ -156,6 +246,22 @@ onMounted(() => seriesStore.refresh());
           <img v-if="detail.poster_url" :src="detail.poster_url" class="poster" />
         </div>
       </template>
+    </div>
+
+    <!-- Root-path change confirmation -->
+    <div v-if="showRootConfirm" class="modal-backdrop" @click.self="showRootConfirm = false">
+      <div class="modal">
+        <h4>{{ t('series.confirm_root_title') }}</h4>
+        <p>{{ t('series.confirm_root_body') }}</p>
+        <div class="modal-footer">
+          <button class="btn-secondary" :disabled="saving" @click="showRootConfirm = false">
+            {{ t('series.cancel') }}
+          </button>
+          <button class="btn-danger" :disabled="saving" @click="commitSave">
+            {{ saving ? t('series.saving') : t('series.confirm') }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -319,5 +425,102 @@ onMounted(() => seriesStore.refresh());
   max-width: 160px;
   border-radius: 4px;
   margin-top: 10px;
+}
+
+.form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.save-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fed7d7;
+  color: #822727;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 120ms, border-color 120ms;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-primary {
+  background: #4299e1;
+  color: white;
+
+  &:not(:disabled):hover {
+    background: #3182ce;
+  }
+}
+
+.btn-secondary {
+  background: #f7fafc;
+  color: #2d3748;
+  border-color: #cbd5e0;
+
+  &:not(:disabled):hover {
+    background: #edf2f7;
+  }
+}
+
+.btn-danger {
+  background: #e53e3e;
+  color: white;
+
+  &:not(:disabled):hover {
+    background: #c53030;
+  }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  border-radius: 6px;
+  padding: 24px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+
+  h4 {
+    margin: 0 0 12px;
+    font-size: 16px;
+  }
+
+  p {
+    margin: 0 0 20px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #4a5568;
+  }
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>
