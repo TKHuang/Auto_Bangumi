@@ -192,17 +192,20 @@ class TestPatchSeries:
     """Tests for PATCH /api/v1/series/{series_id}"""
 
     @pytest.mark.asyncio
-    async def test_patch_updates_root_path(self, client):
-        mock = _mock_series(id=5, root_path="/new/path")
+    async def test_patch_root_path_is_ignored(self, client):
+        """root_path was removed from SeriesPatch — it is derived from
+        canonical_title server-side. A direct edit must be silently
+        dropped (Pydantic ignores unknown extras)."""
+        mock = _mock_series(id=5, root_path="/old")
         with patch("module.api.v1.series.SeriesRepository") as mock_cls:
             repo = AsyncMock()
             mock_cls.return_value = repo
             repo.get_by_id.return_value = mock
 
-            resp = client.patch("/api/v1/series/5", json={"root_path": "/new/path"})
+            resp = client.patch("/api/v1/series/5", json={"root_path": "/hijack"})
 
         assert resp.status_code == 200
-        assert resp.json()["root_path"] == "/new/path"
+        assert mock.root_path == "/old"
 
     @pytest.mark.asyncio
     async def test_patch_404(self, client):
@@ -211,7 +214,9 @@ class TestPatchSeries:
             mock_cls.return_value = repo
             repo.get_by_id.return_value = None
 
-            resp = client.patch("/api/v1/series/999999", json={"root_path": "/x"})
+            resp = client.patch(
+                "/api/v1/series/999999", json={"canonical_title": "x"}
+            )
 
         assert resp.status_code == 404
 
@@ -233,17 +238,23 @@ class TestPatchSeries:
     @pytest.mark.asyncio
     async def test_patch_partial_update_only_sets_provided_fields(self, client):
         """Only provided fields are written; unset fields remain unchanged."""
-        mock = _mock_series(id=7, canonical_title="Keep Me", root_path="/old")
+        mock = _mock_series(
+            id=7, canonical_title="Keep Me", default_filter="orig"
+        )
         with patch("module.api.v1.series.SeriesRepository") as mock_cls:
             repo = AsyncMock()
             mock_cls.return_value = repo
             repo.get_by_id.return_value = mock
 
-            resp = client.patch("/api/v1/series/7", json={"root_path": "/changed"})
+            resp = client.patch(
+                "/api/v1/series/7", json={"default_offset": 3}
+            )
 
         assert resp.status_code == 200
-        # canonical_title was not in the patch body, mock still has original value
+        # canonical_title and default_filter were not in the patch body,
+        # mock still has original values
         assert resp.json()["canonical_title"] == "Keep Me"
+        assert resp.json()["default_filter"] == "orig"
 
     @pytest.mark.asyncio
     async def test_patch_canonical_title(self, client):
@@ -286,13 +297,13 @@ class TestPatchSeries:
         assert mock.normalized_title  # non-empty
 
     @pytest.mark.asyncio
-    async def test_patch_root_path_does_not_touch_normalized_title(self, client):
-        """root_path edits must NOT trigger normalized_title recompute."""
+    async def test_patch_filter_does_not_touch_normalized_title(self, client):
+        """Edits to fields other than canonical_title must NOT trigger
+        normalized_title recompute."""
         mock = _mock_series(
             id=10,
             canonical_title="Unchanged",
             normalized_title="unchanged-normalized",
-            root_path="/old",
         )
         with patch("module.api.v1.series.SeriesRepository") as mock_cls:
             repo = AsyncMock()
@@ -300,8 +311,36 @@ class TestPatchSeries:
             repo.get_by_id.return_value = mock
 
             resp = client.patch(
-                "/api/v1/series/10", json={"root_path": "/new"}
+                "/api/v1/series/10", json={"default_filter": "1080p"}
             )
 
         assert resp.status_code == 200
         assert mock.normalized_title == "unchanged-normalized"
+
+    @pytest.mark.asyncio
+    async def test_patch_canonical_title_recomputes_root_path(self, client):
+        """Editing canonical_title must derive a new root_path so the
+        download folder follows the title. Users cannot edit root_path
+        independently — it is always derived."""
+        mock = _mock_series(
+            id=11,
+            canonical_title="Old Title",
+            root_path="/downloads/Old Title",
+        )
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls, \
+             patch(
+                "module.services.identity_resolver._derive_root_path",
+                return_value="/downloads/Brand New",
+            ) as mock_derive:
+            repo = AsyncMock()
+            mock_cls.return_value = repo
+            repo.get_by_id.return_value = mock
+
+            resp = client.patch(
+                "/api/v1/series/11",
+                json={"canonical_title": "Brand New"},
+            )
+
+        assert resp.status_code == 200
+        mock_derive.assert_called_once_with("Brand New")
+        assert mock.root_path == "/downloads/Brand New"

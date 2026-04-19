@@ -19,7 +19,6 @@ export interface SeriesList {
 
 export interface SeriesPatch {
   canonical_title?: string;
-  root_path?: string;
   default_filter?: string;
   default_offset?: number;
   poster_url?: string;

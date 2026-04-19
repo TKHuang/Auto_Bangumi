@@ -37,7 +37,6 @@ class SeriesListOut(BaseModel):
 
 class SeriesPatch(BaseModel):
     canonical_title: Optional[str] = None
-    root_path: Optional[str] = None
     default_filter: Optional[str] = None
     default_offset: Optional[int] = None
     poster_url: Optional[str] = None
@@ -89,8 +88,12 @@ async def patch_series(
     # (reserved for migrations / admin scripts; not exposed via schema).
     if "canonical_title" in updates:
         from module.domain.text.normalize import normalize_title
+        from module.services.identity_resolver import _derive_root_path
         normalized, _cour = normalize_title(updates["canonical_title"])
         s.normalized_title = normalized
+        # Root path is derived from canonical_title — never edited
+        # independently. Editing the title relocates downloads.
+        s.root_path = _derive_root_path(updates["canonical_title"])
     await session.commit()
     await session.refresh(s)
     return SeriesOut.model_validate(s)

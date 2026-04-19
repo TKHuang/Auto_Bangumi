@@ -22,7 +22,6 @@ const detailLoading = ref(false);
 // anything until the user explicitly clicks Save.
 interface FormState {
   canonical_title: string;
-  root_path: string;
   default_filter: string;
   default_offset: number;
 }
@@ -35,7 +34,6 @@ const showRootConfirm = ref(false);
 function snapshotForm(src: SeriesItem): FormState {
   return {
     canonical_title: src.canonical_title,
-    root_path: src.root_path,
     default_filter: src.default_filter ?? '',
     default_offset: src.default_offset ?? 0,
   };
@@ -67,15 +65,16 @@ const isDirty = computed(() => {
   if (!detail.value || !form.value) return false;
   return (
     form.value.canonical_title !== detail.value.canonical_title ||
-    form.value.root_path !== detail.value.root_path ||
     form.value.default_filter !== (detail.value.default_filter ?? '') ||
     form.value.default_offset !== (detail.value.default_offset ?? 0)
   );
 });
 
+// Canonical title drives root_path (server derives it). Warn the user
+// because changing the title relocates the download folder.
 const rootChanged = computed(() => {
   if (!detail.value || !form.value) return false;
-  return form.value.root_path !== detail.value.root_path;
+  return form.value.canonical_title !== detail.value.canonical_title;
 });
 
 function buildPatch(): SeriesPatch {
@@ -83,9 +82,6 @@ function buildPatch(): SeriesPatch {
   const patch: SeriesPatch = {};
   if (form.value.canonical_title !== detail.value.canonical_title) {
     patch.canonical_title = form.value.canonical_title;
-  }
-  if (form.value.root_path !== detail.value.root_path) {
-    patch.root_path = form.value.root_path;
   }
   if (form.value.default_filter !== (detail.value.default_filter ?? '')) {
     patch.default_filter = form.value.default_filter;
@@ -208,7 +204,7 @@ onMounted(() => seriesStore.refresh());
 
         <div class="field-group">
           <label>{{ t('series.field.root') }}</label>
-          <input v-model="form.root_path" />
+          <input :value="detail.root_path" disabled class="readonly" />
         </div>
 
         <div class="field-group">
@@ -408,6 +404,15 @@ onMounted(() => seriesStore.refresh());
     &:focus {
       outline: none;
       border-color: #4299e1;
+    }
+
+    &.readonly,
+    &:disabled {
+      background: #f7fafc;
+      color: #718096;
+      cursor: not-allowed;
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
     }
   }
 }

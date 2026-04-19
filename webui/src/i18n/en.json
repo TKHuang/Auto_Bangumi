@@ -257,8 +257,8 @@
     "save": "Save",
     "cancel": "Cancel",
     "saving": "Saving…",
-    "confirm_root_title": "Confirm root-path change",
-    "confirm_root_body": "Changing the root path moves ALL downloaded files to the new folder on next rename cycle. External libraries (Jellyfin etc.) pointing at the old path will break until re-scanned. Continue?",
+    "confirm_root_title": "Confirm title change",
+    "confirm_root_body": "Renaming the canonical title also moves the download folder. ALL downloaded files will be relocated on the next rename cycle, and external libraries (Jellyfin etc.) pointing at the old folder will break until re-scanned. Continue?",
     "confirm": "Confirm",
     "save_failed": "Save failed"
   },
