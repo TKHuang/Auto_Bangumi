@@ -47,12 +47,18 @@ axios.interceptors.response.use(
         // Don't show generic error message - let the caller handle it
         return Promise.reject(err.response?.data);
       case 500:
-        // Don't logout on server errors - they don't invalidate the session
+      case 502:
+      case 503:
+      case 504:
+        // Don't logout on server errors — they don't invalidate the session.
+        // Prefer the structured msg_en / msg_zh the API may surface (e.g. for
+        // downloader-unreachable cases) over the generic fallback.
         message.error(
-          returnUserLangText({
-            en: 'Server error!',
-            'zh-CN': '服务器错误！',
-          })
+          errorMsg ||
+            returnUserLangText({
+              en: 'Server error!',
+              'zh-CN': '服务器错误！',
+            })
         );
         break;
     }

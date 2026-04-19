@@ -109,8 +109,32 @@ async function getTorrents() {
   try {
     const res = await apiBangumi.getTorrentStatus(props.bangumiId);
     torrents.value = res;
-  } catch (e) {
-    message.error(t('notify.update_failed'));
+    // Backend returns DB-only rows when the downloader is unreachable.
+    // Surface that explicitly so the user knows progress info is stale,
+    // not "the page broke".
+    const unreachable = res.find(
+      (row: any) => row?.status === 'downloader_unreachable'
+    );
+    if (unreachable) {
+      const detail = unreachable.downloader_error || '';
+      message.warning(
+        returnUserLangText({
+          en: detail
+            ? `Downloader unreachable: ${detail}`
+            : 'Downloader unreachable; showing database state only.',
+          'zh-CN': detail
+            ? `下载器无法连线：${detail}`
+            : '下载器无法连线，仅显示数据库内容。',
+        })
+      );
+    }
+  } catch (e: any) {
+    // The axios interceptor already toasts the structured msg_en/msg_zh
+    // for 4xx/5xx; only surface a generic fallback when the error has no
+    // detail at all (e.g. transport-level failure).
+    if (!e?.msg_en && !e?.msg_zh) {
+      message.error(t('notify.update_failed'));
+    }
   } finally {
     loading.value = false;
   }

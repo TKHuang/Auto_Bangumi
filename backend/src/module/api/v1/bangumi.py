@@ -486,9 +486,22 @@ async def get_torrent_status(bangumi_id: int, session: AsyncSession = Depends(ge
         for t in db_torrents
         if t.hash and t.pikpak_cloud_path
     }
-    online_torrents = await downloader.torrents_info(
-        status_filter="all", cloud_paths=cloud_paths,
-    )
+    # Downloader queries can fail (auth issues, rate-limit cooldown, network).
+    # Surface DB-only state with a clear "downloader_unreachable" marker rather
+    # than 500-ing — the user still wants to see what's been collected and the
+    # error message can guide them to fix their downloader config.
+    online_torrents = []
+    downloader_error: str | None = None
+    try:
+        online_torrents = await downloader.torrents_info(
+            status_filter="all", cloud_paths=cloud_paths,
+        )
+    except Exception as exc:
+        downloader_error = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "[bangumi] torrent status fetch failed for bangumi=%d: %s",
+            bangumi_id, downloader_error,
+        )
 
     status_list = []
     for db_t in db_torrents:
@@ -503,6 +516,15 @@ async def get_torrent_status(bangumi_id: int, session: AsyncSession = Depends(ge
                 "id": db_t.id, "name": db_t.name, "url": db_t.url,
                 "downloaded": db_t.downloaded, "status": matched_online.state,
                 "progress": matched_online.progress, "hash": matched_online.hash,
+            })
+        elif downloader_error is not None:
+            status_list.append({
+                "id": db_t.id, "name": db_t.name, "url": db_t.url,
+                "downloaded": db_t.downloaded,
+                "status": "downloader_unreachable",
+                "progress": 0,
+                "hash": db_t.hash,
+                "downloader_error": downloader_error,
             })
         else:
             status = "archived" if db_t.renamed_at else "missing"
