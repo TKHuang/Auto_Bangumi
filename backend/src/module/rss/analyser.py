@@ -3,7 +3,7 @@ import re
 
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
-from module.domain.value_objects import ResponseModel
+from module.domain.value_objects import BangumiParsingError, ResponseModel
 from module.models import Bangumi, RSSItem, Torrent
 from module.network import RequestContent
 from module.domain.parser.title_parser import TitleParser
@@ -116,7 +116,20 @@ class RSSAnalyser(TitleParser):
     ) -> list:
         new_data = []
         for torrent in torrents:
-            bangumi = self.raw_parser(raw=torrent.name)
+            try:
+                bangumi = self.raw_parser(raw=torrent.name)
+            except BangumiParsingError as exc:
+                # Aggregate feeds mix many group conventions; one unparseable
+                # name (e.g. ★-delimited variants) must not abort the rest.
+                # raw_parser still re-raises for single-torrent callers
+                # (link_to_data) so non-aggregate flows keep their partial-data
+                # error surface.
+                logger.debug(
+                    "[RSS] Skipping unparseable torrent in aggregate feed: %s "
+                    "(reason: %s)",
+                    torrent.name, exc.msg_en,
+                )
+                continue
             _b_title_raw = bangumi.title_raw if bangumi else None
             if bangumi and _b_title_raw not in [i.title_raw for i in new_data]:
                 self.official_title_parser(bangumi=bangumi, rss=rss, torrent=torrent)
