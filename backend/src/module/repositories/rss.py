@@ -96,39 +96,75 @@ class RSSRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def cascade_delete(self, id: int) -> bool:
+    async def _collect_cascade_bangumi_ids(self, rss: RSSItem) -> list[int]:
+        """Resolve bangumi IDs reachable via this RSS, direct and by URL fallback."""
         from module.domain.models.bangumi import Bangumi
-        from module.domain.models.torrent import Torrent
-        
-        rss = await self.get_by_id(id)
-        if not rss:
-            return False
-        
-        await self.session.execute(
-            delete(Torrent).where(Torrent.rss_id == id)
-        )
-        
-        stmt = select(Bangumi).where(Bangumi.rss_id == id)
-        result = await self.session.execute(stmt)
-        bangumi_list = list(result.scalars().all())
-        
-        fallback_stmt = select(Bangumi).where(
+
+        direct = select(Bangumi.id).where(Bangumi.rss_id == rss.id)
+        fallback = select(Bangumi.id).where(
             and_(
                 Bangumi.rss_id.is_(None),
                 func.instr(Bangumi.rss_link, rss.url) > 0,
             )
         )
-        fallback_result = await self.session.execute(fallback_stmt)
-        bangumi_list.extend(fallback_result.scalars().all())
-        
-        for bangumi in bangumi_list:
+        ids: list[int] = []
+        for stmt in (direct, fallback):
+            result = await self.session.execute(stmt)
+            ids.extend(result.scalars().all())
+        return ids
+
+    async def collect_cascade_hashes(self, id: int) -> list[str]:
+        """Collect torrent hashes reachable from this RSS for file deletion.
+
+        Includes torrents linked directly by ``rss_id`` and indirectly via
+        descendant bangumi rows (both direct and rss_link fallback). Excluded
+        sentinel rows (empty hash) are filtered out.
+        """
+        from module.domain.models.torrent import Torrent
+
+        rss = await self.get_by_id(id)
+        if not rss:
+            return []
+
+        bangumi_ids = await self._collect_cascade_bangumi_ids(rss)
+
+        hash_stmt = select(Torrent.hash).where(
+            and_(
+                Torrent.hash.is_not(None),
+                Torrent.hash != "",
+                (Torrent.rss_id == id) | (Torrent.bangumi_id.in_(bangumi_ids)),
+            )
+        )
+        result = await self.session.execute(hash_stmt)
+        seen: set[str] = set()
+        hashes: list[str] = []
+        for raw in result.scalars():
+            if raw and raw not in seen:
+                seen.add(raw)
+                hashes.append(raw)
+        return hashes
+
+    async def cascade_delete(self, id: int) -> bool:
+        from module.domain.models.bangumi import Bangumi
+        from module.domain.models.torrent import Torrent
+
+        rss = await self.get_by_id(id)
+        if not rss:
+            return False
+
+        await self.session.execute(
+            delete(Torrent).where(Torrent.rss_id == id)
+        )
+
+        bangumi_ids = await self._collect_cascade_bangumi_ids(rss)
+        for bangumi_id in bangumi_ids:
             await self.session.execute(
-                delete(Torrent).where(Torrent.bangumi_id == bangumi.id)
+                delete(Torrent).where(Torrent.bangumi_id == bangumi_id)
             )
             await self.session.execute(
-                delete(Bangumi).where(Bangumi.id == bangumi.id)
+                delete(Bangumi).where(Bangumi.id == bangumi_id)
             )
-        
+
         await self.session.execute(
             delete(RSSItem).where(RSSItem.id == id)
         )

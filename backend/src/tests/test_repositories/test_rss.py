@@ -308,11 +308,72 @@ class TestRSSRepository:
 
     async def test_cascade_delete_returns_false_when_rss_not_found(self, async_session):
         repo = RSSRepository(async_session)
-        
+
         async with async_session.begin():
             result = await repo.cascade_delete(99999)
-        
+
         assert result is False
+
+    async def test_collect_cascade_hashes_includes_direct_and_bangumi_children(
+        self, async_session
+    ):
+        from module.domain.models.bangumi import Bangumi
+        from module.domain.models.series import Series
+        from module.domain.models.torrent import Torrent
+
+        repo = RSSRepository(async_session)
+
+        async with async_session.begin():
+            rss = await repo.create({
+                "name": "Feed",
+                "url": "https://example.com/feed",
+            })
+            series = Series(
+                canonical_title="S",
+                normalized_title="s",
+                season=1,
+                root_path="/downloads/S",
+            )
+            async_session.add(series)
+            await async_session.flush()
+
+            linked = Bangumi(
+                series_id=series.id,
+                group_name="G",
+                rss_id=rss.id,
+                rss_link=rss.url,
+            )
+            fallback = Bangumi(
+                series_id=series.id,
+                group_name="G2",
+                rss_id=None,
+                rss_link=rss.url,
+            )
+            async_session.add_all([linked, fallback])
+            await async_session.flush()
+
+            async_session.add_all([
+                Torrent(name="direct", hash="h_direct", rss_id=rss.id),
+                Torrent(name="via_bangumi", hash="h_linked", bangumi_id=linked.id),
+                Torrent(name="via_fallback", hash="h_fallback", bangumi_id=fallback.id),
+                Torrent(name="dup", hash="h_direct", bangumi_id=linked.id),
+                Torrent(name="excluded_empty", hash="", rss_id=rss.id),
+                Torrent(name="null_hash", hash=None, rss_id=rss.id),
+            ])
+            await async_session.flush()
+
+            hashes = await repo.collect_cascade_hashes(rss.id)
+
+        assert set(hashes) == {"h_direct", "h_linked", "h_fallback"}
+        assert len(hashes) == 3
+
+    async def test_collect_cascade_hashes_unknown_rss_returns_empty(
+        self, async_session
+    ):
+        repo = RSSRepository(async_session)
+        async with async_session.begin():
+            hashes = await repo.collect_cascade_hashes(99999)
+        assert hashes == []
 
     async def test_set_status_updates_last_status(self, async_session):
         repo = RSSRepository(async_session)

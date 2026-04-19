@@ -266,12 +266,32 @@ async def enable_many_rss(rss_ids: list[int], session: AsyncSession = Depends(ge
     ))
 
 
+async def _cascade_delete_files_for_rss(
+    rss_repo: RSSRepository, rss_id: int, session: AsyncSession
+) -> None:
+    """Trash PikPak/qBittorrent files for every torrent reachable from this RSS."""
+    hashes = await rss_repo.collect_cascade_hashes(rss_id)
+    if not hashes:
+        return
+    downloader = create_downloader(settings, session)
+    try:
+        await downloader.torrents_delete(hashes, delete_files=True)
+    except Exception as e:
+        logger.error(f"Failed to delete torrent files for RSS {rss_id}: {e}")
+
+
 @router.delete(
     path="/delete/{rss_id}",
     dependencies=[Depends(get_current_user)],
 )
-async def delete_rss(rss_id: int, session: AsyncSession = Depends(get_db_session)):
+async def delete_rss(
+    rss_id: int,
+    file: bool = False,
+    session: AsyncSession = Depends(get_db_session),
+):
     rss_repo = RSSRepository(session)
+    if file:
+        await _cascade_delete_files_for_rss(rss_repo, rss_id, session)
     result = await rss_repo.cascade_delete(rss_id)
     await session.commit()
     if result:
@@ -291,10 +311,16 @@ async def delete_rss(rss_id: int, session: AsyncSession = Depends(get_db_session
     response_model=APIResponse,
     dependencies=[Depends(get_current_user)],
 )
-async def delete_many_rss(rss_ids: list[int], session: AsyncSession = Depends(get_db_session)):
+async def delete_many_rss(
+    rss_ids: list[int],
+    file: bool = False,
+    session: AsyncSession = Depends(get_db_session),
+):
     rss_repo = RSSRepository(session)
     deleted = 0
     for rss_id in rss_ids:
+        if file:
+            await _cascade_delete_files_for_rss(rss_repo, rss_id, session)
         if await rss_repo.cascade_delete(rss_id):
             deleted += 1
     await session.commit()

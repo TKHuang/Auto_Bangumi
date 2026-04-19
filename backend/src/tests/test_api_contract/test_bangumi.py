@@ -339,6 +339,61 @@ class TestDeleteManyBangumi:
                 assert response.status_code == 200
                 assert "msg_en" in response.json()
 
+    @pytest.mark.asyncio
+    async def test_delete_many_with_files_calls_torrents_delete(self, client):
+        """DELETE /bangumi/delete with file=true must invoke
+        downloader.torrents_delete with the hashes of every torrent tied to
+        the affected bangumi. Regression: batch delete was silently
+        skipping the downloader call, leaving PikPak files orphaned.
+        """
+        # Bangumi has a real series row so _bangumi_save_path() returns a
+        # concrete save_path.
+        _series = MagicMock()
+        _series.root_path = "/downloads/Bangumi/Test"
+        _series.season = 1
+        _bangumi = _mock_bangumi_obj(id=1)
+        _bangumi.path_override = None
+        _bangumi.series = _series
+
+        # Three DB-torrents under the bangumi; torrents_info returns empty
+        # so the fallback branch (get_visible_by_bangumi) is the one that
+        # must feed torrents_delete.
+        db_torrents = []
+        for h in ("aaaa1111", "bbbb2222", "cccc3333"):
+            t = MagicMock()
+            t.hash = h
+            db_torrents.append(t)
+
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls, \
+             patch("module.api.v1.bangumi.create_downloader") as mock_dl, \
+             patch("module.api.v1.bangumi.settings"):
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = _bangumi
+            mock_b.delete_many.return_value = 1
+
+            mock_t = AsyncMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_visible_by_bangumi.return_value = db_torrents
+
+            dl = AsyncMock()
+            mock_dl.return_value = dl
+            dl.torrents_info = AsyncMock(return_value=[])
+            dl.torrents_delete = AsyncMock(return_value=True)
+
+            response = client.request(
+                "DELETE", "/api/v1/bangumi/delete",
+                json=[1], params={"file": True},
+            )
+
+        assert response.status_code == 200, response.json()
+        dl.torrents_delete.assert_called_once()
+        args, kwargs = dl.torrents_delete.call_args
+        sent_hashes = args[0] if args else kwargs.get("hashes")
+        assert set(sent_hashes) == {"aaaa1111", "bbbb2222", "cccc3333"}
+        assert kwargs.get("delete_files") is True
+
 
 class TestDisableBangumi:
 

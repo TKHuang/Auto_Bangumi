@@ -226,6 +226,46 @@ class TestDeleteRSS:
             data = response.json()
             assert data["msg_en"] == "Delete RSS failed."
 
+    @pytest.mark.asyncio
+    async def test_delete_rss_with_files_calls_torrents_delete(self, client):
+        """When file=true, cascade deletion also trashes downloader files."""
+        hashes = ["aaaa1111", "bbbb2222", "cccc3333"]
+        with patch("module.api.v1.rss.RSSRepository") as mock_repo_cls, \
+             patch("module.api.v1.rss.create_downloader") as mock_create_dl:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.collect_cascade_hashes.return_value = hashes
+            mock_repo.cascade_delete.return_value = True
+
+            dl = AsyncMock()
+            dl.torrents_delete = AsyncMock(return_value=True)
+            mock_create_dl.return_value = dl
+
+            response = client.delete("/api/v1/rss/delete/1", params={"file": True})
+
+            assert response.status_code == 200
+            mock_repo.collect_cascade_hashes.assert_awaited_once_with(1)
+            dl.torrents_delete.assert_awaited_once()
+            args, kwargs = dl.torrents_delete.call_args
+            assert list(args[0]) == hashes
+            assert kwargs.get("delete_files") is True
+            mock_repo.cascade_delete.assert_awaited_once_with(1)
+
+    @pytest.mark.asyncio
+    async def test_delete_rss_without_files_skips_downloader(self, client):
+        """When file is omitted/false, the downloader must not be touched."""
+        with patch("module.api.v1.rss.RSSRepository") as mock_repo_cls, \
+             patch("module.api.v1.rss.create_downloader") as mock_create_dl:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.cascade_delete.return_value = True
+
+            response = client.delete("/api/v1/rss/delete/1")
+
+            assert response.status_code == 200
+            mock_repo.collect_cascade_hashes.assert_not_called()
+            mock_create_dl.assert_not_called()
+
 
 class TestDeleteManyRSS:
     """Test POST /rss/delete/many endpoint."""
@@ -243,6 +283,34 @@ class TestDeleteManyRSS:
             assert response.status_code == 200
             data = response.json()
             assert "msg_en" in data
+
+    @pytest.mark.asyncio
+    async def test_delete_many_rss_with_files_calls_torrents_delete_per_id(self, client):
+        """Batch delete with file=true must delete files for every RSS id."""
+        with patch("module.api.v1.rss.RSSRepository") as mock_repo_cls, \
+             patch("module.api.v1.rss.create_downloader") as mock_create_dl:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.collect_cascade_hashes.side_effect = [
+                ["h1"], ["h2", "h3"], [],
+            ]
+            mock_repo.cascade_delete.return_value = True
+
+            dl = AsyncMock()
+            dl.torrents_delete = AsyncMock(return_value=True)
+            mock_create_dl.return_value = dl
+
+            response = client.post(
+                "/api/v1/rss/delete/many",
+                json=[1, 2, 3],
+                params={"file": True},
+            )
+
+            assert response.status_code == 200
+            assert mock_repo.collect_cascade_hashes.await_count == 3
+            assert dl.torrents_delete.await_count == 2
+            called_hashes = [list(c.args[0]) for c in dl.torrents_delete.await_args_list]
+            assert called_hashes == [["h1"], ["h2", "h3"]]
 
 
 class TestDisableRSS:
