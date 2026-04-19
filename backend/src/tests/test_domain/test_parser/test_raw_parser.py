@@ -224,6 +224,51 @@ class TestRawParserEdgeCases:
         assert info.season == 1
 
 
+class TestStarSeparatorRejection:
+    """★-as-separator torrent names must raise BangumiParsingError.
+
+    The 六四位元字幕组 (64bitsub) feed uses ★ as a field delimiter
+    ("group★title★ep★resolution★codec★subtitle"). The BangumiParser has no
+    concept of ★ as a separator, so it silently captures unrelated
+    segments as title/group. That then feeds wrong canonical_title into
+    save_path generation, producing stray cloud folders like
+    "MP4★繁体中文/Season 1/...".
+
+    These torrents are rejected here so aggregate-feed resilience skips
+    them and Mikan <link>-based identity resolution takes over.
+    """
+
+    def test_rejects_bracketless_star_delimited_format(self) -> None:
+        from module.domain.value_objects import BangumiParsingError
+        content = (
+            "六四位元字幕组★最强的职业不是勇者也不是贤者好像是鉴定士（暂）的样子 "
+            "Saikyou no Shokugyou wa Yuusha demo Kenja demo Naku Kanteishi "
+            "(Kari) Rashii desu yo★03★1920x1080★AVC AAC MP4★繁体中文"
+        )
+        with pytest.raises(BangumiParsingError):
+            raw_parser(content)
+
+    def test_rejects_other_star_delimited_variant(self) -> None:
+        from module.domain.value_objects import BangumiParsingError
+        content = (
+            "六四位元字幕组★哪里有温柔对待阿宅的辣妹！？ "
+            "Otaku ni Yasashii Gal wa Inai★02★1920x1080★AVC AAC MP4★繁体中文"
+        )
+        with pytest.raises(BangumiParsingError):
+            raw_parser(content)
+
+    def test_keeps_star_as_decoration_with_brackets(self) -> None:
+        """★ is legitimate decoration when used around a bracketed badge."""
+        content = (
+            "【喵萌奶茶屋】★04月新番★[夏日重现/Summer Time Rendering]"
+            "[11][1080p][繁日双语][招募翻译]"
+        )
+        info = raw_parser(content)
+        assert info is not None
+        assert info.title_en == "Summer Time Rendering"
+        assert info.title_zh == "夏日重现"
+
+
 class TestBatchReleaseWithEndMarkers:
     """Tests for batch release parsing with END/Fin/Complete markers.
 

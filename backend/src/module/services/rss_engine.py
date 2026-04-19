@@ -540,7 +540,16 @@ class RSSEngine:
             }
 
         parser = TitleParser()
-        bangumi_data = parser.raw_parser(torrent.name)
+        try:
+            bangumi_data = parser.raw_parser(torrent.name)
+        except BangumiParsingError as exc:
+            logger.debug(
+                f"[Engine] Cannot parse torrent {torrent_id}: {exc.msg_en}"
+            )
+            return {
+                "status": False,
+                "message": f"Failed to parse torrent name: {exc.msg_en}",
+            }
 
         if not bangumi_data:
             return {

@@ -24,6 +24,22 @@ def raw_parser(raw: str) -> Episode | None:
     # Normalize full-width brackets to half-width for better compatibility
     normalized = raw.replace("【", "[").replace("】", "]")
 
+    # Reject ★-as-separator torrent names (e.g. 六四位元字幕组 format:
+    # "group★title★ep★resolution★codec★subtitle"). The BangumiParser has
+    # no notion of ★ as a field delimiter, so it silently captures
+    # unrelated segments as title. Legit torrents use ★ only as decoration
+    # inside/around brackets (e.g. "【group】★04月新番★[title]..."), which
+    # always carry at least one [ or 【. Bail early on bracketless names
+    # with ≥ 3 ★ separators so the aggregate resilience path skips the
+    # torrent and Mikan <link>-based enrichment resolves identity instead.
+    if normalized.count("★") >= 3 and "[" not in normalized:
+        raise BangumiParsingError(
+            raw_title=raw,
+            partial_data={"raw_title": raw},
+            msg_en="Unsupported ★-delimited torrent name; defer to Mikan enrichment.",
+            msg_zh="不支援 ★ 分隔的種子名稱，改由 Mikan 補齊身份。",
+        )
+
     parser = BangumiParser()
     parsed = parser.parse(normalized)
 
