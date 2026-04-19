@@ -14,6 +14,7 @@ from module.domain.models.rss import RSSItem
 from module.domain.models.torrent import Torrent
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import BangumiParsingError, gen_save_path
+from module.models import Bangumi as BangumiSchema
 from module.mikan.parser import extract_mikan_ids_from_rss
 from module.network.request_contents import RequestContent
 from module.repositories.bangumi import BangumiRepository
@@ -130,6 +131,60 @@ class RSSEngine:
         return bool(re.search(pattern, torrent_name, re.IGNORECASE))
 
     @staticmethod
+    async def _build_bangumi_from_mikan(
+        parser: TitleParser,
+        torrent: Torrent,
+        rss_item,
+    ) -> Optional[BangumiSchema]:
+        """Fallback identity builder for torrents `raw_parser` cannot decode.
+
+        When a subgroup uses an unsupported delimiter convention (e.g. ★-as-
+        field-separator from 64bitsub), BangumiParser raises
+        BangumiParsingError. For Mikan-backed feeds we still have a per-item
+        homepage pointing at the authoritative bangumi page, so we can
+        synthesize enough identity from the page itself.
+
+        Returns None when the torrent is not eligible (non-Mikan feed, no
+        homepage, or the page lookup fails).
+        """
+        if not torrent.homepage or rss_item.parser != "mikan":
+            return None
+        try:
+            result = await asyncio.to_thread(
+                parser.mikan_parser_with_rss, torrent.homepage
+            )
+        except Exception as e:
+            logger.debug(
+                f"[Engine] Mikan fallback failed for {torrent.name}: {e}"
+            )
+            return None
+        if not result.official_title:
+            return None
+
+        group_name = "Unknown"
+        if "★" in torrent.name:
+            head = torrent.name.split("★", 1)[0].strip()
+            if head and len(head) <= 64:
+                group_name = head
+
+        clean_title = re.sub(r"[/:.\\]", " ", result.official_title)
+        return BangumiSchema(
+            official_title=clean_title,
+            title_raw=torrent.name,
+            season=1,
+            season_raw=None,
+            group_name=group_name,
+            dpi=None,
+            source=None,
+            subtitle=None,
+            eps_collect=True,
+            offset=0,
+            filter=",".join(settings.rss_parser.filter),
+            rss_link=result.season_rss_link or "",
+            poster_link=result.poster_link or None,
+        )
+
+    @staticmethod
     async def _auto_create_bangumi(
         torrent: Torrent,
         rss_item,
@@ -138,12 +193,22 @@ class RSSEngine:
         auto_created_keys: set[tuple[str, int, str]],
         newly_created_ids: set[int],
     ) -> Optional[Bangumi]:
+        parser = TitleParser()
         try:
-            parser = TitleParser()
             bangumi_data = parser.raw_parser(torrent.name)
         except BangumiParsingError:
-            logger.debug(f"[Engine] Cannot parse title for auto-create: {torrent.name}")
-            return None
+            bangumi_data = await RSSEngine._build_bangumi_from_mikan(
+                parser, torrent, rss_item
+            )
+            if bangumi_data is None:
+                logger.debug(
+                    f"[Engine] Cannot parse title for auto-create: {torrent.name}"
+                )
+                return None
+            logger.info(
+                f"[Engine] Mikan-fallback identity for unparseable torrent "
+                f"{torrent.name!r} → {bangumi_data.official_title!r}"
+            )
 
         if not bangumi_data:
             logger.debug(f"[Engine] Cannot parse title for auto-create: {torrent.name}")
@@ -543,13 +608,21 @@ class RSSEngine:
         try:
             bangumi_data = parser.raw_parser(torrent.name)
         except BangumiParsingError as exc:
-            logger.debug(
-                f"[Engine] Cannot parse torrent {torrent_id}: {exc.msg_en}"
+            bangumi_data = await RSSEngine._build_bangumi_from_mikan(
+                parser, torrent, rss
             )
-            return {
-                "status": False,
-                "message": f"Failed to parse torrent name: {exc.msg_en}",
-            }
+            if bangumi_data is None:
+                logger.debug(
+                    f"[Engine] Cannot parse torrent {torrent_id}: {exc.msg_en}"
+                )
+                return {
+                    "status": False,
+                    "message": f"Failed to parse torrent name: {exc.msg_en}",
+                }
+            logger.info(
+                f"[Engine] Mikan-fallback identity for unparseable torrent "
+                f"{torrent.name!r} → {bangumi_data.official_title!r}"
+            )
 
         if not bangumi_data:
             return {

@@ -601,6 +601,132 @@ class TestCreateBangumiFromTorrent:
                     async_session, mock_downloader, torrent.id
                 )
 
+    @pytest.mark.asyncio
+    async def test_create_bangumi_uses_mikan_fallback_for_star_delimited_name(
+        self, async_session, mock_downloader
+    ):
+        """When raw_parser rejects a ★-delimited torrent name, the engine
+        must recover identity by asking the Mikan episode page for the real
+        title instead of dropping the torrent entirely."""
+        from module.domain.value_objects import BangumiParsingError
+        from module.domain.parser.analyser.mikan_parser import MikanParserResult
+        from module.repositories import RSSRepository, TorrentRepository
+
+        rss_repo = RSSRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        rss = await rss_repo.create({
+            "name": "My Bangumi",
+            "url": "https://mikanani.me/RSS/MyBangumi",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        torrent = await torrent_repo.create({
+            "name": "六四位元字幕组★哪里有温柔对待阿宅的辣妹！？ Otaku ni Yasashii Gal wa Inai★01★MP4★繁体中文",
+            "url": "https://example.com/torrent.torrent",
+            "homepage": "https://mikanani.me/Home/Episode/abc123",
+            "hash": "hash_star",
+            "rss_id": rss.id,
+        })
+        await async_session.commit()
+
+        parsing_error = BangumiParsingError(
+            raw_title=torrent.name,
+            partial_data={"raw_title": torrent.name},
+            msg_en="Unsupported ★-delimited torrent name; defer to Mikan enrichment.",
+            msg_zh="",
+        )
+
+        mikan_page = MikanParserResult(
+            poster_link="",
+            official_title="哪里有温柔对待阿宅的辣妹！？",
+            season_rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=1234&subgroupid=5678",
+        )
+
+        with patch("module.services.rss_engine.TitleParser") as mock_parser_class, \
+             patch("module.repositories.bangumi.BangumiRepository.create") as mock_create:
+            mock_parser = MagicMock()
+            mock_parser_class.return_value = mock_parser
+            mock_parser.raw_parser.side_effect = parsing_error
+            mock_parser.mikan_parser_with_rss.return_value = mikan_page
+
+            from module.domain.models.series import Series
+            fake_series = Series(
+                canonical_title="哪里有温柔对待阿宅的辣妹！？",
+                normalized_title="哪里有温柔对待阿宅的辣妹",
+                season=1,
+                root_path="/mnt/哪里有温柔对待阿宅的辣妹",
+                pending_review=False,
+            )
+            fake_bangumi = Bangumi(
+                group_name="六四位元字幕组",
+                rss_link=rss.url,
+                rss_id=rss.id,
+                filter="",
+                eps_collect=True,
+                offset=0,
+            )
+            fake_bangumi.id = 777
+            fake_bangumi.series = fake_series
+            mock_create.return_value = fake_bangumi
+
+            result = await RSSEngine.create_bangumi_from_torrent(
+                async_session, mock_downloader, torrent.id
+            )
+
+        assert result["status"] is True
+        mock_parser.mikan_parser_with_rss.assert_called_once_with(
+            "https://mikanani.me/Home/Episode/abc123"
+        )
+        mock_create.assert_called_once()
+        payload = mock_create.call_args.args[0]
+        assert payload["group_name"] == "六四位元字幕组"
+
+    @pytest.mark.asyncio
+    async def test_create_bangumi_gives_up_when_mikan_fallback_unavailable(
+        self, async_session, mock_downloader
+    ):
+        """Non-Mikan feeds get no fallback: BangumiParsingError surfaces."""
+        from module.domain.value_objects import BangumiParsingError
+        from module.repositories import RSSRepository, TorrentRepository
+
+        rss_repo = RSSRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+        rss = await rss_repo.create({
+            "name": "Nyaa feed",
+            "url": "https://nyaa.si/rss",
+            "aggregate": False,
+            "parser": "nyaa",
+            "enabled": True,
+        })
+        torrent = await torrent_repo.create({
+            "name": "group★title★unknown",
+            "url": "https://example.com/t.torrent",
+            "homepage": "",
+            "hash": "hash_no_fallback",
+            "rss_id": rss.id,
+        })
+        await async_session.commit()
+
+        with patch("module.services.rss_engine.TitleParser") as mock_parser_class:
+            mock_parser = MagicMock()
+            mock_parser_class.return_value = mock_parser
+            mock_parser.raw_parser.side_effect = BangumiParsingError(
+                raw_title=torrent.name,
+                partial_data={"raw_title": torrent.name},
+                msg_en="star delimited",
+                msg_zh="",
+            )
+
+            result = await RSSEngine.create_bangumi_from_torrent(
+                async_session, mock_downloader, torrent.id
+            )
+
+        assert result["status"] is False
+        assert "Failed to parse torrent name" in result["message"]
+        mock_parser.mikan_parser_with_rss.assert_not_called()
+
 
 class TestDownloadBangumi:
     """Test download_bangumi function (collection/backfill)."""
