@@ -566,3 +566,75 @@ class TestSubscribeBatch:
 
         all_bangumi = await bangumi_repo.get_by_rss(rss.id)
         assert len(all_bangumi) == 1
+
+    @pytest.mark.asyncio
+    async def test_subscribe_batch_dedupes_duplicate_identity(
+        self, async_session, mock_downloader
+    ):
+        """Aggregate feeds can expose two torrent name variants that both
+        resolve to the same (series_id, mikan_subgroup_id) identity.
+        The batch must dedupe in-process so a single IntegrityError doesn't
+        poison the session's transaction and cascade-fail the rest of the batch.
+        """
+        from module.repositories.bangumi import BangumiRepository
+        from module.repositories.rss import RSSRepository
+
+        bangumi_repo = BangumiRepository(async_session)
+        rss_repo = RSSRepository(async_session)
+
+        series = await _add_series(async_session, "Shared Anime")
+
+        rss = await rss_repo.create({
+            "name": "Aggregate RSS",
+            "url": "https://example.com/rss/aggregate",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        await async_session.commit()
+
+        # Two Bangumi DTOs with different group_names but resolving
+        # to the same series via the same rss_link. Non-Mikan URLs yield
+        # mikan_subgroup_id=None, so both collapse to identity (series.id, None).
+        b1 = Bangumi(
+            group_name="VariantA",
+            rss_link=rss.url,
+            filter="",
+            dpi="1080P",
+            source="WEB-DL",
+            subtitle="CHS",
+            offset=0,
+        )
+        b1.series = series
+
+        b2 = Bangumi(
+            group_name="VariantB",
+            rss_link=rss.url,
+            filter="",
+            dpi="1080P",
+            source="WEB-DL",
+            subtitle="CHS",
+            offset=0,
+        )
+        b2.series = series
+
+        bangumi_list = [b1, b2]
+
+        with patch("module.services.rss_engine.RSSEngine.download_bangumi") as mock_dl:
+            mock_dl.return_value = {
+                "status": True,
+                "message": "Downloaded torrents",
+                "count": 1,
+            }
+
+            result = await SeasonCollectorService.subscribe_batch(
+                async_session, mock_downloader, bangumi_list, rss.id, parser="mikan"
+            )
+
+        assert result.status is True
+        assert result.status_code == 200
+
+        all_bangumi = await bangumi_repo.get_by_rss(rss.id)
+        assert len(all_bangumi) == 1, (
+            f"expected dedup to collapse duplicate identity to 1 row, got {len(all_bangumi)}"
+        )

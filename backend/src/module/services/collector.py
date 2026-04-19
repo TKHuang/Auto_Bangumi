@@ -598,7 +598,13 @@ class SeasonCollectorService:
                 logger.info(f"[Collector] Deleted {deleted_count} bangumi for batch recreation")
 
             success_count = 0
-            failed_titles = []
+            failed_titles: list[str] = []
+            # Aggregate feeds can expose two torrent name variants that both
+            # resolve to the same (series_id, mikan_subgroup_id) identity
+            # (spec §6.2 partial UNIQUE). Deduplicate within the batch so a
+            # single IntegrityError doesn't poison the entire session's
+            # transaction.
+            seen_identities: set[tuple[int, int | None]] = set()
 
             for data in bangumi_list:
                 _d_title = _resolve_title(data)
@@ -619,6 +625,16 @@ class SeasonCollectorService:
                     _b_series_id = _b_resolved.series.id
                     _, _b_mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
 
+                    identity = (_b_series_id, _b_mikan_subgroup_id)
+                    if identity in seen_identities:
+                        logger.info(
+                            "[Collector] Skip duplicate identity in batch: "
+                            "series_id=%s subgroup_id=%s (title=%s)",
+                            _b_series_id, _b_mikan_subgroup_id, _d_title,
+                        )
+                        continue
+                    seen_identities.add(identity)
+
                     await bangumi_repo.create({
                         "series_id": _b_series_id,
                         "mikan_subgroup_id": _b_mikan_subgroup_id,
@@ -637,9 +653,12 @@ class SeasonCollectorService:
                         "active": True,
                     })
                     success_count += 1
-                    logger.debug(f"[Collector] Batch insert: {_d_title}")
+                    logger.info(f"[Collector] Batch insert: {_d_title}")
                 except Exception as e:
-                    logger.error(f"[Collector] Failed to insert {_d_title}: {e}")
+                    logger.error(
+                        "[Collector] Failed to insert %s: %r",
+                        _d_title, e,
+                    )
                     failed_titles.append(_d_title)
 
             await session.commit()
