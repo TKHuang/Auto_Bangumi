@@ -2,8 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# build-essential + cmake are required to compile opencc from source on
+# architectures with no prebuilt wheel (notably linux/arm64 on Apple Silicon).
+# Prod uses Alpine with its own toolchain path, so this only affects dev.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+        curl \
+        build-essential \
+        cmake \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

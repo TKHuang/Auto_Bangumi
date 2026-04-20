@@ -54,8 +54,14 @@ def is_pre_alembic_db(db_path: Path) -> bool:
 def _backend_dir() -> Path:
     """Resolve the backend/ directory (where alembic.ini lives).
 
-    This file is at backend/src/module/database/migrate.py so walk up 4 levels.
+    Honors AB_BACKEND_DIR when set, which is required for Docker dev where
+    backend/src is mounted as /app and the default walk-up would land on
+    "/". Otherwise walks up 4 levels from this file at
+    backend/src/module/database/migrate.py.
     """
+    override = os.getenv("AB_BACKEND_DIR")
+    if override:
+        return Path(override)
     return Path(__file__).resolve().parent.parent.parent.parent
 
 

@@ -2,32 +2,27 @@
 # =============================================================================
 # AutoBangumi Development Environment Launcher
 # =============================================================================
-# Usage: ./dev-up.sh [options]
+# Invoked by `make dev` / `make dev-build` / `make dev-logs`. The Makefile
+# is the canonical entrypoint — prefer `make` targets over invoking this
+# script directly.
 #
 # Options:
-#   --build    Force rebuild containers
-#   --logs     Follow logs after starting
-#   --detach   Run in detached mode (default)
-#
-# Services:
-#   - Backend:     http://localhost:7893 (FastAPI)
-#   - WebUI:       http://localhost:5173 (Vite)
-#   - qBittorrent: http://localhost:8081 (admin / adminadmin)
+#   --build      Force rebuild of images before starting
+#   --logs       Follow logs after services come up
+#   --no-detach  Run in the foreground (blocks the terminal)
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Parse arguments
 BUILD_FLAG=""
 LOGS_FLAG=""
 DETACH_FLAG="-d"
@@ -47,56 +42,53 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo -e "${RED}Unknown option: $1${NC}"
+            echo -e "${RED}Unknown option: $1${NC}" >&2
             exit 1
             ;;
     esac
 done
 
-echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║        AutoBangumi Development Environment                 ║${NC}"
-echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
-echo ""
+echo -e "${BLUE}── AutoBangumi dev environment ──────────────────────────────${NC}"
 
-# Create required directories
-echo -e "${YELLOW}→ Creating development directories...${NC}"
-mkdir -p dev-config/backend dev-config/data dev-config/downloads dev-config/qbittorrent
-mkdir -p backend/src/config backend/src/data
+# Ensure host-side bind-mount targets exist before compose attempts mounts.
+echo -e "${YELLOW}→ Ensuring dev-config dirs exist...${NC}"
+mkdir -p dev-config/backend dev-config/data dev-config/downloads
 
-# Ensure version file exists for dev mode
+# The backend imports module.__version__ at startup; write a placeholder
+# only when absent so a committed version file (release builds) is not
+# overwritten.
 VERSION_FILE="backend/src/module/__version__.py"
 if [ ! -f "$VERSION_FILE" ]; then
-    echo -e "${YELLOW}→ Creating version file for development...${NC}"
+    echo -e "${YELLOW}→ Writing dev version marker: ${VERSION_FILE}${NC}"
     echo "VERSION='DEV_VERSION'" > "$VERSION_FILE"
 fi
 
-# Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
-    echo -e "${RED}✗ Docker is not running. Please start Docker first.${NC}"
+    echo -e "${RED}✗ Docker is not running. Start Docker Desktop and retry.${NC}" >&2
     exit 1
 fi
 
-# Start services
-echo -e "${YELLOW}→ Starting development services...${NC}"
-docker compose -f docker-compose.dev.yml up $DETACH_FLAG $BUILD_FLAG
+echo -e "${YELLOW}→ Starting services...${NC}"
+docker compose -f docker-compose.dev.yml up ${DETACH_FLAG} ${BUILD_FLAG}
 
 if [ -n "$DETACH_FLAG" ]; then
     echo ""
-    echo -e "${GREEN}✓ Development environment started!${NC}"
+    echo -e "${GREEN}✓ Development environment ready.${NC}"
     echo ""
-    echo -e "${BLUE}Services:${NC}"
-    echo -e "  • Backend API:    ${GREEN}http://localhost:7893${NC}"
-    echo -e "  • WebUI:          ${GREEN}http://localhost:5173${NC}"
-    echo -e "  • qBittorrent:    ${GREEN}http://localhost:8081${NC} (admin / adminadmin)"
+    echo -e "${BLUE}Endpoints:${NC}"
+    echo -e "  Backend  ${GREEN}http://localhost:7893${NC}"
+    echo -e "  WebUI    ${GREEN}http://localhost:5173${NC}"
     echo ""
-    echo -e "${BLUE}Commands:${NC}"
-    echo -e "  • View logs:      docker compose -f docker-compose.dev.yml logs -f"
-    echo -e "  • Stop all:       ./dev-down.sh"
-    echo -e "  • Rebuild:        ./dev-up.sh --build"
+    echo -e "${BLUE}Common commands:${NC}"
+    echo -e "  make logs-backend    follow backend logs"
+    echo -e "  make logs-webui      follow webui logs"
+    echo -e "  make shell-backend   open shell in backend container"
+    echo -e "  make down            stop everything"
+    echo -e "  make clean           stop and wipe named volumes"
     echo ""
 
     if [ "$LOGS_FLAG" = "true" ]; then
-        echo -e "${YELLOW}→ Following logs (Ctrl+C to exit)...${NC}"
+        echo -e "${YELLOW}→ Following logs (Ctrl+C to detach)...${NC}"
         docker compose -f docker-compose.dev.yml logs -f
     fi
 fi
