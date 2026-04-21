@@ -1,9 +1,9 @@
 <script lang="ts" setup>
 import {
-  Refresh,
-  DownloadFour,
-  UnorderedList,
   CheckOne,
+  DownloadFour,
+  Refresh,
+  UnorderedList,
 } from '@icon-park/vue-next';
 import type { BangumiRule } from '#/bangumi';
 
@@ -117,15 +117,15 @@ const boxSize = computed(() => {
     <div v-else space-y-12>
       <ab-rule v-model:rule="rule"></ab-rule>
 
-      <div mt-4 pt-6 class="action-section">
-        <div flex gap-8>
+      <div class="action-section">
+        <div class="action-grid">
           <ab-button
             size="small"
             class="action-btn"
             @click="emitRetriggerRename"
           >
-            <div flex items-center gap-x-4>
-              <Refresh theme="outline" size="13" :stroke-width="3" />
+            <div class="action-btn-inner">
+              <Refresh theme="outline" size="14" :stroke-width="3" />
               <span>{{ $t('homepage.rule.retrigger_rename') }}</span>
             </div>
           </ab-button>
@@ -134,8 +134,8 @@ const boxSize = computed(() => {
             class="action-btn"
             @click="emitBackfillSource"
           >
-            <div flex items-center gap-x-4>
-              <DownloadFour theme="outline" size="13" :stroke-width="3" />
+            <div class="action-btn-inner">
+              <DownloadFour theme="outline" size="14" :stroke-width="3" />
               <span>{{ $t('homepage.rule.backfill_source') }}</span>
             </div>
           </ab-button>
@@ -144,14 +144,14 @@ const boxSize = computed(() => {
             class="action-btn"
             @click="() => (showTorrents = true)"
           >
-            <div flex items-center gap-x-4>
-              <UnorderedList theme="outline" size="13" :stroke-width="3" />
+            <div class="action-btn-inner">
+              <UnorderedList theme="outline" size="14" :stroke-width="3" />
               <span>{{ $t('rss.torrents') }}</span>
             </div>
           </ab-button>
         </div>
 
-        <div flex justify-between items-center mt-14>
+        <div class="action-footer">
           <div class="delete-wrap">
             <ab-button-multi
               size="small"
@@ -162,8 +162,8 @@ const boxSize = computed(() => {
           </div>
 
           <ab-button size="small" class="apply-accent" @click="emitApply">
-            <div flex items-center gap-x-5>
-              <CheckOne theme="outline" size="14" :stroke-width="4" />
+            <div class="apply-inner">
+              <CheckOne theme="outline" size="15" :stroke-width="4" />
               <span>{{ $t('homepage.rule.apply') }}</span>
             </div>
           </ab-button>
@@ -197,17 +197,46 @@ const boxSize = computed(() => {
 
 <style scoped lang="scss">
 .action-section {
-  border-top: 1px solid rgba(78, 60, 148, 0.1);
+  margin-top: 1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid rgba(78, 60, 148, 0.12);
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.action-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.action-btn-inner,
+.apply-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.apply-inner {
+  gap: 5px;
 }
 
 :deep(.action-btn) {
-  flex: 1 1 0;
   min-width: 0;
   width: 100% !important;
-  height: 32px !important;
-  border-radius: 8px !important;
+  height: 36px !important;
+  border-radius: 9px !important;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 12px;
+  letter-spacing: 0.02em;
   transition:
     transform 0.15s ease,
     box-shadow 0.2s ease,
@@ -215,30 +244,34 @@ const boxSize = computed(() => {
 
   span {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
 :deep(.action-btn:hover) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 14px rgba(78, 60, 148, 0.22);
-  filter: brightness(1.05);
+  box-shadow: 0 8px 18px rgba(78, 60, 148, 0.2);
+  filter: brightness(1.04);
 }
 
 :deep(.action-btn:active) {
   transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(78, 60, 148, 0.18);
+  box-shadow: 0 2px 8px rgba(78, 60, 148, 0.16);
 }
 
 :deep(.apply-accent) {
-  width: 118px !important;
-  height: 34px !important;
+  flex-shrink: 0;
+  width: 122px !important;
+  height: 36px !important;
   border-radius: 10px !important;
   background: linear-gradient(135deg, #7c68e8 0%, #5a46b8 100%);
   box-shadow:
     0 0 0 1px rgba(154, 137, 255, 0.45),
-    0 8px 18px rgba(90, 70, 184, 0.22);
+    0 8px 20px rgba(90, 70, 184, 0.24);
   font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  letter-spacing: 0.03em;
   text-shadow: 0 1px 0 rgba(39, 25, 95, 0.18);
   transition:
     transform 0.15s ease,
@@ -251,92 +284,60 @@ const boxSize = computed(() => {
   transform: translateY(-1px);
   box-shadow:
     0 0 0 1px rgba(154, 137, 255, 0.55),
-    0 12px 24px rgba(90, 70, 184, 0.3);
+    0 12px 26px rgba(90, 70, 184, 0.32);
 }
 
 :deep(.apply-accent:active) {
   transform: translateY(0);
   box-shadow:
     0 0 0 1px rgba(154, 137, 255, 0.45),
-    0 4px 10px rgba(90, 70, 184, 0.22);
+    0 4px 12px rgba(90, 70, 184, 0.22);
 }
 
 .delete-wrap {
-  position: relative;
+  flex-shrink: 0;
 }
 
-// ab-button-multi's outer wrapper (main button row)
-.delete-wrap :deep(> div:not(.select-box)) {
-  width: 118px !important;
-  height: 34px !important;
+// ab-button-multi trigger row (split button)
+.delete-wrap :deep(> div:first-child) {
+  width: 122px !important;
+  height: 36px !important;
   border-radius: 10px !important;
   overflow: hidden;
   box-shadow:
-    0 0 0 1px rgba(208, 92, 130, 0.45),
-    0 8px 18px rgba(138, 47, 78, 0.22);
+    0 0 0 1px rgba(208, 92, 130, 0.42),
+    0 8px 20px rgba(138, 47, 78, 0.22);
   transition:
     transform 0.15s ease,
     box-shadow 0.2s ease,
     filter 0.2s ease;
 }
 
-.delete-wrap :deep(> div:not(.select-box):hover) {
+.delete-wrap :deep(> div:first-child:hover) {
   transform: translateY(-1px);
-  filter: brightness(1.08) saturate(1.05);
+  filter: brightness(1.06) saturate(1.04);
   box-shadow:
-    0 0 0 1px rgba(208, 92, 130, 0.55),
-    0 12px 24px rgba(138, 47, 78, 0.3);
+    0 0 0 1px rgba(208, 92, 130, 0.52),
+    0 12px 26px rgba(138, 47, 78, 0.28);
 }
 
-.delete-wrap :deep(> div:not(.select-box):active) {
+.delete-wrap :deep(> div:first-child:active) {
   transform: translateY(0);
   box-shadow:
-    0 0 0 1px rgba(208, 92, 130, 0.45),
-    0 4px 10px rgba(138, 47, 78, 0.22);
+    0 0 0 1px rgba(208, 92, 130, 0.42),
+    0 4px 12px rgba(138, 47, 78, 0.2);
 }
 
-// Gradient applied to the button + arrow segments
 .delete-wrap :deep(.type-warn),
 .delete-wrap :deep(.selector-warn) {
   background: linear-gradient(135deg, #d05c82 0%, #8a2f4e 100%) !important;
   font-weight: 800;
+  font-size: 12px;
   letter-spacing: 0.02em;
   text-shadow: 0 1px 0 rgba(80, 20, 40, 0.2);
 }
 
 .delete-wrap :deep(.selector-warn) {
-  border-left: 1px solid rgba(255, 255, 255, 0.18);
-}
-
-// Dropdown menu — opens upward so it stays inside the popup container
-.delete-wrap :deep(.select-box) {
-  top: auto !important;
-  bottom: calc(100% + 6px) !important;
-  left: 0 !important;
-  transform: none !important;
-  width: 118px !important;
-  border-radius: 10px !important;
-  overflow: hidden !important;
-  z-index: 80 !important;
-  box-shadow:
-    0 0 0 1px rgba(148, 60, 97, 0.25),
-    0 -10px 28px rgba(0, 0, 0, 0.22);
-}
-
-.delete-wrap :deep(.select-box > div) {
-  height: 34px !important;
-  padding: 0 !important;
-  background: linear-gradient(135deg, #d05c82 0%, #8a2f4e 100%) !important;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  transition: filter 0.15s ease;
-}
-
-.delete-wrap :deep(.select-box > div:hover) {
-  filter: brightness(1.1) saturate(1.05);
-}
-
-.delete-wrap :deep(.select-box > div + div) {
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 </style>
