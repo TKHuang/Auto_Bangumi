@@ -152,13 +152,14 @@ const boxSize = computed(() => {
         </div>
 
         <div flex justify-between items-center mt-14>
-          <ab-button-multi
-            size="small"
-            type="warn"
-            class="delete-accent"
-            :selections="[t('homepage.rule.delete'), t('homepage.rule.disable')]"
-            @click="showDeleteFileDialog"
-          />
+          <div class="delete-wrap">
+            <ab-button-multi
+              size="small"
+              type="warn"
+              :selections="[t('homepage.rule.delete'), t('homepage.rule.disable')]"
+              @click="showDeleteFileDialog"
+            />
+          </div>
 
           <ab-button size="small" class="apply-accent" @click="emitApply">
             <div flex items-center gap-x-5>
@@ -260,33 +261,82 @@ const boxSize = computed(() => {
     0 4px 10px rgba(90, 70, 184, 0.22);
 }
 
-.delete-accent {
-  :deep(> div:first-child) {
-    height: 34px !important;
-    border-radius: 10px !important;
-    overflow: hidden;
-    box-shadow:
-      0 0 0 1px rgba(148, 60, 97, 0.35),
-      0 6px 14px rgba(148, 60, 97, 0.18);
-    transition:
-      transform 0.15s ease,
-      box-shadow 0.2s ease,
-      filter 0.2s ease;
-  }
+.delete-wrap {
+  position: relative;
+}
 
-  :deep(> div:first-child:hover) {
-    transform: translateY(-1px);
-    filter: brightness(1.05);
-    box-shadow:
-      0 0 0 1px rgba(148, 60, 97, 0.5),
-      0 10px 20px rgba(148, 60, 97, 0.24);
-  }
+// ab-button-multi's outer wrapper (main button row)
+.delete-wrap :deep(> div:not(.select-box)) {
+  width: 118px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(208, 92, 130, 0.45),
+    0 8px 18px rgba(138, 47, 78, 0.22);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
 
-  :deep(> div:first-child:active) {
-    transform: translateY(0);
-    box-shadow:
-      0 0 0 1px rgba(148, 60, 97, 0.4),
-      0 3px 8px rgba(148, 60, 97, 0.2);
-  }
+.delete-wrap :deep(> div:not(.select-box):hover) {
+  transform: translateY(-1px);
+  filter: brightness(1.08) saturate(1.05);
+  box-shadow:
+    0 0 0 1px rgba(208, 92, 130, 0.55),
+    0 12px 24px rgba(138, 47, 78, 0.3);
+}
+
+.delete-wrap :deep(> div:not(.select-box):active) {
+  transform: translateY(0);
+  box-shadow:
+    0 0 0 1px rgba(208, 92, 130, 0.45),
+    0 4px 10px rgba(138, 47, 78, 0.22);
+}
+
+// Gradient applied to the button + arrow segments
+.delete-wrap :deep(.type-warn),
+.delete-wrap :deep(.selector-warn) {
+  background: linear-gradient(135deg, #d05c82 0%, #8a2f4e 100%) !important;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(80, 20, 40, 0.2);
+}
+
+.delete-wrap :deep(.selector-warn) {
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+// Dropdown menu — opens upward so it stays inside the popup container
+.delete-wrap :deep(.select-box) {
+  top: auto !important;
+  bottom: calc(100% + 6px) !important;
+  left: 0 !important;
+  transform: none !important;
+  width: 118px !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  z-index: 80 !important;
+  box-shadow:
+    0 0 0 1px rgba(148, 60, 97, 0.25),
+    0 -10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.delete-wrap :deep(.select-box > div) {
+  height: 34px !important;
+  padding: 0 !important;
+  background: linear-gradient(135deg, #d05c82 0%, #8a2f4e 100%) !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: filter 0.15s ease;
+}
+
+.delete-wrap :deep(.select-box > div:hover) {
+  filter: brightness(1.1) saturate(1.05);
+}
+
+.delete-wrap :deep(.select-box > div + div) {
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 </style>
