@@ -111,25 +111,36 @@ const boxSize = computed(() => {
     <div v-else space-y-12>
       <ab-rule v-model:rule="rule"></ab-rule>
 
-      <div fx-cer justify-end gap-x-10>
-        <ab-button-multi
-          size="small"
-          type="warn"
-          :selections="[t('homepage.rule.delete'), t('homepage.rule.disable')]"
-          @click="showDeleteFileDialog"
-        />
-        <ab-button size="small" @click="emitApply">
-          {{ $t('homepage.rule.apply') }}
-        </ab-button>
-        <ab-button size="small" @click="emitRetriggerRename">
-          {{ $t('homepage.rule.retrigger_rename') }}
-        </ab-button>
-        <ab-button size="small" @click="emitBackfillSource">
-          {{ $t('homepage.rule.backfill_source') }}
-        </ab-button>
-        <ab-button size="small" @click="() => (showTorrents = true)">
-          {{ $t('rss.torrents') }}
-        </ab-button>
+      <div mt-4 pt-2 space-y-10>
+        <div
+          grid="~ cols-3"
+          gap-10
+          justify-items-center
+        >
+          <ab-button size="small" @click="emitRetriggerRename">
+            {{ $t('homepage.rule.retrigger_rename') }}
+          </ab-button>
+          <ab-button size="small" @click="emitBackfillSource">
+            {{ $t('homepage.rule.backfill_source') }}
+          </ab-button>
+          <ab-button size="small" @click="() => (showTorrents = true)">
+            {{ $t('rss.torrents') }}
+          </ab-button>
+        </div>
+
+        <div grid="~ cols-3" gap-10 justify-items-center pt-2>
+          <ab-button-multi
+            size="small"
+            type="warn"
+            :selections="[t('homepage.rule.delete'), t('homepage.rule.disable')]"
+            @click="showDeleteFileDialog"
+          />
+          <div></div>
+
+          <ab-button size="small" class="apply-accent" @click="emitApply">
+            {{ $t('homepage.rule.apply') }}
+          </ab-button>
+        </div>
       </div>
     </div>
 
@@ -156,3 +167,22 @@ const boxSize = computed(() => {
     </ab-popup>
   </ab-popup>
 </template>
+
+<style scoped lang="scss">
+:deep(.apply-accent) {
+  background: linear-gradient(135deg, #7c68e8 0%, #5a46b8 100%);
+  box-shadow:
+    0 0 0 1px rgba(154, 137, 255, 0.45),
+    0 8px 18px rgba(90, 70, 184, 0.22);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 0 rgba(39, 25, 95, 0.18);
+}
+
+:deep(.apply-accent:hover) {
+  filter: brightness(1.06) saturate(1.05);
+  box-shadow:
+    0 0 0 1px rgba(154, 137, 255, 0.55),
+    0 10px 22px rgba(90, 70, 184, 0.26);
+}
+</style>
