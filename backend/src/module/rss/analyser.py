@@ -3,10 +3,10 @@ import re
 
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
+from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import BangumiParsingError, ResponseModel
 from module.models import Bangumi, RSSItem, Torrent
 from module.network import RequestContent
-from module.domain.parser.title_parser import TitleParser
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,40 @@ def _needs_season_rss_update(bangumi: Bangumi) -> bool:
 
 
 class RSSAnalyser(TitleParser):
+    def _pending_bangumi_from_mikan(self, torrent: Torrent, rss: RSSItem) -> Bangumi | None:
+        if rss.parser != "mikan" or not torrent.homepage:
+            return None
+
+        try:
+            result = self.mikan_parser_with_rss(torrent.homepage)
+        except Exception as exc:
+            logger.debug(
+                "[RSS] Mikan fallback failed for unparseable aggregate torrent: %s "
+                "(reason: %s)",
+                torrent.name, exc,
+            )
+            return None
+
+        if not result.official_title:
+            return None
+
+        group_name = "Unknown"
+        if "★" in torrent.name:
+            group_name = torrent.name.split("★", 1)[0].strip() or group_name
+
+        title = re.sub(r"[/:.\\]", " ", result.official_title)
+        return Bangumi(
+            official_title=title,
+            title_raw=torrent.name,
+            season=1,
+            group_name=group_name,
+            filter=",".join(settings.rss_parser.filter),
+            rss_link=result.season_rss_link or rss.url,
+            poster_link=result.poster_link or None,
+            rss_id=rss.id,
+            pending_review=True,
+        )
+
     def official_title_parser(
         self,
         bangumi: Bangumi,
@@ -119,11 +153,14 @@ class RSSAnalyser(TitleParser):
             try:
                 bangumi = self.raw_parser(raw=torrent.name)
             except BangumiParsingError as exc:
-                # Aggregate feeds mix many group conventions; one unparseable
-                # name (e.g. ★-delimited variants) must not abort the rest.
-                # raw_parser still re-raises for single-torrent callers
-                # (link_to_data) so non-aggregate flows keep their partial-data
-                # error surface.
+                bangumi = self._pending_bangumi_from_mikan(torrent, rss)
+                if bangumi:
+                    logger.info(
+                        "[RSS] Pending manual review from Mikan fallback: %s",
+                        bangumi.official_title,
+                    )
+                    new_data.append(bangumi)
+                    continue
                 logger.debug(
                     "[RSS] Skipping unparseable torrent in aggregate feed: %s "
                     "(reason: %s)",

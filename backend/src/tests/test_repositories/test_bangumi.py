@@ -624,3 +624,43 @@ class TestBangumiRepository:
         found = await repo.get_by_id(original_id)
         assert found.id == original_id
         assert found.group_name == "Updated"
+
+    async def test_get_by_mikan_bangumi_url_returns_match(self, db_session):
+        repo = BangumiRepository(db_session)
+        series = await _add_series(db_session)
+        url = "https://mikanani.me/Home/Bangumi/3901#1243"
+
+        bangumi = await repo.create({
+            "series_id": series.id,
+            "group_name": "G",
+            "mikan_subgroup_id": 1243,
+            "mikan_bangumi_url": url,
+        })
+
+        found = await repo.get_by_mikan_bangumi_url(url)
+        assert found is not None
+        assert found.id == bangumi.id
+
+    async def test_get_by_mikan_bangumi_url_ignores_deleted(self, db_session):
+        repo = BangumiRepository(db_session)
+        series = await _add_series(db_session)
+        url = "https://mikanani.me/Home/Bangumi/4000#7"
+
+        bangumi = await repo.create({
+            "series_id": series.id,
+            "group_name": "G",
+            "mikan_subgroup_id": 7,
+            "mikan_bangumi_url": url,
+        })
+        await repo.soft_delete(bangumi.id)
+
+        assert await repo.get_by_mikan_bangumi_url(url) is None
+
+    async def test_get_by_mikan_bangumi_url_returns_none_on_empty_or_missing(
+        self, db_session
+    ):
+        repo = BangumiRepository(db_session)
+        assert await repo.get_by_mikan_bangumi_url("") is None
+        assert await repo.get_by_mikan_bangumi_url(
+            "https://mikanani.me/Home/Bangumi/99999#99999"
+        ) is None

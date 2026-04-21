@@ -67,7 +67,7 @@ async def test_run_migrations_on_fresh_db_creates_schema(tmp_path, monkeypatch):
     with engine.begin() as conn:
         row = conn.execute(sa.text("SELECT version_num FROM alembic_version")).first()
     assert row is not None
-    assert row[0] == "0008_lockdown_bangumi_identity"
+    assert row[0] == "0009_add_mikan_bangumi_url"
 
 
 @pytest.mark.xfail(

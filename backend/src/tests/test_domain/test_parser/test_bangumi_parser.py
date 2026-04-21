@@ -4190,3 +4190,83 @@ class TestPerformance:
         assert (
             elapsed_time < 1.0
         ), f"Complex name performance test failed: 200 parses took {elapsed_time:.3f}s (expected < 1.0s)"
+
+
+class TestTrailingDigitSeasonRecovery:
+    """Regression tests for trailing-digit season detection.
+
+    The fallback only fires when `_extract_season` returned the default of 1
+    AND every non-empty alt_title carries the same bare trailing digit as the
+    main title. See commit history for the series=25 misclassification
+    (异世界悠闲农家 2 built as S1) that motivated this.
+    """
+
+    @pytest.fixture
+    def parser(self) -> BangumiParser:
+        return BangumiParser()
+
+    def test_trailing_digit_promoted_when_main_and_alt_agree(
+        self, parser: BangumiParser
+    ):
+        result = parser.parse(
+            "[LoliHouse] 异世界悠闲农家 2 / Isekai Nonbiri Nouka 2 - 02 "
+            "[WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
+        )
+        assert result.season == 2
+        assert result.title == "异世界悠闲农家"
+        assert result.alt_titles == ["Isekai Nonbiri Nouka"]
+
+    def test_trailing_digit_promoted_another_example(
+        self, parser: BangumiParser
+    ):
+        result = parser.parse(
+            "[LoliHouse] 鬼灭之刃 2 / Kimetsu no Yaiba 2 - 01 "
+            "[WebRip 1080p HEVC-10bit AAC]"
+        )
+        assert result.season == 2
+        assert result.title == "鬼灭之刃"
+        assert result.alt_titles == ["Kimetsu no Yaiba"]
+
+    def test_no_promotion_when_alt_has_no_trailing_digit(
+        self, parser: BangumiParser
+    ):
+        # alt_title lacks the trailing digit → fallback must NOT fire to avoid
+        # promoting a stray number that happened to land on the main title.
+        result = parser.parse(
+            "[LoliHouse] 淫狱团地(无修版) / Ingoku Danchi - 03 "
+            "[WebRip 1080p HEVC-10bit AAC]"
+        )
+        assert result.season == 1
+        assert "淫狱团地" in result.title
+
+    def test_no_promotion_when_no_trailing_digit(
+        self, parser: BangumiParser
+    ):
+        result = parser.parse(
+            "[ANi] NEEDY GIRL OVERDOSE /  主播女孩重度依赖 - 03 "
+            "[1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]"
+        )
+        assert result.season == 1
+
+    def test_explicit_season_marker_takes_precedence(
+        self, parser: BangumiParser
+    ):
+        # S04 marker must win over the trailing "第四季" digit so we never
+        # double-count via the fallback.
+        result = parser.parse(
+            "[ANi] Dr STONE S04 / Dr.STONE 新石纪 第四季 - 27 "
+            "[1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]"
+        )
+        assert result.season == 4
+
+    def test_trailing_one_is_not_promoted(
+        self, parser: BangumiParser
+    ):
+        # Season 1 is already the default; promoting "1" would be a no-op
+        # but also masks cases where the "1" is part of the real title.
+        # The helper explicitly excludes it.
+        result = parser.parse("[xxx] Some Title 1 / Some Title Alt 1 - 05")
+        assert result.season == 1
+        # Trailing "1" must remain on the title since we didn't treat it as a
+        # season marker.
+        assert result.title.endswith("1")

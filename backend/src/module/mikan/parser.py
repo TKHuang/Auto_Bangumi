@@ -101,3 +101,56 @@ def parse_mikan_page(html: str) -> Optional[MikanRef]:
         canonical_title=title,
         poster_url=poster,
     )
+
+
+# Canonical bangumi-page URL helpers
+# ----------------------------------
+# The fragment form `/Home/Bangumi/<bangumi>#<subgroup>` is what Mikan's own
+# UI links to, so it doubles as a human-clickable key: operators paste it
+# into the WebUI resolve form, the URL then short-circuits future episodes
+# that land on the same page.
+
+_DEFAULT_MIKAN_BASE_URL = "https://mikanani.me"
+
+# Accepts a full URL, a schema-less host, or a pure path — anything that
+# contains `/Home/Bangumi/<id>#<sub>` is valid. Subgroup is required: without
+# it a Mikan page cannot be disambiguated between fansub groups (spec §6.4).
+_CANONICAL_BANGUMI_URL_RE = re.compile(
+    r"/Home/Bangumi/(\d+)#(\d+)\b",
+)
+
+
+def build_canonical_bangumi_url(
+    bangumi_id: int,
+    subgroup_id: int,
+    *,
+    base_url: str = _DEFAULT_MIKAN_BASE_URL,
+) -> str:
+    """Return the canonical `/Home/Bangumi/<id>#<sub>` URL for a bangumi.
+
+    Matches the form the Mikan UI itself renders in <a class="bangumi-title">
+    anchors, so the result is safe to store and then click through directly
+    from the WebUI resolution page.
+    """
+    if bangumi_id <= 0 or subgroup_id <= 0:
+        raise ValueError("bangumi_id and subgroup_id must both be positive")
+    return f"{base_url.rstrip('/')}/Home/Bangumi/{bangumi_id}#{subgroup_id}"
+
+
+def parse_canonical_bangumi_url(url: Optional[str]) -> Optional[tuple[int, int]]:
+    """Parse an operator-supplied bangumi-page URL back into ids.
+
+    Returns (bangumi_id, subgroup_id) if the string contains a recognisable
+    ``/Home/Bangumi/<id>#<sub>`` fragment; returns None otherwise. URLs
+    missing the subgroup fragment are rejected on purpose — without a
+    subgroup the identity is ambiguous.
+    """
+    if not url:
+        return None
+    stripped = url.strip()
+    if not stripped:
+        return None
+    match = _CANONICAL_BANGUMI_URL_RE.search(stripped)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))

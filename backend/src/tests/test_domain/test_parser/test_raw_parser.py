@@ -228,14 +228,11 @@ class TestStarSeparatorRejection:
     """★-as-separator torrent names must raise BangumiParsingError.
 
     The 六四位元字幕组 (64bitsub) feed uses ★ as a field delimiter
-    ("group★title★ep★resolution★codec★subtitle"). The BangumiParser has no
-    concept of ★ as a separator, so it silently captures unrelated
-    segments as title/group. That then feeds wrong canonical_title into
-    save_path generation, producing stray cloud folders like
-    "MP4★繁体中文/Season 1/...".
-
-    These torrents are rejected here so aggregate-feed resilience skips
-    them and Mikan <link>-based identity resolution takes over.
+    ("group★title★ep★resolution★codec★subtitle"). Rather than shipping a
+    per-fansub parser for every delimiter convention, these torrents are
+    rejected and routed to a human-in-the-loop pending queue where the
+    operator provides a canonical bangumi identity once, then the system
+    remembers it for future episodes from the same Mikan bangumi page.
     """
 
     def test_rejects_bracketless_star_delimited_format(self) -> None:

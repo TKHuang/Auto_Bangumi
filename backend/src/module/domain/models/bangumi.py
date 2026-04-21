@@ -37,6 +37,14 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
                 "mikan_subgroup_id IS NULL AND deleted = 0"
             ),
         ),
+        Index(
+            "uq_bangumi_mikan_url",
+            "mikan_bangumi_url",
+            unique=True,
+            sqlite_where=text(
+                "mikan_bangumi_url IS NOT NULL AND deleted = 0"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -81,6 +89,14 @@ class Bangumi(Base, TimestampMixin, VersionMixin):
         String, nullable=True
     )
     observed_groups: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Canonical Mikan bangumi-page URL (e.g.
+    # "https://mikanani.me/Home/Bangumi/3901#1243"). Populated when the
+    # bangumi is resolved via the pending-resolution flow; lets later RSS
+    # items for the same show short-circuit the parser/Mikan-resolver path.
+    mikan_bangumi_url: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
 
     series: Mapped["Series"] = relationship("Series", lazy="select")
 

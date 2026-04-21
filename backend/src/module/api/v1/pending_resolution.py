@@ -9,8 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.api.middleware.auth import get_current_user
+from module.conf import settings
 from module.database.engine import get_db_session
 from module.domain.models.pending_enrichment import PendingTorrentEnrichment
+from module.mikan.parser import (
+    build_canonical_bangumi_url,
+    parse_canonical_bangumi_url,
+)
+from module.repositories.bangumi import BangumiRepository
+from module.services.identity_resolver import resolve_series_for_rss
 from module.services.pending_enrichment import PendingEnrichmentService
 
 router = APIRouter(prefix="/pending-resolution", tags=["pending-resolution"])
@@ -44,6 +51,19 @@ class RetryResponse(BaseModel):
     mikan_bangumi_id: Optional[int] = None
     mikan_subgroup_id: Optional[int] = None
     error: Optional[str] = None
+
+
+class ResolveRequest(BaseModel):
+    mikan_bangumi_url: str
+    title: str
+    season: int = 1
+
+
+class ResolveResponse(BaseModel):
+    info_hash: str
+    bangumi_id: int
+    mikan_bangumi_url: str
+    short_circuited: bool
 
 
 # ---------------------------------------------------------------------------
@@ -182,4 +202,98 @@ async def retry_pending(
         resolved=True,
         mikan_bangumi_id=ref.mikan_bangumi_id,
         mikan_subgroup_id=ref.mikan_subgroup_id,
+    )
+
+
+@router.post(
+    "/{info_hash}/resolve",
+    response_model=ResolveResponse,
+    dependencies=[Depends(get_current_user)],
+)
+async def resolve_pending(
+    info_hash: str,
+    body: ResolveRequest,
+    session: AsyncSession = Depends(get_db_session),
+) -> ResolveResponse:
+    """Operator-supplied bangumi identity for a torrent the parser gave up on.
+
+    Spec §8.3 human-in-the-loop flow:
+    - Operator pastes the canonical Mikan bangumi-page URL
+      (``https://mikanani.me/Home/Bangumi/<bid>#<sid>``) and a title override.
+    - We create a Bangumi row stamped with ``mikan_bangumi_url`` so future
+      RSS items with the same Mikan page short-circuit the parser path.
+    - The pending row is removed on success; the torrent itself is *not*
+      built here — RSSEngine will re-ingest it on the next refresh and bind
+      automatically via the short-circuit.
+    """
+    ids = parse_canonical_bangumi_url(body.mikan_bangumi_url)
+    if ids is None:
+        raise HTTPException(
+            400,
+            "mikan_bangumi_url must contain /Home/Bangumi/<id>#<sub>",
+        )
+    bangumi_id_m, subgroup_id = ids
+    canonical = build_canonical_bangumi_url(bangumi_id_m, subgroup_id)
+
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "title is required")
+
+    row = (
+        await session.execute(
+            select(PendingTorrentEnrichment).where(
+                PendingTorrentEnrichment.info_hash == info_hash
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, f"pending info_hash {info_hash!r} not found")
+
+    pending_rss_id = row.rss_id
+    bangumi_repo = BangumiRepository(session)
+    svc = PendingEnrichmentService(session)
+
+    existing = await bangumi_repo.get_by_mikan_bangumi_url(canonical)
+    if existing is not None:
+        await svc.remove(info_hash)
+        await session.commit()
+        return ResolveResponse(
+            info_hash=info_hash,
+            bangumi_id=existing.id,
+            mikan_bangumi_url=canonical,
+            short_circuited=True,
+        )
+
+    resolved = await resolve_series_for_rss(
+        session,
+        rss_link=canonical,
+        parsed_title=title,
+        parsed_season=body.season,
+    )
+
+    default_filter = ",".join(settings.rss_parser.filter)
+    created = await bangumi_repo.create({
+        "series_id": resolved.series.id,
+        "mikan_subgroup_id": subgroup_id,
+        "mikan_bangumi_url": canonical,
+        "group_name": "Unknown",
+        "rss_link": "",
+        "rss_id": pending_rss_id,
+        "filter": default_filter,
+        "eps_collect": False,
+        "offset": 0,
+        "added": True,
+        "deleted": False,
+        "pending_review": False,
+        "active": True,
+    })
+
+    await svc.remove(info_hash)
+    await session.commit()
+
+    return ResolveResponse(
+        info_hash=info_hash,
+        bangumi_id=created.id,
+        mikan_bangumi_url=canonical,
+        short_circuited=False,
     )

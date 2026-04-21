@@ -355,6 +355,29 @@ class BangumiRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_mikan_bangumi_url(
+        self, mikan_bangumi_url: str
+    ) -> Optional[Bangumi]:
+        """Short-circuit lookup for aggregate-RSS ingestion: once an operator
+        resolves a bangumi via the pending queue (binding the canonical Mikan
+        bangumi-page URL), future episodes whose Mikan page maps to the same
+        URL bind automatically. Returns None when no undeleted row matches.
+        """
+        if not mikan_bangumi_url:
+            return None
+        stmt = (
+            select(Bangumi)
+            .options(selectinload(Bangumi.series))
+            .where(
+                and_(
+                    Bangumi.mikan_bangumi_url == mikan_bangumi_url,
+                    Bangumi.deleted == False,
+                )
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def list_by_series(self, series_id: int) -> list[Bangumi]:
         stmt = select(Bangumi).where(
             and_(Bangumi.series_id == series_id, Bangumi.deleted == False)

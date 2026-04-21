@@ -330,3 +330,148 @@ class _FakeResolverCtx:
         if self._raise is not None:
             raise self._raise
         return self._result
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/pending-resolution/{info_hash}/resolve
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePending:
+    _URL = "https://mikanani.me/Home/Bangumi/3901#1243"
+
+    @pytest.mark.asyncio
+    async def test_rejects_url_missing_subgroup(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/v1/pending-resolution/h1/resolve",
+            json={
+                "mikan_bangumi_url": "https://mikanani.me/Home/Bangumi/3901",
+                "title": "Test Anime",
+            },
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_title(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/v1/pending-resolution/h1/resolve",
+            json={"mikan_bangumi_url": self._URL, "title": "   "},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_returns_404_when_pending_missing(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        from module.database.engine import get_db_session
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        async def override():
+            yield mock_session
+
+        app.dependency_overrides[get_db_session] = override
+        try:
+            resp = client.post(
+                "/api/v1/pending-resolution/h1/resolve",
+                json={"mikan_bangumi_url": self._URL, "title": "Test Anime"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db_session, None)
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_short_circuits_when_bangumi_already_bound(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        from module.database.engine import get_db_session
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = _mock_pending("h1", rss_id=7)
+        mock_session.execute.return_value = mock_result
+
+        async def override():
+            yield mock_session
+
+        app.dependency_overrides[get_db_session] = override
+        existing = MagicMock(id=42)
+        svc = AsyncMock()
+        repo = AsyncMock()
+        repo.get_by_mikan_bangumi_url.return_value = existing
+        try:
+            with patch(
+                "module.api.v1.pending_resolution.BangumiRepository",
+                return_value=repo,
+            ), patch(
+                "module.api.v1.pending_resolution.PendingEnrichmentService",
+                return_value=svc,
+            ):
+                resp = client.post(
+                    "/api/v1/pending-resolution/h1/resolve",
+                    json={"mikan_bangumi_url": self._URL, "title": "Test Anime"},
+                )
+        finally:
+            app.dependency_overrides.pop(get_db_session, None)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["bangumi_id"] == 42
+        assert body["short_circuited"] is True
+        assert body["mikan_bangumi_url"] == self._URL
+        svc.remove.assert_awaited_once_with("h1")
+
+    @pytest.mark.asyncio
+    async def test_creates_bangumi_and_removes_pending(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        from module.database.engine import get_db_session
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = _mock_pending("h1", rss_id=9)
+        mock_session.execute.return_value = mock_result
+
+        async def override():
+            yield mock_session
+
+        app.dependency_overrides[get_db_session] = override
+        repo = AsyncMock()
+        repo.get_by_mikan_bangumi_url.return_value = None
+        repo.create.return_value = MagicMock(id=77)
+        svc = AsyncMock()
+        resolved = MagicMock(series=MagicMock(id=5))
+        try:
+            with patch(
+                "module.api.v1.pending_resolution.BangumiRepository",
+                return_value=repo,
+            ), patch(
+                "module.api.v1.pending_resolution.PendingEnrichmentService",
+                return_value=svc,
+            ), patch(
+                "module.api.v1.pending_resolution.resolve_series_for_rss",
+                AsyncMock(return_value=resolved),
+            ):
+                resp = client.post(
+                    "/api/v1/pending-resolution/h1/resolve",
+                    json={"mikan_bangumi_url": self._URL, "title": "Test Anime"},
+                )
+        finally:
+            app.dependency_overrides.pop(get_db_session, None)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["bangumi_id"] == 77
+        assert body["short_circuited"] is False
+        assert body["mikan_bangumi_url"] == self._URL
+
+        create_kwargs = repo.create.await_args.args[0]
+        assert create_kwargs["series_id"] == 5
+        assert create_kwargs["mikan_subgroup_id"] == 1243
+        assert create_kwargs["mikan_bangumi_url"] == self._URL
+        assert create_kwargs["rss_id"] == 9
+        assert create_kwargs["pending_review"] is False
+        svc.remove.assert_awaited_once_with("h1")

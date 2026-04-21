@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from module.mikan.parser import MikanRef, parse_mikan_page
+from module.mikan.parser import (
+    MikanRef,
+    build_canonical_bangumi_url,
+    parse_canonical_bangumi_url,
+    parse_mikan_page,
+)
 
 _FIX = Path(__file__).parent.parent / "fixtures" / "mikan"
 
@@ -59,3 +64,57 @@ class TestParseMikanPage:
         assert ref is not None
         assert ref.mikan_bangumi_id == 100
         assert ref.mikan_subgroup_id == 1
+
+
+@pytest.mark.unit
+class TestCanonicalBangumiUrl:
+    def test_build_returns_default_host_form(self):
+        url = build_canonical_bangumi_url(3901, 1243)
+        assert url == "https://mikanani.me/Home/Bangumi/3901#1243"
+
+    def test_build_accepts_custom_base_url(self):
+        url = build_canonical_bangumi_url(
+            3901, 1243, base_url="https://mikanime.tv/"
+        )
+        assert url == "https://mikanime.tv/Home/Bangumi/3901#1243"
+
+    def test_build_rejects_non_positive_bangumi_id(self):
+        with pytest.raises(ValueError):
+            build_canonical_bangumi_url(0, 1243)
+        with pytest.raises(ValueError):
+            build_canonical_bangumi_url(-1, 1243)
+
+    def test_build_rejects_non_positive_subgroup_id(self):
+        with pytest.raises(ValueError):
+            build_canonical_bangumi_url(3901, 0)
+        with pytest.raises(ValueError):
+            build_canonical_bangumi_url(3901, -5)
+
+    def test_parse_roundtrips_build_output(self):
+        url = build_canonical_bangumi_url(3901, 1243)
+        assert parse_canonical_bangumi_url(url) == (3901, 1243)
+
+    def test_parse_accepts_path_only_input(self):
+        assert parse_canonical_bangumi_url(
+            "/Home/Bangumi/42#7"
+        ) == (42, 7)
+
+    def test_parse_tolerates_surrounding_whitespace(self):
+        assert parse_canonical_bangumi_url(
+            "   https://mikanani.me/Home/Bangumi/1#2   "
+        ) == (1, 2)
+
+    def test_parse_rejects_url_missing_subgroup_fragment(self):
+        assert parse_canonical_bangumi_url(
+            "https://mikanani.me/Home/Bangumi/3901"
+        ) is None
+
+    def test_parse_rejects_non_bangumi_path(self):
+        assert parse_canonical_bangumi_url(
+            "https://mikanani.me/Home/Episode/0738c550"
+        ) is None
+
+    def test_parse_returns_none_for_empty_input(self):
+        assert parse_canonical_bangumi_url(None) is None
+        assert parse_canonical_bangumi_url("") is None
+        assert parse_canonical_bangumi_url("   ") is None

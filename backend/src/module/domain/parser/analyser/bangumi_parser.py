@@ -103,6 +103,11 @@ class BangumiParser:
         self._season_roman_re = re.compile(
             r"\b(I{1,3}|IV|VI{0,3}|IX|XI{0,2})\b(?:\s|$|]|】)"
         )
+        # Trailing-digit season marker inside a parsed title fragment
+        # ("异世界悠闲农家 2", "Isekai Nonbiri Nouka 2"). Only consulted as a
+        # fallback via _recover_trailing_season, guarded by alt_title
+        # consistency so plain episode/part numbers don't get promoted.
+        self._trailing_season_re = re.compile(r"^(.+?)\s+(\d{1,2})\s*$")
 
         # Chinese numeral to Arabic numeral mapping
         self._chinese_numeral_map = {
@@ -303,6 +308,31 @@ class BangumiParser:
 
         # Extract title and alternative titles
         main_title, alt_titles = self._extract_title(title, brackets)
+
+        # Trailing-digit season recovery: only when no explicit marker fired
+        # AND the torrent exposes at least one alt_title that also ends with
+        # the *same* trailing digit. Requiring the alt-title witness is what
+        # keeps "Psycho-Pass 3" (no alt) from being promoted to S3 while
+        # still catching "异世界悠闲农家 2 / Isekai Nonbiri Nouka 2".
+        if season == 1 and alt_titles:
+            new_main, recovered = self._recover_trailing_season(main_title)
+            if recovered is not None:
+                new_alts: list[str] = []
+                consistent = False  # require at least one matching alt
+                for alt in alt_titles:
+                    if not alt:
+                        new_alts.append(alt)
+                        continue
+                    stripped, alt_recovered = self._recover_trailing_season(alt)
+                    if alt_recovered != recovered:
+                        consistent = False
+                        break
+                    new_alts.append(stripped)
+                    consistent = True
+                if consistent:
+                    season = recovered
+                    main_title = new_main
+                    alt_titles = new_alts
 
         # Detect if this is a movie (theatrical release)
         is_movie = self._is_movie(title)
@@ -607,6 +637,31 @@ class BangumiParser:
 
         # Default to season 1
         return 1
+
+    def _recover_trailing_season(self, title: Optional[str]) -> tuple[Optional[str], Optional[int]]:
+        """Pull a bare trailing digit off a parsed title fragment.
+
+        Many fansub releases mark season only as a space-separated digit on
+        the title itself (e.g. "异世界悠闲农家 2 / Isekai Nonbiri Nouka 2"),
+        without S2/Season 2/第二季 markers that `_extract_season` understands.
+        When that happens this helper returns (title_without_suffix, season);
+        otherwise it returns (title, None).
+
+        The caller is responsible for gating on alt-title consistency so
+        that ordinary episode numbers inadvertently left in the title are
+        not promoted to season.
+        """
+        if not title:
+            return title, None
+        match = self._trailing_season_re.match(title)
+        if not match:
+            return title, None
+        num = int(match.group(2))
+        # 2..12 keeps us inside plausible season numbers and avoids noisy
+        # promotions of "1" (already the default) or very large digits.
+        if 2 <= num <= 12:
+            return match.group(1).strip(), num
+        return title, None
 
     def _chinese_to_arabic(self, chinese_num: str) -> int:
         """Convert Chinese numerals to Arabic numerals.

@@ -395,8 +395,80 @@ class TestRSSRepository:
 
     async def test_set_status_returns_false_when_rss_not_found(self, async_session):
         repo = RSSRepository(async_session)
-        
+
         async with async_session.begin():
             result = await repo.set_status(99999, "processing")
-        
+
         assert result is False
+
+    async def test_cascade_delete_garbage_collects_orphan_series(
+        self, async_session
+    ):
+        from sqlalchemy import func, select
+
+        from module.domain.models import Bangumi
+        from module.domain.models.series import Series
+
+        repo = RSSRepository(async_session)
+
+        async with async_session.begin():
+            rss = RSSItem(name="feed", url="https://x/y", parser="mikan")
+            series = Series(
+                canonical_title="T",
+                normalized_title="t",
+                season=1,
+                root_path="/r",
+            )
+            async_session.add_all([rss, series])
+            await async_session.flush()
+
+            async_session.add(
+                Bangumi(series_id=series.id, rss_id=rss.id, group_name="G")
+            )
+
+        async with async_session.begin():
+            assert await repo.cascade_delete(rss.id) is True
+
+        async with async_session.begin():
+            total = await async_session.execute(
+                select(func.count()).select_from(Series)
+            )
+            assert total.scalar_one() == 0
+
+    async def test_cascade_delete_keeps_series_with_surviving_bangumi(
+        self, async_session
+    ):
+        from sqlalchemy import select
+
+        from module.domain.models import Bangumi
+        from module.domain.models.series import Series
+
+        repo = RSSRepository(async_session)
+
+        async with async_session.begin():
+            rss_a = RSSItem(name="a", url="https://x/a", parser="mikan")
+            rss_b = RSSItem(name="b", url="https://x/b", parser="mikan")
+            series = Series(
+                canonical_title="T",
+                normalized_title="t",
+                season=1,
+                root_path="/r",
+            )
+            async_session.add_all([rss_a, rss_b, series])
+            await async_session.flush()
+
+            async_session.add_all([
+                Bangumi(series_id=series.id, rss_id=rss_a.id, group_name="A"),
+                Bangumi(series_id=series.id, rss_id=rss_b.id, group_name="B"),
+            ])
+
+        async with async_session.begin():
+            assert await repo.cascade_delete(rss_a.id) is True
+
+        async with async_session.begin():
+            survivor = (
+                await async_session.execute(
+                    select(Series).where(Series.id == series.id)
+                )
+            ).scalar_one_or_none()
+            assert survivor is not None

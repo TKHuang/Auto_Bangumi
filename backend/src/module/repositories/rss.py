@@ -146,6 +146,7 @@ class RSSRepository:
 
     async def cascade_delete(self, id: int) -> bool:
         from module.domain.models.bangumi import Bangumi
+        from module.domain.models.series import Series
         from module.domain.models.torrent import Torrent
 
         rss = await self.get_by_id(id)
@@ -157,6 +158,14 @@ class RSSRepository:
         )
 
         bangumi_ids = await self._collect_cascade_bangumi_ids(rss)
+        affected_series_ids: set[int] = set()
+        if bangumi_ids:
+            series_rows = await self.session.execute(
+                select(Bangumi.series_id).where(Bangumi.id.in_(bangumi_ids))
+            )
+            affected_series_ids = {
+                row for row in series_rows.scalars().all() if row is not None
+            }
         for bangumi_id in bangumi_ids:
             await self.session.execute(
                 delete(Torrent).where(Torrent.bangumi_id == bangumi_id)
@@ -164,6 +173,20 @@ class RSSRepository:
             await self.session.execute(
                 delete(Bangumi).where(Bangumi.id == bangumi_id)
             )
+
+        # GC any series left without a surviving bangumi — otherwise deleted
+        # RSS feeds leave phantom series rows that still own canonical titles
+        # and break a "fresh" re-subscription.
+        for series_id in affected_series_ids:
+            remaining = await self.session.execute(
+                select(func.count())
+                .select_from(Bangumi)
+                .where(Bangumi.series_id == series_id)
+            )
+            if remaining.scalar_one() == 0:
+                await self.session.execute(
+                    delete(Series).where(Series.id == series_id)
+                )
 
         await self.session.execute(
             delete(RSSItem).where(RSSItem.id == id)

@@ -31,13 +31,14 @@ def raw_parser(raw: str) -> Episode | None:
     # inside/around brackets (e.g. "【group】★04月新番★[title]..."), which
     # always carry at least one [ or 【. Bail early on bracketless names
     # with ≥ 3 ★ separators so the aggregate resilience path skips the
-    # torrent and Mikan <link>-based enrichment resolves identity instead.
+    # torrent and a human-in-the-loop resolution flow (pending queue)
+    # picks it up instead of shipping a new per-fansub parser.
     if normalized.count("★") >= 3 and "[" not in normalized:
         raise BangumiParsingError(
             raw_title=raw,
             partial_data={"raw_title": raw},
-            msg_en="Unsupported ★-delimited torrent name; defer to Mikan enrichment.",
-            msg_zh="不支援 ★ 分隔的種子名稱，改由 Mikan 補齊身份。",
+            msg_en="Unsupported ★-delimited torrent name; defer to human review.",
+            msg_zh="不支援 ★ 分隔的種子名稱，改由人工補齊身份。",
         )
 
     parser = BangumiParser()

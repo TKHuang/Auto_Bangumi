@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from module.domain.value_objects import BangumiParsingError
+from module.domain.parser.analyser.mikan_parser import MikanParserResult
 from module.models import Bangumi, RSSItem, Torrent
 from module.rss.analyser import RSSAnalyser
 
@@ -63,3 +64,44 @@ def test_torrents_to_data_skips_unparseable_in_aggregate():
     assert len(result) == 2, f"expected 2 surviving bangumi, got {titles}"
     assert "ANi] Show A" in titles
     assert "ANi] Show B" in titles
+
+
+@pytest.mark.unit
+def test_torrents_to_data_surfaces_star_delimited_mikan_item_for_review():
+    rss = RSSItem(
+        id=1,
+        name="agg",
+        url="https://mikanani.me/RSS/MyBangumi?token=test",
+        aggregate=True,
+        parser="mikan",
+        enabled=True,
+    )
+    torrent = Torrent(
+        name=(
+            "六四位元字幕组★哪里有温柔对待阿宅的辣妹！？ "
+            "Otaku ni Yasashii Gal wa Inai★02★1920x1080★AVC AAC MP4★繁体中文"
+        ),
+        url="https://mikanani.me/Download/20260416/0738c550bda7fa8709f837b904ee3ade6e1bf3b4.torrent",
+        homepage="https://mikanani.me/Home/Episode/0738c550bda7fa8709f837b904ee3ade6e1bf3b4",
+        hash="0738c550bda7fa8709f837b904ee3ade6e1bf3b4",
+    )
+
+    analyser = RSSAnalyser()
+
+    with patch.object(
+        RSSAnalyser,
+        "mikan_parser_with_rss",
+        return_value=MikanParserResult(
+            poster_link="https://example.test/poster.jpg",
+            official_title="没有辣妹会对阿宅温柔!?",
+            season_rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=3901&subgroupid=1243",
+        ),
+    ):
+        result = analyser.torrents_to_data([torrent], rss, full_parse=True)
+
+    assert len(result) == 1
+    assert result[0].official_title == "没有辣妹会对阿宅温柔!?"
+    assert result[0].title_raw == torrent.name
+    assert result[0].group_name == "六四位元字幕组"
+    assert result[0].rss_link == "https://mikanani.me/RSS/Bangumi?bangumiId=3901&subgroupid=1243"
+    assert result[0].pending_review is True
