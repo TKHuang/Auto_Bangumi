@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import re
-
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -602,22 +601,12 @@ class PikPakDownloader:
         Returns:
             List of TorrentInfo objects with hash, name, state, progress, save_path, files.
         """
-        if status_filter == "completed":
-            phases = {"PHASE_TYPE_COMPLETE"}
-        elif status_filter == "downloading":
-            phases = {"PHASE_TYPE_RUNNING", "PHASE_TYPE_PENDING"}
-        elif status_filter == "error":
-            phases = {"PHASE_TYPE_ERROR"}
-        else:
-            phases = None
-
         self._invalidate_path_cache()
 
         all_tasks = await self._get_all_tasks_cached()
-        tasks = [t for t in all_tasks if phases is None or t.get("phase", "") in phases]
         torrents: list[TorrentInfo] = []
 
-        for task in tasks:
+        for task in all_tasks:
             # Extract torrent hash from the original magnet URL
             file_url = task.get("file_url", "") or task.get("params", {}).get(
                 "url", ""
@@ -657,51 +646,16 @@ class PikPakDownloader:
                 continue
 
             files: list[TorrentFile] = []
-            if state == "completed" and save_path:
-                if status_filter == "completed":
-                    # PikPak sets file_name to the folder name (no extension)
-                    # for collection torrents (合集) — detect via extension.
-                    task_file_name = task.get("file_name", "")
-                    task_file_size = int(task.get("file_size", 0) or 0)
-                    basename = task_file_name.rsplit("/", 1)[-1] if task_file_name else ""
-                    is_single_file = bool(basename) and "." in basename and not basename.startswith(".")
+            if save_path:
+                files = await self._resolve_task_files(task, save_path, state)
+                state = self._normalize_task_state(task, state, files)
 
-                    logger.info(
-                        f"[PikPak] File detection: task_file_name='{task_file_name}', "
-                        f"is_single_file={is_single_file}, save_path='{save_path}'"
-                    )
-
-                    if task_file_name and is_single_file:
-                        files = [TorrentFile(name=task_file_name, size=task_file_size, path=task_file_name)]
-                    elif task_file_name:
-                        collection_path = f"{save_path}/{task_file_name}"
-                        logger.info(f"[PikPak] Collection detected, listing: {collection_path}")
-                        raw_files = await self._list_files_in_folder(collection_path)
-                        files = [
-                            TorrentFile(
-                                name=f"{task_file_name}/{f.name}",
-                                size=f.size,
-                                path=f"{task_file_name}/{f.path}",
-                            )
-                            for f in raw_files
-                        ]
-                        # On retrigger, media files from a previous rename cycle
-                        # may have been moved to save_path root (parent folder).
-                        # Scan root for direct files and merge any not already found.
-                        root_files = await self._list_direct_files_in_folder(save_path)
-                        seen_names = {f.name for f in files}
-                        for rf in root_files:
-                            if rf.name not in seen_names:
-                                files.append(rf)
-                    else:
-                        logger.info(f"[PikPak] No file_name, listing save_path: {save_path}")
-                        files = await self._list_files_in_folder(save_path)
-                    logger.info(f"[PikPak] Task '{task.get('name')}': found {len(files)} files")
-                    if not files:
-                        state = "missing"
-            elif state == "error":
-                if status_filter == "completed":
-                    continue
+            if status_filter == "completed" and state not in {"completed", "missing"}:
+                continue
+            if status_filter == "downloading" and state not in {"downloading", "stalledDL"}:
+                continue
+            if status_filter == "error" and state != "error":
+                continue
 
             torrent_info = TorrentInfo(
                 hash=torrent_hash.lower() if torrent_hash else "",
@@ -1198,7 +1152,21 @@ class PikPakDownloader:
 
         file_id = await self._find_file_id_by_path(full_old_path)
         if not file_id:
+            file_id, kind = await self._find_file_or_folder_id_by_name(
+                os.path.dirname(full_old_path),
+                os.path.basename(full_old_path),
+            )
+            if kind != "drive#file":
+                file_id = None
+        if not file_id:
             target_file_id = await self._find_file_id_by_path(full_new_path)
+            if not target_file_id:
+                target_file_id, target_kind = await self._find_file_or_folder_id_by_name(
+                    os.path.dirname(full_new_path),
+                    os.path.basename(full_new_path),
+                )
+                if target_kind != "drive#file":
+                    target_file_id = None
             if target_file_id:
                 logger.debug(f"File already has target name: {full_new_path}")
                 return True
@@ -1275,6 +1243,109 @@ class PikPakDownloader:
 
         return None
 
+    async def _find_offline_tasks(self, normalized_hash: str) -> list[dict[str, Any]]:
+        """Find all offline tasks matching a torrent hash."""
+        tasks = await self._get_all_tasks_cached()
+        matched: list[dict[str, Any]] = []
+        for task in tasks:
+            file_url = task.get("file_url", "") or task.get("params", {}).get(
+                "url", ""
+            )
+            task_hash = self._extract_hash(file_url)
+            if task_hash and task_hash.lower() == normalized_hash:
+                matched.append(task)
+        return matched
+
+    async def _cleanup_lingering_task_files(
+        self,
+        normalized_hash: str,
+        task_names: list[str],
+        task_file_ids: list[str] | None = None,
+    ) -> bool:
+        """Best-effort cleanup for files left behind after task deletion.
+
+        PikPak may acknowledge task deletion with delete_files=true while leaving
+        the actual file/folder in cloud storage. In that case, look in the
+        torrent's save_path and remove direct entries whose names still match the
+        deleted task payload.
+        """
+        deleted_any = False
+
+        for file_id in {fid for fid in (task_file_ids or []) if fid}:
+            try:
+                await self._client.delete_to_trash(ids=[file_id])
+                deleted_any = True
+                logger.info(
+                    f"Deleted lingering cloud entry by file_id for torrent {normalized_hash}: {file_id}"
+                )
+            except Exception as e:
+                logger.debug(f"Error deleting lingering file_id '{file_id}': {e}")
+
+        current_path = await self.get_torrent_path(normalized_hash)
+        if not current_path:
+            return deleted_any
+
+        for name in {n for n in task_names if n}:
+            file_id, _kind = await self._find_file_or_folder_id_by_name(
+                current_path, name
+            )
+            if not file_id:
+                continue
+            try:
+                await self._client.delete_to_trash(ids=[file_id])
+                deleted_any = True
+                logger.info(
+                    f"Deleted lingering cloud entry for torrent {normalized_hash}: {name}"
+                )
+            except Exception as e:
+                logger.debug(f"Error deleting lingering cloud entry '{name}': {e}")
+
+        return deleted_any
+
+    async def _cleanup_entire_save_path_if_safe(self, normalized_hash: str) -> bool:
+        """Delete the whole save_path if this hash is the sole owner of that path."""
+        if not self.session:
+            return False
+
+        repo = TorrentRepository(self.session)
+        torrent_record = await repo.get_by_hash(normalized_hash)
+        if not torrent_record or not torrent_record.pikpak_cloud_path:
+            return False
+
+        bangumi_id = getattr(torrent_record, "bangumi_id", None)
+        if bangumi_id is None:
+            return False
+
+        current_path = torrent_record.pikpak_cloud_path
+        siblings = await repo.get_by_bangumi(bangumi_id)
+        competing_hashes = {
+            sibling.hash.lower()
+            for sibling in siblings
+            if sibling.hash
+            and sibling.hash.lower() != normalized_hash
+            and sibling.pikpak_cloud_path == current_path
+        }
+        if competing_hashes:
+            logger.debug(
+                f"Skipping full save_path cleanup for {normalized_hash}: "
+                f"path shared by {len(competing_hashes)} other torrent(s)"
+            )
+            return False
+
+        folder_id = await self._find_file_id_by_path(current_path)
+        if not folder_id:
+            return False
+
+        try:
+            await self._client.delete_to_trash(ids=[folder_id])
+            logger.info(
+                f"Deleted entire save_path for torrent {normalized_hash}: {current_path}"
+            )
+            return True
+        except Exception as e:
+            logger.debug(f"Error deleting full save_path '{current_path}': {e}")
+            return False
+
     async def _delete_tasks_direct(
         self, task_ids: list[str], delete_files: bool = False
     ) -> None:
@@ -1313,28 +1384,38 @@ class PikPakDownloader:
             f"Deleting torrent from PikPak: {normalized_hash} (delete_files={delete_files})"
         )
 
-        task_id = None
+        task_ids: list[str] = []
+        task_names: list[str] = []
+        task_file_ids: list[str] = []
         files_deleted = False
         task_deleted = False
 
         try:
-            task_id = await self._find_offline_task_id(normalized_hash)
+            tasks = await self._find_offline_tasks(normalized_hash)
+            task_ids = [task.get("id") for task in tasks if task.get("id")]
+            task_names = [task.get("file_name") or task.get("name", "") for task in tasks]
+            task_file_ids = [task.get("file_id") for task in tasks if task.get("file_id")]
         except Exception as e:
             logger.debug(f"Error finding offline task: {e}")
 
-        if task_id:
+        if task_ids:
             try:
-                await self._delete_tasks_direct([task_id], delete_files=delete_files)
+                await self._delete_tasks_direct(task_ids, delete_files=delete_files)
                 task_deleted = True
-                if delete_files:
-                    files_deleted = True
                 logger.info(
-                    f"Deleted task for torrent: {normalized_hash} (delete_files={delete_files})"
+                    f"Deleted {len(task_ids)} task(s) for torrent: {normalized_hash} "
+                    f"(delete_files={delete_files})"
                 )
             except Exception as e:
                 logger.debug(f"Error deleting task: {e}")
 
-        # If no task found and delete_files is True, try to delete the completed file directly
+        if delete_files:
+            if task_deleted:
+                files_deleted = await self._cleanup_lingering_task_files(
+                    normalized_hash, task_names, task_file_ids
+                )
+
+        # If no task cleanup succeeded, try to delete the completed file directly.
         if not files_deleted and delete_files:
             current_path = await self.get_torrent_path(normalized_hash)
             if current_path:
@@ -1354,6 +1435,10 @@ class PikPakDownloader:
                             except Exception as e:
                                 logger.debug(f"Error deleting file to trash: {e}")
                         break
+            if not files_deleted:
+                files_deleted = await self._cleanup_entire_save_path_if_safe(
+                    normalized_hash
+                )
 
         if task_deleted or files_deleted:
             logger.debug(f"Torrent deletion complete for: {normalized_hash}")
@@ -1382,17 +1467,32 @@ class PikPakDownloader:
         await self._ensure_valid_token()
 
         normalized_hashes = [h.lower() for h in hashes]
-        hash_to_task_id: dict[str, str] = {}
+        hash_to_task_ids: dict[str, list[str]] = {}
+        hash_to_task_names: dict[str, list[str]] = {}
+        hash_to_task_file_ids: dict[str, list[str]] = {}
 
         tasks = await self._get_all_tasks_cached()
         for task in tasks:
             file_url = task.get("file_url", "") or task.get("params", {}).get("url", "")
             task_hash = self._extract_hash(file_url)
             if task_hash and task_hash.lower() in normalized_hashes:
-                hash_to_task_id[task_hash.lower()] = task.get("id")
+                normalized = task_hash.lower()
+                task_id = task.get("id")
+                if task_id:
+                    hash_to_task_ids.setdefault(normalized, []).append(task_id)
+                task_name = task.get("file_name") or task.get("name", "")
+                if task_name:
+                    hash_to_task_names.setdefault(normalized, []).append(task_name)
+                task_file_id = task.get("file_id")
+                if task_file_id:
+                    hash_to_task_file_ids.setdefault(normalized, []).append(task_file_id)
 
-        if hash_to_task_id:
-            task_ids = list(hash_to_task_id.values())
+        if hash_to_task_ids:
+            task_ids = [
+                task_id
+                for ids in hash_to_task_ids.values()
+                for task_id in ids
+            ]
             logger.info(
                 f"Batch deleting {len(task_ids)} offline tasks (delete_files={delete_files})"
             )
@@ -1402,8 +1502,20 @@ class PikPakDownloader:
                 logger.error(f"Batch task deletion failed: {e}")
 
         hashes_without_task = [
-            h for h in normalized_hashes if h not in hash_to_task_id
+            h for h in normalized_hashes if h not in hash_to_task_ids
         ]
+        if delete_files:
+            for h in normalized_hashes:
+                deleted_any = await self._cleanup_lingering_task_files(
+                    h,
+                    hash_to_task_names.get(h, []),
+                    hash_to_task_file_ids.get(h, []),
+                )
+                if deleted_any:
+                    logger.debug(f"Removed lingering cloud files for torrent: {h}")
+                else:
+                    await self._cleanup_entire_save_path_if_safe(h)
+
         if hashes_without_task and delete_files:
             file_ids_to_trash: list[str] = []
             torrents = await self.torrents_info()
@@ -1425,6 +1537,9 @@ class PikPakDownloader:
                     await self._client.delete_to_trash(ids=file_ids_to_trash)
                 except Exception as e:
                     logger.error(f"Batch file trash failed: {e}")
+
+            for h in hashes_without_task:
+                await self._cleanup_entire_save_path_if_safe(h)
 
         self._invalidate_task_cache()
         return True
@@ -1628,6 +1743,15 @@ class PikPakDownloader:
                 if torrent_hash:
                     phase = task.get("phase", "")
                     state = PHASE_STATE_MAP.get(phase, "unknown")
+                    save_path: str | None = None
+                    if self.session:
+                        repo = TorrentRepository(self.session)
+                        torrent_record = await repo.get_by_hash(torrent_hash.lower())
+                        save_path = torrent_record.pikpak_cloud_path if torrent_record else None
+                    files: list[TorrentFile] = []
+                    if save_path:
+                        files = await self._resolve_task_files(task, save_path, state)
+                        state = self._normalize_task_state(task, state, files)
                     key = torrent_hash.lower()
                     # Same hash may appear in multiple tasks (error + completed).
                     # Keep the best state (completed > error).
@@ -1641,6 +1765,113 @@ class PikPakDownloader:
         except Exception as e:
             logger.warning(f"[Downloader] Failed to get hash status map: {e}")
             return {}
+
+    def _normalize_task_state(
+        self,
+        task: dict[str, Any],
+        state: str,
+        files: list[TorrentFile],
+    ) -> str:
+        """Map stale PikPak task state to the user-visible status."""
+        if state == "completed" and not files:
+            return "missing"
+
+        if state == "error":
+            error_detail = task.get("params", {}).get("error_detail", "")
+            progress = task.get("progress", 0)
+            progress_complete = progress == 100 or progress == 1.0
+            if (
+                error_detail == "task_file_deleted"
+                and progress_complete
+                and files
+            ):
+                return "completed"
+
+        return state
+
+    async def _resolve_task_files(
+        self,
+        task: dict[str, Any],
+        save_path: str,
+        state: str,
+    ) -> list[TorrentFile]:
+        """Best-effort file resolution for a PikPak task."""
+        task_file_name = task.get("file_name", "")
+
+        if state == "completed":
+            return await self._resolve_completed_task_files(task, save_path)
+
+        if state == "error":
+            error_detail = task.get("params", {}).get("error_detail", "")
+            progress = task.get("progress", 0)
+            progress_complete = progress == 100 or progress == 1.0
+            if error_detail == "task_file_deleted" and progress_complete:
+                # After collection rename, PikPak's task may go stale because
+                # its original folder/file_id disappeared, while the moved files
+                # still exist in the save_path root.
+                root_files = await self._list_direct_files_in_folder(save_path)
+                if root_files:
+                    return root_files
+                if task_file_name:
+                    collection_path = f"{save_path}/{task_file_name}"
+                    raw_files = await self._list_files_in_folder(collection_path)
+                    return [
+                        TorrentFile(
+                            name=f"{task_file_name}/{f.name}",
+                            size=f.size,
+                            path=f"{task_file_name}/{f.path}",
+                        )
+                        for f in raw_files
+                    ]
+                return await self._list_files_in_folder(save_path)
+
+        return []
+
+    async def _resolve_completed_task_files(
+        self,
+        task: dict[str, Any],
+        save_path: str,
+    ) -> list[TorrentFile]:
+        """Resolve files for a normal completed PikPak task."""
+        # PikPak sets file_name to the folder name (no extension)
+        # for collection torrents (合集) — detect via extension.
+        task_file_name = task.get("file_name", "")
+        task_file_size = int(task.get("file_size", 0) or 0)
+        basename = task_file_name.rsplit("/", 1)[-1] if task_file_name else ""
+        is_single_file = bool(basename) and "." in basename and not basename.startswith(".")
+
+        logger.info(
+            f"[PikPak] File detection: task_file_name='{task_file_name}', "
+            f"is_single_file={is_single_file}, save_path='{save_path}'"
+        )
+
+        if task_file_name and is_single_file:
+            files = [TorrentFile(name=task_file_name, size=task_file_size, path=task_file_name)]
+        elif task_file_name:
+            collection_path = f"{save_path}/{task_file_name}"
+            logger.info(f"[PikPak] Collection detected, listing: {collection_path}")
+            raw_files = await self._list_files_in_folder(collection_path)
+            files = [
+                TorrentFile(
+                    name=f"{task_file_name}/{f.name}",
+                    size=f.size,
+                    path=f"{task_file_name}/{f.path}",
+                )
+                for f in raw_files
+            ]
+            # On retrigger, media files from a previous rename cycle
+            # may have been moved to save_path root (parent folder).
+            # Scan root for direct files and merge any not already found.
+            root_files = await self._list_direct_files_in_folder(save_path)
+            seen_names = {f.name for f in files}
+            for rf in root_files:
+                if rf.name not in seen_names:
+                    files.append(rf)
+        else:
+            logger.info(f"[PikPak] No file_name, listing save_path: {save_path}")
+            files = await self._list_files_in_folder(save_path)
+        logger.info(f"[PikPak] Task '{task.get('name')}': found {len(files)} files")
+        return files
 
     # =========================================================================
     # Stub Methods for API Compatibility

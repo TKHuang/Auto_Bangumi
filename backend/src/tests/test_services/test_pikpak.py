@@ -361,6 +361,51 @@ class TestPikPakDownloaderTorrents:
         assert result[0].progress == 0.5
 
     @pytest.mark.asyncio
+    async def test_torrents_info_treats_task_file_deleted_with_files_as_completed(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Treat stale PikPak task as completed when files still exist in save_path."""
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Collection [01-12]",
+                        "file_name": "Collection [01-12]",
+                        "phase": "PHASE_TYPE_ERROR",
+                        "message": "File deleted",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                        "params": {"error_detail": "task_file_deleted"},
+                    }
+                ]
+            }
+        )
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+                {"id": "season_id", "name": "Season 1"},
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "Episode 01.mkv", "kind": "drive#file", "id": "e1"},
+                    {"name": "Episode 02.mkv", "kind": "drive#file", "id": "e2"},
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.torrents_info(status_filter="all")
+
+        assert len(result) == 1
+        assert result[0].state == "completed"
+        assert len(result[0].files) == 2
+
+    @pytest.mark.asyncio
     async def test_torrents_delete_single_hash(
         self, pikpak_downloader, mock_pikpak_api
     ):
@@ -408,6 +453,165 @@ class TestPikPakDownloaderTorrents:
         mock_instance.offline_list.assert_called()
 
     @pytest.mark.asyncio
+    async def test_torrents_delete_deletes_all_matching_task_ids(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Test delete removes every PikPak task sharing the same torrent hash."""
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Episode 01",
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                    },
+                    {
+                        "id": "task_2",
+                        "name": "Episode 01 duplicate",
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                    },
+                ]
+            }
+        )
+
+        mock_response = MagicMock(status_code=200, text="OK")
+        mock_instance.httpx_client.request = AsyncMock(return_value=mock_response)
+
+        result = await pikpak_downloader.torrents_delete([target_hash], delete_files=False)
+
+        assert result is True
+        mock_instance.httpx_client.request.assert_awaited_once()
+        _, kwargs = mock_instance.httpx_client.request.await_args
+        assert kwargs["params"]["task_ids"] == "task_1,task_2"
+        assert kwargs["params"]["delete_files"] == "false"
+
+    @pytest.mark.asyncio
+    async def test_torrents_delete_fallback_cleans_lingering_direct_file(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Test delete_files cleans direct file residue when task delete leaves files behind."""
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        task_name = "Episode 01.mkv"
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": task_name,
+                        "file_name": task_name,
+                        "phase": "PHASE_TYPE_ERROR",
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                    }
+                ]
+            }
+        )
+
+        mock_response = MagicMock(status_code=200, text="OK")
+        mock_instance.httpx_client.request = AsyncMock(return_value=mock_response)
+        mock_instance.path_to_id = AsyncMock(
+            side_effect=[
+                [{"id": "season_id", "name": "downloads/Bangumi/Season 1"}],
+                [{"id": "season_id", "name": "downloads/Bangumi/Season 1"}],
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {
+                        "id": "file_1",
+                        "name": task_name,
+                        "kind": "drive#file",
+                    }
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.torrents_delete([target_hash], delete_files=True)
+
+        assert result is True
+        mock_instance.delete_to_trash.assert_awaited_once_with(ids=["file_1"])
+
+    @pytest.mark.asyncio
+    async def test_torrents_delete_fallback_uses_task_file_id_when_present(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Test delete_files prefers raw PikPak file_id for lingering cleanup."""
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Collection [01-12]",
+                        "file_name": "Collection [01-12]",
+                        "file_id": "folder_123",
+                        "phase": "PHASE_TYPE_ERROR",
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                    }
+                ]
+            }
+        )
+
+        mock_response = MagicMock(status_code=200, text="OK")
+        mock_instance.httpx_client.request = AsyncMock(return_value=mock_response)
+
+        result = await pikpak_downloader.torrents_delete([target_hash], delete_files=True)
+
+        assert result is True
+        mock_instance.delete_to_trash.assert_awaited_once_with(ids=["folder_123"])
+
+    @pytest.mark.asyncio
+    async def test_torrents_delete_fallback_deletes_entire_save_path_for_sole_owner(
+        self, pikpak_downloader, mock_pikpak_api, mock_database
+    ):
+        """Test delete_files can wipe the whole save_path when one hash owns it."""
+        _, mock_instance = mock_pikpak_api
+        _, mock_repo = mock_database
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        season_path = "downloads/Bangumi/Season 1"
+
+        torrent_record = MagicMock()
+        torrent_record.bangumi_id = 7
+        torrent_record.hash = target_hash
+        torrent_record.pikpak_cloud_path = season_path
+        mock_repo.get_by_hash = AsyncMock(return_value=torrent_record)
+        mock_repo.get_by_bangumi = AsyncMock(return_value=[torrent_record])
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Collection [01-12]",
+                        "phase": "PHASE_TYPE_ERROR",
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                    }
+                ]
+            }
+        )
+
+        mock_response = MagicMock(status_code=200, text="OK")
+        mock_instance.httpx_client.request = AsyncMock(return_value=mock_response)
+        mock_instance.path_to_id = AsyncMock(
+            side_effect=[
+                [{"id": "season_id", "name": season_path}],
+                [{"id": "season_id", "name": season_path}],
+            ]
+        )
+        mock_instance.file_list = AsyncMock(return_value={"files": []})
+
+        result = await pikpak_downloader.torrents_delete([target_hash], delete_files=True)
+
+        assert result is True
+        mock_instance.delete_to_trash.assert_awaited_once_with(ids=["season_id"])
+
+    @pytest.mark.asyncio
     async def test_get_existing_hashes(self, pikpak_downloader, mock_pikpak_api):
         """Test getting existing torrent hashes."""
         _, mock_instance = mock_pikpak_api
@@ -431,6 +635,48 @@ class TestPikPakDownloaderTorrents:
         assert len(result) == 2
         assert "abc123def456abc123def456abc123def456abc1" in result
         assert "def456abc123def456abc123def456abc12345ef" in result
+
+    @pytest.mark.asyncio
+    async def test_get_hash_status_map_treats_task_file_deleted_with_files_as_completed(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Hash status map should treat stale collection task as completed."""
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "Collection [01-12]",
+                        "file_name": "Collection [01-12]",
+                        "phase": "PHASE_TYPE_ERROR",
+                        "message": "File deleted",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                        "params": {"error_detail": "task_file_deleted"},
+                    }
+                ]
+            }
+        )
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+                {"id": "season_id", "name": "Season 1"},
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "Episode 01.mkv", "kind": "drive#file", "id": "e1"},
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.get_hash_status_map()
+
+        assert result[target_hash] == "completed"
 
 
 class TestCollectionTorrentDetection:
@@ -599,6 +845,53 @@ class TestPikPakDownloaderHashExtraction:
         """Test hash extraction returns None for invalid URLs."""
         result = pikpak_downloader._extract_hash("https://example.com/not-a-magnet")
         assert result is None
+
+
+class TestPikPakRenameFile:
+    @pytest.mark.asyncio
+    async def test_rename_file_falls_back_to_parent_exact_name_lookup(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+
+        old_name = "[Studio GreenTea] Kirei ni Shite Moraemasu ka [01].mp4"
+        new_name = "能帮我弄干净吗？ S01E01.mp4"
+
+        async def path_to_id_side_effect(path, create=False):
+            if path == "/downloads/Bangumi":
+                return [{"id": "folder_id", "name": "downloads/Bangumi"}]
+            if path in {
+                f"/downloads/Bangumi/{old_name}",
+                f"/downloads/Bangumi/{new_name}",
+            }:
+                return [{"id": "folder_id", "name": "downloads/Bangumi"}]
+            return None
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {
+                        "id": "file_id",
+                        "name": old_name,
+                        "kind": "drive#file",
+                    }
+                ]
+            }
+        )
+        mock_instance.file_rename = AsyncMock(return_value={"id": "file_id"})
+
+        result = await pikpak_downloader.torrents_rename_file(
+            "abc123def456abc123def456abc123def456abc1",
+            old_name,
+            new_name,
+        )
+
+        assert result is True
+        mock_instance.file_rename.assert_awaited_once_with(
+            id="file_id",
+            new_file_name=new_name,
+        )
 
 
 class TestPikPakDownloaderTokenRefresh:
