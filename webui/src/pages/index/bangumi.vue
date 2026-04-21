@@ -10,6 +10,7 @@ const {
   updateRule,
   enableRule,
   retriggerRename,
+  backfillSource,
   openEditPopup,
   ruleManage,
   enterSelectMode,
@@ -114,6 +115,7 @@ onActivated(() => {
         v-model:rule="editRule.item"
         @enable="(id) => enableRule(id)"
         @retrigger-rename="(id) => retriggerRename(id)"
+        @backfill-source="(id) => backfillSource(id)"
         @delete-file="
           (type, { id, deleteFile }) => ruleManage(type, id, deleteFile)
         "

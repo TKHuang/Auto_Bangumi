@@ -196,4 +196,16 @@ export const apiBangumi = {
     );
     return data;
   },
+
+  /**
+   * 从来源 RSS 回补指定 bangumiId 的缺漏集数
+   * @param bangumiId - 需要回补的 bangumi id
+   * @returns axios 请求返回的数据
+   */
+  async backfillSource(bangumiId: number) {
+    const { data } = await axios.post<ApiSuccess>(
+      `api/v1/bangumi/${bangumiId}/backfill-source`
+    );
+    return data;
+  },
 };

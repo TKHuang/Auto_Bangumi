@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.api.middleware.auth import get_current_user
 from module.conf import settings
+from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.concurrency.rename_lock import try_acquire_rename_lock
 from module.database.engine import get_db_session
 from module.domain.parser.title_parser import TitleParser
@@ -63,6 +64,13 @@ def _poster_needs_refresh(bangumi) -> bool:
     if isinstance(poster, str) and poster.startswith("posters/"):
         return not (Path("data") / poster).exists()
     return False
+
+
+def _is_mikan_season_rss(rss_link: str) -> bool:
+    if not rss_link:
+        return False
+    first_rss_link = rss_link.split(",")[0]
+    return bool(MIKAN_SEASON_RSS_PATTERN.search(first_rss_link))
 
 
 async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
@@ -760,3 +768,52 @@ async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_
         )
     finally:
         lock.release()
+
+
+@router.post(
+    path="/{bangumi_id}/backfill-source",
+    dependencies=[Depends(get_current_user)],
+)
+async def backfill_source(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):
+    bangumi_repo = BangumiRepository(session)
+    bangumi = await bangumi_repo.get_by_id(bangumi_id)
+    if not bangumi:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "msg_en": f"Can't find data with {bangumi_id}",
+                "msg_zh": f"无法找到 id {bangumi_id} 的数据",
+            },
+        )
+
+    if not _is_mikan_season_rss(bangumi.rss_link):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "msg_en": "Backfill from source requires a season-specific Mikan RSS link.",
+                "msg_zh": "来源回补需要 season-specific 的 Mikan RSS 链接。",
+            },
+        )
+
+    downloader = create_downloader(settings, session)
+    result = await AsyncRSSEngine.download_bangumi(session, downloader, bangumi_id)
+    count = result.get("count", 0) if isinstance(result, dict) else 0
+    message = result.get("message", "") if isinstance(result, dict) else str(result)
+    title = _orm_title(bangumi)
+
+    if isinstance(result, dict) and result.get("status"):
+        return JSONResponse(
+            status_code=200,
+            content={
+                "msg_en": f"Backfilled {title} from source, downloaded {count} torrents",
+                "msg_zh": f"已从来源回补 {title}，下载了 {count} 个种子",
+            },
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "msg_en": f"Backfill finished for {title} with issue: {message}",
+            "msg_zh": f"{title} 回补完成，但出现问题：{message}",
+        },
+    )

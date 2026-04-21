@@ -87,6 +87,7 @@ export const useBangumiStore = defineStore('bangumi', () => {
     ...opts,
     onError: showRenameBusy,
   });
+  const { execute: backfillSource } = useApi(apiBangumi.backfillSource, opts);
 
   const batchOpts = {
     showMessage: true,
@@ -133,6 +134,7 @@ export const useBangumiStore = defineStore('bangumi', () => {
     deleteRule,
     refreshPoster,
     retriggerRename,
+    backfillSource,
     openEditPopup,
     ruleManage,
     enterSelectMode,

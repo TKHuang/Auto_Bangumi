@@ -816,3 +816,41 @@ class TestRetriggerRename:
             assert response.status_code == 409
             data = response.json()
             assert "rename" in data["msg_en"].lower()
+
+
+class TestBackfillSource:
+
+    @pytest.mark.asyncio
+    async def test_backfill_source_success(self, client):
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
+            with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+                with patch("module.api.v1.bangumi.AsyncRSSEngine.download_bangumi") as mock_backfill:
+                    mock_b = AsyncMock()
+                    mock_b_cls.return_value = mock_b
+                    mock_b.get_by_id.return_value = _mock_bangumi_obj(
+                        rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=1&subgroupid=2"
+                    )
+                    mock_dl.return_value = AsyncMock()
+                    mock_backfill.return_value = {"status": True, "count": 2, "message": "Downloaded 2 torrents"}
+
+                    response = client.post("/api/v1/bangumi/1/backfill-source")
+
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert "msg_en" in data
+                    assert "2" in data["msg_en"]
+
+    @pytest.mark.asyncio
+    async def test_backfill_source_rejects_non_season_rss(self, client):
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = _mock_bangumi_obj(
+                rss_link="https://mikanani.me/RSS/MyBangumi?token=legacy"
+            )
+
+            response = client.post("/api/v1/bangumi/1/backfill-source")
+
+            assert response.status_code == 400
+            data = response.json()
+            assert "season-specific" in data["msg_en"].lower()
