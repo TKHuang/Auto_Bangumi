@@ -168,10 +168,12 @@ export const apiBangumi = {
   async activatePending(
     bangumiId: number,
     filter?: string,
+    includedHashes?: string[],
     excludedHashes?: string[]
   ) {
     const body: Record<string, unknown> = {};
     if (filter !== undefined) body.filter = filter;
+    if (includedHashes?.length) body.included_hashes = includedHashes;
     if (excludedHashes?.length) body.excluded_hashes = excludedHashes;
     const { data } = await axios.post<ApiSuccess>(
       `api/v1/bangumi/${bangumiId}/activate`,

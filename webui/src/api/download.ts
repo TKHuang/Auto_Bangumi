@@ -66,7 +66,8 @@ export const apiDownload = {
   async subscribe(
     bangumiData: BangumiRule,
     rss: RSS,
-    deleteFiles: boolean = false,
+    deleteFiles = false,
+    includedHashes?: string[],
     excludedHashes?: string[]
   ) {
     const { id: _, ...rest } = bangumiData;
@@ -78,6 +79,7 @@ export const apiDownload = {
     const postData = {
       data: bangumi,
       rss,
+      included_hashes: includedHashes?.length ? includedHashes : undefined,
       excluded_hashes: excludedHashes?.length ? excludedHashes : undefined,
     };
     const { data } = await axios.post<ApiSuccess>(
@@ -90,7 +92,11 @@ export const apiDownload = {
   async subscribeBatch(
     bangumiList: BangumiRule[],
     rss: RSS,
-    deleteFiles: boolean = false
+    deleteFiles = false,
+    torrentSelections?: {
+      included_hashes?: string[];
+      excluded_hashes?: string[];
+    }[]
   ) {
     const convertedList = bangumiList.map((bangumiData) => {
       const { id: _, ...rest } = bangumiData;
@@ -103,6 +109,7 @@ export const apiDownload = {
     const postData = {
       bangumi_list: convertedList,
       rss,
+      torrent_selections: torrentSelections?.length ? torrentSelections : undefined,
     };
     const { data } = await axios.post<ApiSuccess>(
       `api/v1/rss/subscribe/batch?file=${deleteFiles}`,
