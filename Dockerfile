@@ -24,7 +24,8 @@ ENV LANG="C.UTF-8" \
     TZ=Asia/Shanghai \
     PUID=1000 \
     PGID=1000 \
-    UMASK=022
+    UMASK=022 \
+    AB_BACKEND_DIR=/app
 
 WORKDIR /app
 
@@ -32,7 +33,11 @@ RUN set -ex && \
     apk add --no-cache \
         bash \
         busybox-suid \
+        build-base \
+        cmake \
+        make \
         python3 \
+        python3-dev \
         py3-bcrypt \
         py3-pip \
         su-exec \
@@ -43,9 +48,13 @@ RUN set -ex && \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY backend/pyproject.toml /tmp/pyproject.toml
+COPY backend/pyproject.toml /app/pyproject.toml
+COPY backend/src /app/src
+COPY backend/alembic /app/alembic
+COPY backend/alembic.ini /app/alembic.ini
 RUN set -ex && \
-    uv pip install --system --no-cache -r /tmp/pyproject.toml && \
+    printf '# Auto Bangumi\n' > /app/README.md && \
+    python3 -m pip install --no-cache-dir . && \
     mkdir -p /home/ab && \
     addgroup -S ab -g 911 && \
     adduser -S ab -G ab -h /home/ab -s /sbin/nologin -u 911
