@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -46,6 +47,21 @@ def _bangumi_save_path(bangumi) -> Optional[str]:
         return None
     from pathlib import PurePosixPath
     return str(PurePosixPath(bangumi.series.root_path) / f"Season {bangumi.series.season}")
+
+
+def _poster_needs_refresh(bangumi) -> bool:
+    """Return True when a bangumi poster should be refreshed.
+
+    We treat missing local poster cache files as stale even when the DB still
+    points to a `posters/*.jpg` path. This is the migration/cache-loss case the
+    old UI button failed to recover from.
+    """
+    poster = bangumi.series.poster_url if bangumi.series is not None else None
+    if not poster:
+        return True
+    if isinstance(poster, str) and poster.startswith("posters/"):
+        return not (Path("data") / poster).exists()
+    return False
 
 
 async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
@@ -390,8 +406,7 @@ async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
 
     for bangumi in bangumis:
         _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-        _poster = bangumi.series.poster_url if bangumi.series is not None else None
-        if not _poster:
+        if _poster_needs_refresh(bangumi):
             poster_fetched = False
 
             if bangumi.rss_id:

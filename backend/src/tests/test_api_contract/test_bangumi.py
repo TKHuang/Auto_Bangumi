@@ -47,6 +47,12 @@ def _mock_bangumi_obj(**overrides):
     m = MagicMock()
     for k, v in defaults.items():
         setattr(m, k, v)
+    if not hasattr(m, "series"):
+        m.series = MagicMock(
+            canonical_title=defaults["official_title"],
+            season=defaults["season"],
+            poster_url=defaults["poster_link"] or None,
+        )
     return m
 
 
@@ -464,6 +470,40 @@ class TestRefreshPoster:
                         response = client.post("/api/v1/bangumi/refresh/poster/all")
                         assert response.status_code == 200
                         assert "msg_en" in response.json()
+
+    @pytest.mark.asyncio
+    async def test_refresh_poster_all_refetches_when_cached_file_missing(self, client):
+        bangumi = _mock_bangumi_obj(
+            id=1,
+            poster_link="posters/missing.jpg",
+        )
+        torrent = MagicMock(homepage="https://mikanani.me/Home/Episode/test")
+        parser = MagicMock()
+        parser.mikan_parser_with_rss.return_value = MagicMock(
+            poster_link="posters/new.jpg"
+        )
+
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.bangumi.RSSRepository") as mock_r_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls, \
+             patch("module.api.v1.bangumi.TitleParser", return_value=parser), \
+             patch("module.api.v1.bangumi._poster_needs_refresh", return_value=True):
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_all.return_value = [bangumi]
+
+            mock_r = AsyncMock()
+            mock_r_cls.return_value = mock_r
+            mock_r.get_by_id.return_value = MagicMock(parser="mikan")
+
+            mock_t = AsyncMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_by_bangumi_with_homepage.return_value = torrent
+
+            response = client.post("/api/v1/bangumi/refresh/poster/all")
+
+            assert response.status_code == 200
+            mock_b.update_simple.assert_awaited_once_with(1, {"poster_link": "posters/new.jpg"})
 
 
 class TestRefreshPosterById:
