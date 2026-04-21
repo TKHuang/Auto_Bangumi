@@ -140,6 +140,9 @@ function getLocalFilter(id: number): string[] {
   return localFilters.value.get(id) || [];
 }
 
+// Debounced version for filter changes
+const debouncedFetchTorrentPreview = useDebounceFn(fetchTorrentPreview, 500);
+
 // Update local filter for a bangumi
 function updateLocalFilter(id: number, filters: string[]) {
   localFilters.value.set(id, filters);
@@ -221,9 +224,6 @@ async function fetchTorrentPreview(id: number) {
   }
 }
 
-// Debounced version for filter changes
-const debouncedFetchTorrentPreview = useDebounceFn(fetchTorrentPreview, 500);
-
 async function fetchPendingBangumi() {
   if (!props.rssId) return;
 
@@ -271,11 +271,14 @@ async function activateSelected() {
       // Get the local filter for this bangumi (if edited) or empty string
       const filters = localFilters.value.get(id) || [];
       const filterStr = filters.join(',');
+      const included = getTorrentsKeep(id)
+        .map((t) => t.hash)
+        .filter((h): h is string => h !== null);
       // Collect manually-excluded torrent hashes
       const excluded = getTorrentsExclude(id)
         .map((t) => t.hash)
         .filter((h): h is string => h !== null);
-      await apiBangumi.activatePending(id, filterStr, excluded);
+      await apiBangumi.activatePending(id, filterStr, included, excluded);
       successCount++;
     } catch (e) {
       console.error(`Failed to activate bangumi ${id}:`, e);

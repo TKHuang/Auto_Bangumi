@@ -5,12 +5,12 @@ import type { RSS } from '#/rss';
 import { rssTemplate } from '#/rss';
 import { ruleTemplate } from '#/bangumi';
 
-/** v-model show */
-const show = defineModel('show', { default: false });
-
 const emit = defineEmits<{
   'rss-created': [{ rssId: number; aggregate: boolean }];
 }>();
+
+/** v-model show */
+const show = defineModel('show', { default: false });
 
 const message = useMessage();
 const { getAll } = useBangumiStore();
@@ -50,7 +50,6 @@ const windowState = reactive({
   next: false,
 });
 const loading = reactive({
-  collect: false,
   subscribe: false,
   torrents: false,
 });
@@ -208,24 +207,6 @@ function addRss() {
   }
 }
 
-function collect() {
-  if (rule.value) {
-    useApi(apiDownload.collection, {
-      showMessage: true,
-      onBeforeExecute() {
-        loading.collect = true;
-      },
-      onSuccess() {
-        getAll();
-        show.value = false;
-      },
-      onFinally() {
-        loading.collect = false;
-      },
-    }).execute(rule.value);
-  }
-}
-
 function subscribe() {
   if (rule.value) {
     useApi(apiDownload.subscribe, {
@@ -310,10 +291,6 @@ function subscribe() {
       <div class="w-360" space-y-12>
         <ab-rule v-model:rule="rule"></ab-rule>
         <div flex="~ justify-end gap-x-10">
-          <ab-button size="small" :loading="loading.collect" @click="collect">
-            {{ $t('topbar.add.collect') }}
-          </ab-button>
-
           <ab-button
             size="small"
             :loading="loading.subscribe"

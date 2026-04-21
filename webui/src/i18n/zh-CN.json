@@ -175,7 +175,6 @@
     "bangumi": "番剧",
     "no_bangumi_selected": "请至少选择一个番剧",
     "subscribe_success_count": "成功订阅 {count} 个番剧",
-    "collect_success_count": "成功收集 {count} 个番剧",
     "selected_count": "已选择 {count} 个",
     "deleting_old_rules": "正在删除旧规则...",
     "deleted_old_rules": "已删除 {count} 个旧规则",
@@ -188,6 +187,7 @@
     "no_pending_bangumi": "没有待审核的番剧",
     "pending_items_placeholder": "个待审核项目",
     "pending_badge": "待审核",
+    "needs_review_badge": "需要检查",
     "matched_filters": "匹配的过滤器",
     "matched_from_global": "匹配：{patterns} 来自全局规则",
     "edit_filter": "编辑过滤器",
@@ -272,7 +272,20 @@
       "last_error": "最後錯誤",
       "first_seen": "首次出現"
     },
-    "retry": "重試"
+    "retry": "重試",
+    "resolve": {
+      "action": "手動解析",
+      "title": "手動指定番組身份",
+      "url_label": "Mikan 番組頁 URL",
+      "url_help": "貼上 Mikan 上的規範頁網址 (Home/Bangumi/{id}#{sub})。",
+      "title_label": "規範標題",
+      "season_label": "季數",
+      "submit": "儲存",
+      "submitting": "儲存中…",
+      "error_invalid_url": "URL 需包含 /Home/Bangumi/{id}#{sub}。",
+      "error_empty_title": "必須填寫標題。",
+      "error_generic": "手動解析失敗。"
+    }
   },
   "merge": {
     "records": "合併記錄",
@@ -312,7 +325,6 @@
      "add": {
        "aggregate": "聚合 RSS",
        "button": "添加",
-       "collect": "收集",
        "name": "名称",
        "next": "下一步",
        "parser": "解析器",

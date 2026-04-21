@@ -175,7 +175,6 @@
     "bangumi": "Bangumi",
     "no_bangumi_selected": "Please select at least one bangumi",
     "subscribe_success_count": "Successfully subscribed to {count} bangumi",
-    "collect_success_count": "Successfully collected {count} bangumi",
     "selected_count": "{count} selected",
     "deleting_old_rules": "Deleting old rules...",
     "deleted_old_rules": "Deleted {count} old rule(s)",
@@ -188,6 +187,7 @@
     "no_pending_bangumi": "No pending review bangumi",
     "pending_items_placeholder": "pending items",
     "pending_badge": "Pending",
+    "needs_review_badge": "Needs review",
     "matched_filters": "Matched filters",
     "matched_from_global": "Matched: {patterns} from global rules",
     "edit_filter": "Edit Filter",
@@ -272,7 +272,20 @@
       "last_error": "Last Error",
       "first_seen": "First Seen"
     },
-    "retry": "Retry"
+    "retry": "Retry",
+    "resolve": {
+      "action": "Resolve",
+      "title": "Resolve bangumi identity",
+      "url_label": "Mikan bangumi URL",
+      "url_help": "Paste the canonical page URL (Home/Bangumi/{id}#{sub}) from Mikan.",
+      "title_label": "Canonical title",
+      "season_label": "Season",
+      "submit": "Save",
+      "submitting": "Saving…",
+      "error_invalid_url": "URL must contain /Home/Bangumi/{id}#{sub}.",
+      "error_empty_title": "Title is required.",
+      "error_generic": "Resolve failed."
+    }
   },
   "merge": {
     "records": "merge records",
@@ -312,7 +325,6 @@
      "add": {
        "aggregate": "Aggregate RSS",
        "button": "Add",
-       "collect": "Collect",
        "name": "Name",
        "next": "Next",
        "parser": "Parser",

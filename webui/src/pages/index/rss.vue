@@ -409,10 +409,10 @@ const RSSTableOptions = computed(() => {
       <div>{{ $t('rss.delete_files_confirm') }}</div>
       <div line my-8></div>
       <div f-cer gap-x-10>
-        <ab-button size="small" type="warn" @click="executeDelete(true)">
+        <ab-button size="normal" type="warn" @click="executeDelete(true)">
           {{ $t('rss.delete_with_files') }}
         </ab-button>
-        <ab-button size="small" @click="executeDelete(false)">
+        <ab-button size="normal" @click="executeDelete(false)">
           {{ $t('rss.delete_keep_files') }}
         </ab-button>
       </div>

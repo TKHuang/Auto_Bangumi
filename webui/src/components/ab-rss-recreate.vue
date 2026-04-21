@@ -3,8 +3,7 @@ import { useDebounceFn } from '@vueuse/core';
 import type { BangumiAPI, BangumiRule } from '#/bangumi';
 import { ruleTemplate } from '#/bangumi';
 import type { RSS } from '#/rss';
-
-const show = defineModel<boolean>('show', { default: false });
+import { needsBangumiRuleReview } from '@/utils/review-status';
 
 const props = withDefaults(
   defineProps<{
@@ -19,6 +18,8 @@ const emit = defineEmits<{
   cancelled: [rssId: number];
   subscribed: [];
 }>();
+
+const show = defineModel<boolean>('show', { default: false });
 
 const rssId = ref(0);
 const rssItem = ref<RSS | null>(null);
@@ -49,13 +50,12 @@ const subscriptionCompleted = ref(false);
 const loading = reactive({
   bangumi: false,
   torrents: false,
-  collect: false,
   subscribe: false,
 });
 
 const deleteFilesDialog = reactive<{
   show: boolean;
-  action: 'subscribe' | 'collect';
+  action: 'subscribe';
 }>({
   show: false,
   action: 'subscribe',
@@ -83,7 +83,6 @@ const isAnyLoading = computed(
   () =>
     loading.bangumi ||
     loading.torrents ||
-    loading.collect ||
     loading.subscribe ||
     aggregateTorrentsLoading.value.size > 0
 );
@@ -103,6 +102,15 @@ function getAggregateTorrentsKeep(index: number) {
 function getAggregateTorrentsExclude(index: number) {
   const t = aggregateTorrents.value.get(index) || [];
   return t.filter((t) => t.filter);
+}
+
+function aggregateRuleNeedsReview(index: number, b: BangumiRule) {
+  return needsBangumiRuleReview({
+    pendingReview: b.pending_review,
+    previewLoaded: aggregateTorrents.value.has(index),
+    previewLoading: aggregateTorrentsLoading.value.has(index),
+    torrents: aggregateTorrents.value.get(index) || [],
+  });
 }
 
 async function getTorrents() {
@@ -294,7 +302,6 @@ function cleanupState() {
   // Reset loading states
   loading.bangumi = false;
   loading.torrents = false;
-  loading.collect = false;
   loading.subscribe = false;
   aggregateTorrentsLoading.value.clear();
 }
@@ -435,19 +442,14 @@ function toggleExpand(index: number) {
   }
 }
 
-function showDeleteFilesDialog(action: 'subscribe' | 'collect') {
+function showDeleteFilesDialog(action: 'subscribe') {
   deleteFilesDialog.action = action;
   deleteFilesDialog.show = true;
 }
 
 async function confirmDeleteFiles(deleteFiles: boolean) {
   deleteFilesDialog.show = false;
-  
-  if (deleteFilesDialog.action === 'subscribe') {
-    await doSubscribe(deleteFiles);
-  } else {
-    await doCollect(deleteFiles);
-  }
+  await doSubscribe(deleteFiles);
 }
 
 async function subscribe() {
@@ -464,7 +466,20 @@ async function doSubscribe(deleteFiles: boolean) {
   if (isAggregate.value) {
     loading.subscribe = true;
     try {
-      await apiDownload.subscribeBatch(bangumiList.value, rssItem.value, deleteFiles);
+      const torrentSelections = bangumiList.value.map((_, index) => ({
+        included_hashes: getAggregateTorrentsKeep(index)
+          .map((t) => t.hash)
+          .filter((h): h is string => h !== null),
+        excluded_hashes: getAggregateTorrentsExclude(index)
+          .map((t) => t.hash)
+          .filter((h): h is string => h !== null),
+      }));
+      await apiDownload.subscribeBatch(
+        bangumiList.value,
+        rssItem.value,
+        deleteFiles,
+        torrentSelections
+      );
       message.success(
         t('rss.subscribe_success_count', { count: bangumiList.value.length })
       );
@@ -487,6 +502,9 @@ async function doSubscribe(deleteFiles: boolean) {
         bangumi.value,
         rssItem.value,
         deleteFiles,
+        torrentsKeep.value
+          .map((t) => t.hash)
+          .filter((h): h is string => h !== null),
         torrentsExclude.value
           .map((t) => t.hash)
           .filter((h): h is string => h !== null),
@@ -504,62 +522,6 @@ async function doSubscribe(deleteFiles: boolean) {
   }
 }
 
-async function collect() {
-  if (props.autoDeleteOnCancel) {
-    await doCollect(false);
-  } else {
-    showDeleteFilesDialog('collect');
-  }
-}
-
-async function doCollect(_deleteFiles: boolean) {
-  if (isAggregate.value) {
-    loading.collect = true;
-    try {
-      let successCount = 0;
-      for (const b of bangumiList.value) {
-        try {
-          await apiDownload.collection(b);
-          successCount++;
-        } catch (e) {
-          console.error(`Failed to collect ${b.official_title}:`, e);
-        }
-      }
-
-      if (successCount > 0) {
-        message.success(
-          t('rss.collect_success_count', { count: successCount })
-        );
-        subscriptionCompleted.value = true;
-        emit('subscribed');
-        getAll();
-        show.value = false;
-      } else {
-        message.error(t('notify.update_failed'));
-      }
-    } catch (e) {
-      message.error(t('notify.update_failed'));
-    } finally {
-      loading.collect = false;
-    }
-  } else {
-    if (!bangumi.value) return;
-
-    loading.collect = true;
-    try {
-      await apiDownload.collection(bangumi.value);
-      message.success(t('notify.update_success'));
-      subscriptionCompleted.value = true;
-      emit('subscribed');
-      getAll();
-      show.value = false;
-    } catch (e) {
-      message.error(t('notify.update_failed'));
-    } finally {
-      loading.collect = false;
-    }
-  }
-}
 </script>
 
 <template>
@@ -627,9 +589,6 @@ async function doCollect(_deleteFiles: boolean) {
         <div class="w-360" space-y-12>
           <ab-rule v-model:rule="bangumi" :readonly-official-title="isPendingReview"></ab-rule>
           <div flex="~ justify-end gap-x-10" mt-16>
-            <ab-button size="small" :loading="loading.collect" @click="collect">
-              {{ $t('topbar.add.collect') }}
-            </ab-button>
             <ab-button
               size="small"
               :loading="loading.subscribe"
@@ -775,8 +734,21 @@ async function doCollect(_deleteFiles: boolean) {
                   <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
               </div>
-              <div text="14 gray-700 dark:gray-300" font-medium>
-                {{ b.official_title || `${$t('rss.bangumi')} #${index + 1}` }}
+              <div flex="~ items-center gap-x-8" min-w-0>
+                <div text="14 gray-700 dark:gray-300" font-medium truncate>
+                  {{ b.official_title || `${$t('rss.bangumi')} #${index + 1}` }}
+                </div>
+                <span
+                  v-if="aggregateRuleNeedsReview(index, b)"
+                  text="11 amber-700 dark:amber-300"
+                  bg="amber-100 dark:amber-900/30"
+                  px-6
+                  py-2
+                  rounded-4
+                  shrink-0
+                >
+                  {{ $t('rss.needs_review_badge') }}
+                </span>
               </div>
             </div>
             <div text="12 gray-500">
@@ -912,9 +884,6 @@ async function doCollect(_deleteFiles: boolean) {
             `Will subscribe ${bangumiList.length} bangumi`
           }}
         </div>
-        <ab-button size="small" :loading="loading.collect" @click="collect">
-          {{ $t('topbar.add.collect') }}
-        </ab-button>
         <ab-button size="small" :loading="loading.subscribe" @click="subscribe">
           {{ $t('topbar.add.subscribe') }}
         </ab-button>
