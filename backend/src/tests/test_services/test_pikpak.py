@@ -679,6 +679,56 @@ class TestPikPakDownloaderTorrents:
 
         assert result[target_hash] == "completed"
 
+    @pytest.mark.asyncio
+    async def test_torrents_info_summarizes_untracked_tasks_without_warning_spam(
+        self, pikpak_downloader, mock_pikpak_api, mock_database, caplog
+    ):
+        _, mock_instance = mock_pikpak_api
+        _, mock_repo = mock_database
+
+        tracked_hash = "abc123def456abc123def456abc123def456abc1"
+        untracked_hash = "def456abc123def456abc123def456abc123def4"
+
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_tracked",
+                        "name": "Tracked Show - 01",
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{tracked_hash}",
+                    },
+                    {
+                        "id": "task_untracked_1",
+                        "name": "Untracked Show - 01",
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{untracked_hash}",
+                    },
+                    {
+                        "id": "task_untracked_2",
+                        "name": "Untracked Show - 02",
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{untracked_hash}",
+                    },
+                ]
+            }
+        )
+
+        tracked_row = MagicMock()
+        tracked_row.pikpak_cloud_path = "/downloads/Bangumi/Tracked Show/Season 1"
+        mock_repo.get_by_hashes = AsyncMock(return_value={tracked_hash: tracked_row})
+
+        with caplog.at_level(logging.WARNING):
+            result = await pikpak_downloader.torrents_info(status_filter="all")
+
+        assert len(result) == 1
+        assert result[0].hash == tracked_hash
+        assert "Skipping torrent Untracked Show - 01 - no cloud path in database" not in caplog.text
+        assert "Skipping torrent Untracked Show - 02 - no cloud path in database" not in caplog.text
+
 
 class TestCollectionTorrentDetection:
     MAGNET_HASH = "abc123def456abc123def456abc123def456abc1"

@@ -605,6 +605,42 @@ class PikPakDownloader:
 
         all_tasks = await self._get_all_tasks_cached()
         torrents: list[TorrentInfo] = []
+        save_paths_by_hash: dict[str, str] = {}
+
+        if cloud_paths is not None:
+            save_paths_by_hash = {
+                torrent_hash.lower(): path
+                for torrent_hash, path in cloud_paths.items()
+                if torrent_hash and path
+            }
+        elif self.session:
+            task_hashes = []
+            for task in all_tasks:
+                file_url = task.get("file_url", "") or task.get("params", {}).get(
+                    "url", ""
+                )
+                torrent_hash = self._extract_hash(file_url)
+                if torrent_hash:
+                    task_hashes.append(torrent_hash.lower())
+
+            if task_hashes:
+                repo = TorrentRepository(self.session)
+                if hasattr(repo, "get_by_hashes"):
+                    torrent_rows = await repo.get_by_hashes(task_hashes)
+                    if isinstance(torrent_rows, dict):
+                        save_paths_by_hash = {
+                            torrent_hash: row.pikpak_cloud_path
+                            for torrent_hash, row in torrent_rows.items()
+                            if row.pikpak_cloud_path
+                        }
+
+                if not save_paths_by_hash:
+                    for torrent_hash in task_hashes:
+                        torrent_record = await repo.get_by_hash(torrent_hash)
+                        if torrent_record and torrent_record.pikpak_cloud_path:
+                            save_paths_by_hash[torrent_hash] = torrent_record.pikpak_cloud_path
+
+        skipped_untracked: list[str] = []
 
         for task in all_tasks:
             # Extract torrent hash from the original magnet URL
@@ -631,18 +667,11 @@ class PikPakDownloader:
             torrent_hash_lower = torrent_hash.lower() if torrent_hash else ""
             save_path: str | None = None
 
-            if cloud_paths is not None:
-                save_path = cloud_paths.get(torrent_hash_lower)
-            elif self.session:
-                repo = TorrentRepository(self.session)
-                torrent_record = await repo.get_by_hash(torrent_hash_lower)
-                save_path = torrent_record.pikpak_cloud_path if torrent_record else None
+            save_path = save_paths_by_hash.get(torrent_hash_lower)
 
             # Skip torrents without cloud path (not tracked in database)
             if not save_path:
-                logger.warning(
-                    f"Skipping torrent {task.get('name')} - no cloud path in database"
-                )
+                skipped_untracked.append(task.get("name", "Unknown"))
                 continue
 
             files: list[TorrentFile] = []
@@ -678,6 +707,16 @@ class PikPakDownloader:
             if key not in deduped or _state_priority.get(ti.state, 99) < _state_priority.get(deduped[key].state, 99):
                 deduped[key] = ti
         torrents = list(deduped.values())
+
+        if skipped_untracked:
+            sample = ", ".join(skipped_untracked[:3])
+            suffix = " ..." if len(skipped_untracked) > 3 else ""
+            logger.debug(
+                "Skipped %d PikPak tasks without DB cloud path: %s%s",
+                len(skipped_untracked),
+                sample,
+                suffix,
+            )
 
         logger.debug(f"Found {len(torrents)} offline tasks in PikPak (after dedup)")
         return torrents
