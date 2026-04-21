@@ -300,7 +300,7 @@ class TestRefreshRSS:
         assert len(torrents) == 1
         assert torrents[0].name == "[TestGroup] Test Anime - 01 [1080p]"
         assert torrents[0].bangumi_id == created_bangumi.id
-        assert torrents[0].downloaded == True
+        assert torrents[0].downloaded
 
         # Verify downloader was called
         mock_downloader.add_torrents.assert_called_once()
@@ -389,6 +389,149 @@ class TestRefreshRSS:
 
         # Verify downloader was NOT called
         mock_downloader.add_torrents.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_aggregate_refresh_downloads_auto_created_alias_title(
+        self, async_session, mock_downloader
+    ):
+        """Aggregate RSS auto-created torrents should use their resolved
+        bangumi_id for download, even when the canonical title is an alias
+        that does not appear verbatim in the release name.
+        """
+        from module.repositories import RSSRepository, TorrentRepository
+
+        rss_repo = RSSRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        rss = await rss_repo.create({
+            "name": "My Bangumi",
+            "url": "https://example.com/aggregate.rss",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        await async_session.commit()
+
+        feed_torrent = Torrent(
+            name="[Group] Release Alias - 01 [1080p]",
+            url="https://example.com/hash_alias.torrent",
+            homepage=None,
+            hash="hash_alias_01",
+        )
+
+        parsed = MagicMock()
+        parsed.official_title = "Canonical Title"
+        parsed.title_raw = "Release Alias"
+        parsed.season = 1
+        parsed.season_raw = "S1"
+        parsed.group_name = "Group"
+        parsed.dpi = "1080p"
+        parsed.source = "WebRip"
+        parsed.subtitle = ""
+        parsed.rss_link = None
+        parsed.poster_link = ""
+        parsed.filter = ""
+        parsed.eps_collect = False
+        parsed.offset = 0
+
+        with patch.object(RSSEngine, "parse_rss_feed", return_value=[feed_torrent]), \
+             patch.object(RSSEngine, "download_bangumi", return_value={"status": True, "count": 0}), \
+             patch("module.services.rss_engine.TitleParser") as mock_parser_class:
+            mock_parser = MagicMock()
+            mock_parser_class.return_value = mock_parser
+            mock_parser.raw_parser.return_value = parsed
+
+            await RSSEngine.refresh_rss(
+                async_session, mock_downloader, rss_id=rss.id
+            )
+
+        torrents = await torrent_repo.get_by_rss(rss.id)
+        assert len(torrents) == 1
+        assert torrents[0].bangumi_id is not None
+        assert torrents[0].downloaded is True
+        assert torrents[0].pikpak_cloud_path
+        mock_downloader.add_torrents.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_aggregate_refresh_recovers_existing_undownloaded_alias_title(
+        self, async_session, mock_downloader
+    ):
+        """A torrent row inserted by an earlier failed refresh must still be
+        sent to the downloader on the next refresh when it is not downloaded.
+        """
+        from module.repositories import (
+            BangumiRepository,
+            RSSRepository,
+            TorrentRepository,
+        )
+
+        rss_repo = RSSRepository(async_session)
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        rss = await rss_repo.create({
+            "name": "My Bangumi",
+            "url": "https://example.com/aggregate.rss",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        series = await _add_series(async_session, "CanonicalTitle")
+        bangumi = await bangumi_repo.create({
+            "group_name": "Group",
+            "series_id": series.id,
+            "rss_link": rss.url,
+            "rss_id": rss.id,
+            "filter": "",
+            "added": True,
+        })
+        await torrent_repo.create({
+            "bangumi_id": bangumi.id,
+            "rss_id": rss.id,
+            "name": "[Group] Release Alias - 01 [1080p]",
+            "url": "https://example.com/hash_alias.torrent",
+            "hash": "hash_alias_01",
+            "downloaded": False,
+        })
+        await async_session.commit()
+
+        feed_torrent = Torrent(
+            name="[Group] Release Alias - 01 [1080p]",
+            url="https://example.com/hash_alias.torrent",
+            homepage=None,
+            hash="hash_alias_01",
+        )
+
+        parsed = MagicMock()
+        parsed.official_title = "CanonicalTitle"
+        parsed.title_raw = "Release Alias"
+        parsed.season = 1
+        parsed.season_raw = "S1"
+        parsed.group_name = "Group"
+        parsed.dpi = "1080p"
+        parsed.source = "WebRip"
+        parsed.subtitle = ""
+        parsed.rss_link = None
+        parsed.poster_link = ""
+        parsed.filter = ""
+        parsed.eps_collect = False
+        parsed.offset = 0
+
+        with patch.object(RSSEngine, "parse_rss_feed", return_value=[feed_torrent]), \
+             patch("module.services.rss_engine.TitleParser") as mock_parser_class:
+            mock_parser = MagicMock()
+            mock_parser_class.return_value = mock_parser
+            mock_parser.raw_parser.return_value = parsed
+
+            await RSSEngine.refresh_rss(
+                async_session, mock_downloader, rss_id=rss.id
+            )
+
+        torrents = await torrent_repo.get_by_rss(rss.id)
+        assert len(torrents) == 1
+        assert torrents[0].downloaded is True
+        assert torrents[0].pikpak_cloud_path
+        mock_downloader.add_torrents.assert_called_once()
 
 
 class TestRefreshAllRSS:
@@ -842,6 +985,110 @@ class TestDownloadBangumi:
         torrents = await torrent_repo.get_by_bangumi(bangumi.id)
         assert len(torrents) == 1
         assert "1080p" in torrents[0].name
+
+    @pytest.mark.asyncio
+    async def test_download_bangumi_included_hashes_override_filter(
+        self, async_session, mock_downloader
+    ):
+        """Manual keep selections must bypass the regex filter by hash."""
+        from module.repositories import BangumiRepository, TorrentRepository
+
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        series = await _add_series(async_session, "Test Anime")
+
+        bangumi = await bangumi_repo.create({
+            "group_name": "TestGroup",
+            "series_id": series.id,
+            "rss_link": "https://example.com/rss",
+            "filter": "合集,繁体",  # Would exclude the selected batch torrent
+        })
+        await async_session.commit()
+
+        with patch("module.services.rss_engine.RequestContent") as mock_request:
+            mock_instance = MagicMock()
+            mock_request.return_value.__enter__.return_value = mock_instance
+
+            mock_instance.get_torrents.return_value = [
+                Torrent(
+                    name="[TestGroup] Test Anime [01-12][1080p][繁体]",
+                    url="https://example.com/batch.torrent",
+                    hash="batchhash",
+                ),
+            ]
+
+            result = await RSSEngine.download_bangumi(
+                async_session,
+                mock_downloader,
+                bangumi.id,
+                included_hashes=["batchhash"],
+            )
+
+        await async_session.commit()
+
+        assert result["status"] is True
+        assert result["count"] == 1
+
+        torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+        assert len(torrents) == 1
+        assert torrents[0].hash == "batchhash"
+        mock_downloader.add_torrents.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_download_bangumi_mikan_feed_does_not_require_canonical_title(
+        self, async_session, mock_downloader
+    ):
+        """Mikan season RSS already identifies the bangumi. Backfill must not
+        drop episodes just because the release title uses an alias.
+        """
+        from module.repositories import BangumiRepository, TorrentRepository
+
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        series = await _add_series(async_session, "公鸡斗士")
+        bangumi = await bangumi_repo.create({
+            "group_name": "LoliHouse",
+            "series_id": series.id,
+            "rss_link": "https://mikanani.me/RSS/Bangumi?bangumiId=3886&subgroupid=370",
+            "filter": "",
+        })
+        await async_session.commit()
+
+        with patch("module.services.rss_engine.RequestContent") as mock_request:
+            mock_instance = MagicMock()
+            mock_request.return_value.__enter__.return_value = mock_instance
+            mock_instance.get_torrents.return_value = [
+                Torrent(
+                    name=(
+                        "[LoliHouse] 鸡斗士 / 怒火鸡头 / Rooster Fighter / "
+                        "Niwatori Fighter - 06 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
+                    ),
+                    url="https://example.com/rooster06.torrent",
+                    hash="rooster06",
+                ),
+                Torrent(
+                    name=(
+                        "[LoliHouse] 鸡斗士 / 怒火鸡头 / Rooster Fighter / "
+                        "Niwatori Fighter - 05 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
+                    ),
+                    url="https://example.com/rooster05.torrent",
+                    hash="rooster05",
+                ),
+            ]
+
+            result = await RSSEngine.download_bangumi(
+                async_session, mock_downloader, bangumi.id
+            )
+
+        assert result["status"] is True
+        assert result["count"] == 2
+
+        torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+        assert len(torrents) == 2
+        assert {t.hash for t in torrents} == {"rooster05", "rooster06"}
+        mock_downloader.add_torrents.assert_called_once()
 
 
 class TestAggregateRefreshRollbackSafety:

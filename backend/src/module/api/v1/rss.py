@@ -10,7 +10,6 @@ from module.api.response import u_response
 from module.conf import settings
 from module.database.engine import get_db_session
 from module.domain.models.bangumi import Bangumi as DomainBangumi
-from module.domain.value_objects import gen_save_path
 from module.domain.value_objects import APIResponse, BangumiParsingError, ResponseModel
 from module.models import (
     Bangumi,
@@ -73,12 +72,11 @@ def _sqlmodel_to_domain_bangumi(data: Bangumi) -> DomainBangumi:
 
 
 def _rss_update_to_dict(data: RSSUpdate) -> dict:
-    result = {}
-    for field in ["name", "url", "aggregate", "parser", "enabled", "last_update", "last_status", "last_error"]:
-        val = getattr(data, field, None)
-        if val is not None:
-            result[field] = val
-    return result
+    return {
+        key: value
+        for key, value in data.model_dump(exclude_unset=True).items()
+        if value is not None
+    }
 
 
 @router.get(
@@ -578,6 +576,7 @@ async def download_collection(data: Bangumi, session: AsyncSession = Depends(get
 )
 async def subscribe(
     data: Bangumi, rss: RSSItem, file: bool = False,
+    included_hashes: list[str] | None = Body(default=None),
     excluded_hashes: list[str] | None = Body(default=None),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -586,6 +585,7 @@ async def subscribe(
     try:
         result = await SeasonCollectorService.subscribe_season(
             session, downloader, data, parser=rss.parser, delete_files=file,  # type: ignore[arg-type]
+            included_hashes=included_hashes,
             excluded_hashes=excluded_hashes,
         )
         return u_response(result)
@@ -602,6 +602,7 @@ async def subscribe(
 )
 async def subscribe_batch(
     bangumi_list: list[Bangumi], rss: RSSItem, file: bool = False,
+    torrent_selections: list[dict[str, list[str]]] | None = Body(default=None),
     session: AsyncSession = Depends(get_db_session),
 ):
     downloader = create_downloader(settings, session)
@@ -609,6 +610,7 @@ async def subscribe_batch(
     try:
         result = await SeasonCollectorService.subscribe_batch(
             session, downloader, bangumi_list, rss.id, parser=rss.parser, delete_files=file,  # type: ignore[arg-type]
+            torrent_selections=torrent_selections,
         )
         return u_response(result)
     except Exception as e:

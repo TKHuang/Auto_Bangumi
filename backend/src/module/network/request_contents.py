@@ -192,9 +192,12 @@ class RequestContent(RequestURL):
             title_elem = soup.find("./channel/title")
             if title_elem is not None:
                 title = title_elem.text
-                # Strip common RSS provider prefixes
-                if title and title.startswith("Mikan Project - "):
-                    title = title[len("Mikan Project - "):]
+                mikan_prefix = "Mikan Project - "
+                if title and title.startswith(mikan_prefix):
+                    title = title[len(mikan_prefix):]
+                    for prefix in ("搜索结果: ", "搜索结果:"):
+                        if title.startswith(prefix):
+                            return f"{mikan_prefix}{title[len(prefix):]}"
                 # Strip search result prefix from Mikan search RSS feeds
                 # Mikan uses "搜索结果:" with or without trailing space
                 for prefix in ("搜索结果: ", "搜索结果:"):

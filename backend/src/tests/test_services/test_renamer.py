@@ -1,15 +1,15 @@
 """Tests for renamer service."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.series import Series
 from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.value_objects import EpisodeFile, EpisodeType, SubtitleFile
 from module.services.renamer import RenamerService
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,6 +55,21 @@ class TestGenerateRenamePath:
         )
         result = RenamerService.generate_rename_path(ep, "Official Title", "advance")
         assert result == "Official Title S01E01.mkv"
+
+    def test_regular_episode_advance_method_sanitizes_illegal_chars(self):
+        """Test advance rename sanitizes PikPak-illegal chars in target filename."""
+        ep = EpisodeFile(
+            media_path="[Group] Title - 01.mp4",
+            title="Parsed Title",
+            season=1,
+            episode=1,
+            suffix=".mp4",
+            is_movie=False,
+        )
+        result = RenamerService.generate_rename_path(
+            ep, "没有辣妹会对阿宅温柔!?", "advance"
+        )
+        assert result == "没有辣妹会对阿宅温柔!？ S01E01.mp4"
 
     def test_regular_episode_none_method(self):
         """Test 'none' method returns original path unchanged."""
@@ -485,7 +500,7 @@ class TestRenameBangumi:
         await db_session.flush()
 
         service = RenamerService(db_session, rename_method="advance")
-        result = await service.rename_bangumi(
+        await service.rename_bangumi(
             mock_downloader, bangumi.id, retrigger=True
         )
 

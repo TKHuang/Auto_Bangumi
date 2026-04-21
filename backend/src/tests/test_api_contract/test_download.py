@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from module.api.v1.rss import router as rss_router
 from module.domain.value_objects import ResponseModel
-from module.models import Bangumi, RSSItem
+from module.models import Bangumi
 
 
 @pytest.fixture
@@ -182,6 +182,25 @@ class TestSubscribe:
                 assert response.status_code == 409
                 assert "msg_en" in response.json()
 
+    @pytest.mark.asyncio
+    async def test_subscribe_forwards_manual_include_and_exclude_hashes(self, client):
+        resp = ResponseModel(status=True, status_code=200, msg_en="Subscribe successfully.", msg_zh="订阅成功。")
+        with patch("module.api.v1.rss.create_downloader") as mock_dl:
+            mock_dl.return_value = AsyncMock()
+            with patch("module.api.v1.rss.SeasonCollectorService") as mock_svc:
+                mock_svc.subscribe_season = AsyncMock(return_value=resp)
+                response = client.post(
+                    "/api/v1/rss/subscribe",
+                    json=self._body(
+                        included_hashes=["keephash"],
+                        excluded_hashes=["drophash"],
+                    ),
+                )
+                assert response.status_code == 200
+                _, kwargs = mock_svc.subscribe_season.await_args
+                assert kwargs["included_hashes"] == ["keephash"]
+                assert kwargs["excluded_hashes"] == ["drophash"]
+
 
 class TestSubscribeBatch:
     """Test POST /rss/subscribe/batch endpoint."""
@@ -217,3 +236,20 @@ class TestSubscribeBatch:
                 response = client.post("/api/v1/rss/subscribe/batch", json=body)
                 assert response.status_code == 500
                 assert "failed" in response.json()["msg_en"].lower()
+
+    @pytest.mark.asyncio
+    async def test_subscribe_batch_forwards_torrent_selections(self, client):
+        resp = ResponseModel(status=True, status_code=200, msg_en="Batch subscribe successfully.", msg_zh="批量订阅成功。")
+        with patch("module.api.v1.rss.create_downloader") as mock_dl:
+            mock_dl.return_value = AsyncMock()
+            with patch("module.api.v1.rss.SeasonCollectorService") as mock_svc:
+                mock_svc.subscribe_batch = AsyncMock(return_value=resp)
+                body = self._body()
+                body["torrent_selections"] = [
+                    {"included_hashes": ["keep1"], "excluded_hashes": ["drop1"]},
+                    {"included_hashes": ["keep2"], "excluded_hashes": []},
+                ]
+                response = client.post("/api/v1/rss/subscribe/batch", json=body)
+                assert response.status_code == 200
+                _, kwargs = mock_svc.subscribe_batch.await_args
+                assert kwargs["torrent_selections"] == body["torrent_selections"]

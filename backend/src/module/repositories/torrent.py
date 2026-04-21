@@ -12,17 +12,39 @@ class TorrentRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    def _preferred_hash_ordering(self):
+        return (
+            Torrent.pikpak_cloud_path.is_not(None).desc(),
+            (Torrent.state != TorrentState.EXCLUDED).desc(),
+            Torrent.downloaded.desc(),
+            Torrent.updated_at.desc(),
+            Torrent.id.desc(),
+        )
+
     async def get_by_hash(self, hash: str) -> Optional[Torrent]:
-        stmt = select(Torrent).where(Torrent.hash == hash)
+        stmt = (
+            select(Torrent)
+            .where(Torrent.hash == hash)
+            .order_by(*self._preferred_hash_ordering())
+            .limit(1)
+        )
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_by_hashes(self, hashes: list[str]) -> dict[str, Torrent]:
         if not hashes:
             return {}
-        stmt = select(Torrent).where(Torrent.hash.in_(hashes))
+        stmt = (
+            select(Torrent)
+            .where(Torrent.hash.in_(hashes))
+            .order_by(Torrent.hash, *self._preferred_hash_ordering())
+        )
         result = await self.session.execute(stmt)
-        return {t.hash: t for t in result.scalars().all() if t.hash}
+        torrents_by_hash: dict[str, Torrent] = {}
+        for torrent in result.scalars().all():
+            if torrent.hash and torrent.hash not in torrents_by_hash:
+                torrents_by_hash[torrent.hash] = torrent
+        return torrents_by_hash
 
     async def create(self, data: dict) -> Torrent:
         torrent = Torrent(**data)
@@ -98,8 +120,8 @@ class TorrentRepository:
                 and_(
                     Torrent.renamed_at.is_(None),
                     Torrent.state != TorrentState.EXCLUDED,
-                    Bangumi.active == True,
-                    Bangumi.deleted == False,
+                    Bangumi.active,
+                    ~Bangumi.deleted,
                 )
             )
         )

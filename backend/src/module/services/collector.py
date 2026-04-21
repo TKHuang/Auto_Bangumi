@@ -266,6 +266,7 @@ class SeasonCollectorService:
         data: Bangumi,
         parser: str = "mikan",
         delete_files: bool = False,
+        included_hashes: list[str] | None = None,
         excluded_hashes: list[str] | None = None,
     ) -> ResponseModel:
         """Subscribe to a single bangumi.
@@ -301,6 +302,18 @@ class SeasonCollectorService:
         try:
             data.added = True
             data.eps_collect = True
+
+            if data.rss_id:
+                existing_rss = await rss_repo.get_by_id(data.rss_id)
+                if existing_rss is None:
+                    logger.warning(
+                        "[Collector] RSS ID %s missing for %s; rebuilding RSS "
+                        "identity from rss_link=%s",
+                        data.rss_id,
+                        _data_title,
+                        data.rss_link,
+                    )
+                    data.rss_id = None
 
             # FAIL-FAST: Handle RSS operations BEFORE any deletion
             # This prevents data loss if RSS operations fail
@@ -366,7 +379,6 @@ class SeasonCollectorService:
                     if existing_active.rss_id
                     else None
                 )
-                existing_rss_url = existing_rss.url if existing_rss else None
                 group_name = data.group_name if data.group_name else "Unknown"
                 logger.warning(
                     f"[Collector] Bangumi already subscribed from different RSS: "
@@ -460,7 +472,10 @@ class SeasonCollectorService:
 
             successfully_added_hashes: list[str] = []
             result = await RSSEngine.download_bangumi(
-                session, downloader, created_bangumi.id
+                session,
+                downloader,
+                created_bangumi.id,
+                included_hashes=included_hashes,
             )
 
             # Track hashes of torrents added by download_bangumi
@@ -536,6 +551,7 @@ class SeasonCollectorService:
         rss_id: int,
         parser: str = "mikan",
         delete_files: bool = False,
+        torrent_selections: list[dict[str, list[str]]] | None = None,
     ) -> ResponseModel:
         """Subscribe to multiple bangumi in a single atomic transaction.
 
@@ -599,6 +615,7 @@ class SeasonCollectorService:
 
             success_count = 0
             failed_titles: list[str] = []
+            created_entries: list[tuple[int, str, list[str]]] = []
             # Aggregate feeds can expose two torrent name variants that both
             # resolve to the same (series_id, mikan_subgroup_id) identity
             # (spec §6.2 partial UNIQUE). Deduplicate within the batch so a
@@ -606,10 +623,17 @@ class SeasonCollectorService:
             # transaction.
             seen_identities: set[tuple[int, int | None]] = set()
 
-            for data in bangumi_list:
+            for index, data in enumerate(bangumi_list):
                 _d_title = _resolve_title(data)
                 _d_season = _resolve_season(data)
                 _d_poster = _resolve_poster(data)
+                selection = (
+                    torrent_selections[index]
+                    if torrent_selections and index < len(torrent_selections)
+                    else {}
+                )
+                included_hashes = [h for h in selection.get("included_hashes", []) if h]
+                excluded_hashes = [h for h in selection.get("excluded_hashes", []) if h]
                 try:
                     data.added = True
                     data.eps_collect = True
@@ -635,7 +659,7 @@ class SeasonCollectorService:
                         continue
                     seen_identities.add(identity)
 
-                    await bangumi_repo.create({
+                    created = await bangumi_repo.create({
                         "series_id": _b_series_id,
                         "mikan_subgroup_id": _b_mikan_subgroup_id,
                         "group_name": data.group_name or "Unknown",
@@ -652,6 +676,22 @@ class SeasonCollectorService:
                         "pending_review": False,
                         "active": True,
                     })
+                    if excluded_hashes:
+                        excluded_torrents = [
+                            Torrent(
+                                name="",
+                                url="",
+                                hash=h,
+                                bangumi_id=created.id,
+                                rss_id=rss_id,
+                                downloaded=True,
+                                state=TorrentState.EXCLUDED,
+                            )
+                            for h in excluded_hashes
+                        ]
+                        await torrent_repo.add_all_or_ignore(excluded_torrents)
+
+                    created_entries.append((created.id, _d_title, included_hashes))
                     success_count += 1
                     logger.info(f"[Collector] Batch insert: {_d_title}")
                 except Exception as e:
@@ -677,21 +717,22 @@ class SeasonCollectorService:
                     f"(delete_files={delete_files})"
                 )
 
-            all_bangumi = await bangumi_repo.get_by_rss(rss_id)
             download_results = []
 
-            for bangumi in all_bangumi:
-                _b_canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-                if _b_canonical not in failed_titles:
+            for bangumi_id, bangumi_title, included_hashes in created_entries:
+                if bangumi_title not in failed_titles:
                     try:
                         result = await RSSEngine.download_bangumi(
-                            session, downloader, bangumi.id
+                            session,
+                            downloader,
+                            bangumi_id,
+                            included_hashes=included_hashes,
                         )
-                        download_results.append((_b_canonical, result))
+                        download_results.append((bangumi_title, result))
 
                         # Track hashes of torrents added by download_bangumi
                         if isinstance(result, dict) and result.get("count", 0) > 0:
-                            db_torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+                            db_torrents = await torrent_repo.get_by_bangumi(bangumi_id)
                             if db_torrents:
                                 successfully_added_hashes.extend([t.hash for t in db_torrents if t.hash and t.downloaded])
 
@@ -703,16 +744,16 @@ class SeasonCollectorService:
                             and "filtered out" in result.get("message", "").lower()
                         ):
                             await bangumi_repo.update_pending_review(
-                                bangumi.id, True, bangumi.filter
+                                bangumi_id, True, None
                             )
                             await session.commit()
                             logger.info(
-                                f"[Collector] Bangumi {_b_canonical} set to pending review "
-                                f"(all torrents filtered by: {bangumi.filter})"
+                                f"[Collector] Bangumi {bangumi_title} set to pending review "
+                                f"(all torrents filtered out)"
                             )
                     except Exception as e:
                         logger.error(
-                            f"[Collector] Failed to download torrents for {_b_canonical}: {e}"
+                            f"[Collector] Failed to download torrents for {bangumi_title}: {e}"
                         )
 
             await rss_repo.set_status(rss_id, "Success")
@@ -736,8 +777,8 @@ class SeasonCollectorService:
                 return ResponseModel(
                     status=False,
                     status_code=500,
-                    msg_en=f"Failed to subscribe any bangumi.",
-                    msg_zh=f"未能订阅任何番剧。",
+                    msg_en="Failed to subscribe any bangumi.",
+                    msg_zh="未能订阅任何番剧。",
                 )
 
         except Exception as e:

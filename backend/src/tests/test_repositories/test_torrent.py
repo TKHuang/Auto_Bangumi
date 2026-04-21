@@ -88,6 +88,35 @@ class TestTorrentRepository:
         assert t1.hash == t2.hash
         assert t1.bangumi_id != t2.bangumi_id
 
+    async def test_get_by_hash_prefers_row_with_cloud_path_when_hash_reused(
+        self, async_session
+    ):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            await repo.create({
+                "name": "Torrent without path",
+                "url": "https://example.com/torrent1",
+                "hash": "shared_hash",
+                "bangumi_id": 1,
+                "downloaded": True,
+            })
+            await repo.create({
+                "name": "Torrent with path",
+                "url": "https://example.com/torrent2",
+                "hash": "shared_hash",
+                "bangumi_id": 2,
+                "downloaded": True,
+                "pikpak_cloud_path": "Bangumi/Test/Season 1",
+            })
+
+        async with async_session.begin():
+            found = await repo.get_by_hash("shared_hash")
+
+        assert found is not None
+        assert found.name == "Torrent with path"
+        assert found.pikpak_cloud_path == "Bangumi/Test/Season 1"
+
     async def test_create_torrent_null_hash_always_new(self, async_session):
         repo = TorrentRepository(async_session)
         

@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from module.api.v1.rss import router as rss_router
 from module.domain.value_objects import ResponseModel
-from module.models import RSSItem
 
 
 @pytest.fixture
@@ -382,6 +381,25 @@ class TestUpdateRSS:
             data = response.json()
             assert data["msg_en"] == "Update RSS successfully."
             assert data["msg_zh"] == "更新 RSS 成功。"
+            mock_repo.update.assert_awaited_once_with(
+                1,
+                {"name": "Updated RSS", "url": "https://new.example.com/rss.xml"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_rss_name_only_does_not_apply_schema_defaults(self, client):
+        """PATCH should only update fields the client explicitly sent."""
+        with patch("module.api.v1.rss.RSSRepository") as mock_repo_cls:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+
+            response = client.patch(
+                "/api/v1/rss/update/1",
+                json={"name": "Renamed RSS"},
+            )
+
+            assert response.status_code == 200
+            mock_repo.update.assert_awaited_once_with(1, {"name": "Renamed RSS"})
 
     @pytest.mark.asyncio
     async def test_update_rss_failed(self, client):

@@ -27,10 +27,10 @@ class RSSUpdate(SQLModel):
     model_config = {"from_attributes": True}
 
     name: Optional[str] = Field(default=None)
-    url: Optional[str] = Field(default="https://mikanani.me")
-    aggregate: Optional[bool] = Field(default=True)
-    parser: Optional[str] = Field(default="mikan")
-    enabled: Optional[bool] = Field(default=True)
+    url: Optional[str] = Field(default=None)
+    aggregate: Optional[bool] = Field(default=None)
+    parser: Optional[str] = Field(default=None)
+    enabled: Optional[bool] = Field(default=None)
     last_update: Optional[str] = Field(default=None)
     last_status: Optional[str] = Field(default=None)
     last_error: Optional[str] = Field(default=None)

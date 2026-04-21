@@ -3,19 +3,20 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf import settings
 from module.domain.models.bangumi import Bangumi
-from module.domain.models.rss import RSSItem
 from module.domain.models.torrent import Torrent
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import BangumiParsingError, gen_save_path
+from module.mikan.parser import (
+    build_canonical_bangumi_url,
+    extract_mikan_ids_from_rss,
+)
 from module.models import Bangumi as BangumiSchema
-from module.mikan.parser import extract_mikan_ids_from_rss
 from module.network.request_contents import RequestContent
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
@@ -51,8 +52,7 @@ def _match_torrent_in_list(
     """In-memory torrent-to-bangumi matching (no DB call)."""
     for bangumi in bangumi_list:
         _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-        _title_raw = getattr(bangumi, "title_raw", None)
-        if _canonical and (_canonical in torrent.name or (_title_raw and _title_raw in torrent.name)):
+        if _canonical and _canonical in torrent.name:
             torrent.bangumi_id = bangumi.id
             if not bangumi.filter:
                 return bangumi
@@ -185,6 +185,39 @@ class RSSEngine:
         )
 
     @staticmethod
+    async def _enqueue_pending_enrichment(
+        session: AsyncSession,
+        torrent: Torrent,
+        rss_item,
+    ) -> None:
+        """Queue a torrent for human bangumi-resolution.
+
+        Called when neither raw_parser nor the Mikan-page fallback can derive
+        identity; prevents silent drops by surfacing the torrent in the
+        pending-resolution queue instead of building a malformed bangumi.
+        No bangumi or torrent row is created — spec §6.4.
+        """
+        if not torrent.hash or not rss_item.id:
+            logger.debug(
+                f"[Engine] Cannot enqueue pending (missing hash/rss): {torrent.name}"
+            )
+            return
+        from module.services.pending_enrichment import PendingEnrichmentService
+
+        svc = PendingEnrichmentService(session)
+        await svc.enqueue(
+            info_hash=torrent.hash,
+            raw_name=torrent.name,
+            homepage=torrent.homepage,
+            url=torrent.url or "",
+            rss_id=rss_item.id,
+            published_at=None,
+        )
+        logger.info(
+            f"[Engine] Enqueued for human resolution: {torrent.name}"
+        )
+
+    @staticmethod
     async def _auto_create_bangumi(
         torrent: Torrent,
         rss_item,
@@ -194,6 +227,43 @@ class RSSEngine:
         newly_created_ids: set[int],
     ) -> Optional[Bangumi]:
         parser = TitleParser()
+
+        # Mikan enrichment is shared with the short-circuit path below, so do
+        # it once up front when the feed is Mikan. The result informs both the
+        # canonical-URL short-circuit and the downstream enrichment overlay.
+        mikan_result = None
+        canonical_url: Optional[str] = None
+        if torrent.homepage and rss_item.parser == "mikan":
+            try:
+                mikan_result = await asyncio.to_thread(
+                    parser.mikan_parser_with_rss, torrent.homepage
+                )
+            except Exception as e:
+                logger.debug(
+                    f"[Engine] Mikan enrichment failed for {torrent.name}: {e}"
+                )
+            if mikan_result is not None and mikan_result.season_rss_link:
+                bid, sid = extract_mikan_ids_from_rss(
+                    mikan_result.season_rss_link
+                )
+                if bid is not None and sid is not None:
+                    canonical_url = build_canonical_bangumi_url(bid, sid)
+
+        # Short-circuit: an operator-resolved bangumi is the ground truth for
+        # this Mikan page. Bind the torrent and skip the parser path entirely.
+        if canonical_url:
+            short = await bangumi_repo.get_by_mikan_bangumi_url(canonical_url)
+            if short is not None:
+                if RSSEngine._torrent_excluded_by_filter(
+                    torrent.name, short.filter
+                ):
+                    logger.debug(
+                        f"[Engine] Torrent {torrent.name} excluded by filter: {short.filter}"
+                    )
+                    return None
+                torrent.bangumi_id = short.id
+                return short
+
         try:
             bangumi_data = parser.raw_parser(torrent.name)
         except BangumiParsingError:
@@ -201,8 +271,8 @@ class RSSEngine:
                 parser, torrent, rss_item
             )
             if bangumi_data is None:
-                logger.debug(
-                    f"[Engine] Cannot parse title for auto-create: {torrent.name}"
+                await RSSEngine._enqueue_pending_enrichment(
+                    session, torrent, rss_item
                 )
                 return None
             logger.info(
@@ -211,26 +281,27 @@ class RSSEngine:
             )
 
         if not bangumi_data:
-            logger.debug(f"[Engine] Cannot parse title for auto-create: {torrent.name}")
+            await RSSEngine._enqueue_pending_enrichment(
+                session, torrent, rss_item
+            )
             return None
 
         group_name = bangumi_data.group_name or "Unknown"
         composite_key = (bangumi_data.official_title, bangumi_data.season, group_name)
 
-        # Mikan enrichment: fetch poster + canonical title from episode page.
+        # Overlay Mikan-page metadata onto the parsed bangumi (keeps the
+        # downstream logic identical — we just skipped the duplicate fetch).
         parsed_rss_link = bangumi_data.rss_link
-        if torrent.homepage and rss_item.parser == "mikan":
-            try:
-                result = await asyncio.to_thread(parser.mikan_parser_with_rss, torrent.homepage)
-                if result.poster_link:
-                    bangumi_data.poster_link = result.poster_link
-                if result.official_title:
-                    bangumi_data.official_title = re.sub(r"[/:.\\]", " ", result.official_title)
-                if result.season_rss_link:
-                    bangumi_data.rss_link = result.season_rss_link
-                    parsed_rss_link = bangumi_data.rss_link
-            except Exception as e:
-                logger.debug(f"[Engine] Mikan enrichment failed for {torrent.name}: {e}")
+        if mikan_result is not None:
+            if mikan_result.poster_link:
+                bangumi_data.poster_link = mikan_result.poster_link
+            if mikan_result.official_title:
+                bangumi_data.official_title = re.sub(
+                    r"[/:.\\]", " ", mikan_result.official_title
+                )
+            if mikan_result.season_rss_link:
+                bangumi_data.rss_link = mikan_result.season_rss_link
+                parsed_rss_link = bangumi_data.rss_link
 
         # Resolve series identity (or find existing bangumi) via series-based keys.
         effective_rss_link = parsed_rss_link or rss_item.url
@@ -300,6 +371,7 @@ class RSSEngine:
             created = await bangumi_repo.create({
                 "series_id": resolved.series.id,
                 "mikan_subgroup_id": mikan_subgroup_id,
+                "mikan_bangumi_url": canonical_url,
                 "group_name": group_name,
                 "dpi": bangumi_data.dpi,
                 "source": bangumi_data.source,
@@ -472,59 +544,67 @@ class RSSEngine:
                     inserted_count = await torrent_repo.add_all_or_ignore(matched_torrents)
                     logger.debug(f"[Engine] Inserted {inserted_count} new torrents")
 
-                    if inserted_count > 0:
-                        torrent_hashes = [t.hash for t in matched_torrents if t.hash]
-                        db_torrents_map = await torrent_repo.get_by_hashes(torrent_hashes)
-                        all_active_bangumi = await bangumi_repo.get_active(enabled_only=True)
+                    torrent_hashes = [t.hash for t in matched_torrents if t.hash]
+                    db_torrents_map = await torrent_repo.get_by_hashes(torrent_hashes)
+                    all_active_bangumi = await bangumi_repo.get_active(enabled_only=True)
+                    active_bangumi_by_id = {
+                        b.id: b for b in all_active_bangumi if b.id is not None
+                    }
 
-                        # Phase 2: NETWORK — add torrents to downloader, collect results
-                        download_results: list[tuple[str, int, str]] = []
-                        for torrent in matched_torrents:
-                            db_torrent = db_torrents_map.get(torrent.hash)
-                            if db_torrent and db_torrent.downloaded:
-                                logger.debug(
-                                    f"[Engine] Skip already-downloaded torrent: {torrent.name}"
-                                )
-                                continue
+                    # Phase 2: NETWORK — add torrents to downloader, collect results
+                    download_results: list[tuple[str, int, str]] = []
+                    for torrent in matched_torrents:
+                        db_torrent = db_torrents_map.get(torrent.hash)
+                        if db_torrent and db_torrent.downloaded:
+                            logger.debug(
+                                f"[Engine] Skip already-downloaded torrent: {torrent.name}"
+                            )
+                            continue
 
+                        matched_bangumi = (
+                            active_bangumi_by_id.get(torrent.bangumi_id)
+                            if torrent.bangumi_id is not None
+                            else None
+                        )
+                        if matched_bangumi is None:
                             matched_bangumi = _match_torrent_in_list(
                                 torrent, all_active_bangumi
                             )
-                            if matched_bangumi:
-                                _m_series = matched_bangumi.series
-                                _m_title = _m_series.canonical_title if _m_series is not None else ""
-                                _m_season = _m_series.season if _m_series is not None else 1
-                                _m_root = _m_series.root_path if _m_series is not None else None
-                                from pathlib import PurePosixPath
-                                _m_full = (
-                                    matched_bangumi.path_override
-                                    or (str(PurePosixPath(_m_root) / f"Season {_m_season}") if _m_root else None)
-                                )
-                                save_path = _m_full or gen_save_path(
-                                    settings.downloader.path, _m_title, _m_season,
-                                )
-                                urls = [torrent.url]
-                                success = await downloader.add_torrents(
-                                    urls=urls,
-                                    save_path=save_path,
-                                    torrent_files=None,
-                                )
-                                if success:
-                                    if torrent.hash:
-                                        successfully_added_hashes.append(torrent.hash)
-                                    logger.debug(
-                                        f"[Engine] Added torrent {torrent.name} to downloader"
-                                    )
-                                    if db_torrent and db_torrent.hash:
-                                        download_results.append(
-                                            (db_torrent.hash, matched_bangumi.id, save_path)
-                                        )
-
-                        # Phase 3: SHORT write — mark all downloaded in one batch
-                        for torrent_hash, bangumi_id_val, save_path in download_results:
-                            await torrent_repo.mark_downloaded_by_hash(
-                                torrent_hash, bangumi_id_val, save_path
+                        if matched_bangumi:
+                            _m_series = matched_bangumi.series
+                            _m_title = _m_series.canonical_title if _m_series is not None else ""
+                            _m_season = _m_series.season if _m_series is not None else 1
+                            _m_root = _m_series.root_path if _m_series is not None else None
+                            from pathlib import PurePosixPath
+                            _m_full = (
+                                matched_bangumi.path_override
+                                or (str(PurePosixPath(_m_root) / f"Season {_m_season}") if _m_root else None)
                             )
+                            save_path = _m_full or gen_save_path(
+                                settings.downloader.path, _m_title, _m_season,
+                            )
+                            urls = [torrent.url]
+                            success = await downloader.add_torrents(
+                                urls=urls,
+                                save_path=save_path,
+                                torrent_files=None,
+                            )
+                            if success:
+                                if torrent.hash:
+                                    successfully_added_hashes.append(torrent.hash)
+                                logger.debug(
+                                    f"[Engine] Added torrent {torrent.name} to downloader"
+                                )
+                                if db_torrent and db_torrent.hash:
+                                    download_results.append(
+                                        (db_torrent.hash, matched_bangumi.id, save_path)
+                                    )
+
+                    # Phase 3: SHORT write — mark all downloaded in one batch
+                    for torrent_hash, bangumi_id_val, save_path in download_results:
+                        await torrent_repo.mark_downloaded_by_hash(
+                            torrent_hash, bangumi_id_val, save_path
+                        )
 
                 await rss_repo.update_status(rss_item_id, "Success", None)
                 await session.commit()
@@ -718,6 +798,7 @@ class RSSEngine:
         session: AsyncSession,
         downloader: DownloaderProtocol,
         bangumi_id: int,
+        included_hashes: list[str] | None = None,
     ) -> dict:
         """Download all episodes for bangumi (collection/backfill).
 
@@ -758,24 +839,45 @@ class RSSEngine:
                 "count": 0,
             }
 
-        # Title match: when rss_link is an aggregate feed, only keep torrents
-        # whose name contains this bangumi's title to avoid cross-contamination.
+        # Title match: only keep torrents whose name contains this bangumi's
+        # canonical title, to avoid cross-contamination when a Mikan per-bangumi
+        # feed returns torrents from other subgroups / shows.
         _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-        _title_raw = getattr(bangumi, "title_raw", None)
         title_matched = []
         for torrent in all_torrents:
-            if (_canonical and _canonical in torrent.name) or \
-               (_title_raw and _title_raw in torrent.name):
+            if _canonical and _canonical in torrent.name:
                 title_matched.append(torrent)
-        # If title matching yields nothing, fall back to all (non-aggregate single-bangumi feeds)
+
+        # A per-bangumi Mikan RSS link is already scoped by bangumiId/subgroupid.
+        # Fansub release titles often use aliases that do not contain Mikan's
+        # canonical Chinese title, so title substring matching must not be the
+        # deciding identity check for those feeds.
         if not title_matched:
             title_matched = all_torrents
+
+        if not title_matched:
+            logger.debug(
+                f"[Engine] download_bangumi {bangumi_id}: no torrent in "
+                f"{bangumi.rss_link} matched canonical {_canonical!r}; skipping backfill"
+            )
+            return {
+                "status": True,
+                "message": "No torrents matched bangumi title",
+                "count": 0,
+            }
+
+        included_hash_set = {
+            h.lower() for h in (included_hashes or []) if h
+        }
 
         filtered_torrents = []
         if bangumi.filter:
             _filter = bangumi.filter.replace(",", "|")
             for torrent in title_matched:
-                if not re.search(_filter, torrent.name, re.IGNORECASE):
+                torrent_hash = torrent.hash.lower() if torrent.hash else None
+                if torrent_hash and torrent_hash in included_hash_set:
+                    filtered_torrents.append(torrent)
+                elif not re.search(_filter, torrent.name, re.IGNORECASE):
                     filtered_torrents.append(torrent)
         else:
             filtered_torrents = title_matched

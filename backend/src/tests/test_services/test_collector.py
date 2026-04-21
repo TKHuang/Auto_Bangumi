@@ -1,15 +1,17 @@
 """Tests for Season Collector Service."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
+
+from sqlalchemy import text
 
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.rss import RSSItem
 from module.domain.models.series import Series
-from module.domain.models.torrent import Torrent, TorrentState
+from module.domain.models.torrent import TorrentState
 from module.domain.value_objects import ResponseModel
 from module.services.collector import SeasonCollectorService
-from module.services.downloader.interface import TorrentInfo, TorrentFile
+from module.services.downloader.interface import TorrentInfo
 
 
 @pytest.fixture
@@ -395,7 +397,7 @@ class TestSubscribeSeason:
             "pending_review": False,
         })
 
-        torrent = await torrent_repo.create({
+        await torrent_repo.create({
             "name": "[TestGroup] Test Anime - 01 [1080p]",
             "url": "https://example.com/torrent1.torrent",
             "hash": "hash1",
@@ -442,6 +444,58 @@ class TestSubscribeSeason:
         assert len(all_bangumi) == 1
 
         assert mock_downloader.torrents_delete.called
+
+    @pytest.mark.asyncio
+    async def test_subscribe_season_recovers_from_stale_rss_id(
+        self, async_engine, async_session, mock_downloader
+    ):
+        from module.repositories.bangumi import BangumiRepository
+        from module.repositories.rss import RSSRepository
+
+        bangumi_repo = BangumiRepository(async_session)
+        rss_repo = RSSRepository(async_session)
+
+        # Reproduce the production behavior where SQLite FK enforcement rejects
+        # a bangumi row that points at a stale rss_id.
+        async with async_engine.begin() as conn:
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
+        await async_session.execute(text("PRAGMA foreign_keys=ON"))
+
+        series = await _add_series(async_session, "Recovered Anime")
+
+        new_bangumi = Bangumi(
+            group_name="TestGroup",
+            rss_link="https://example.com/recovered.rss",
+            rss_id=999,
+            filter="",
+            dpi="1080P",
+            source="WEB-DL",
+            subtitle="CHS",
+            offset=0,
+        )
+        new_bangumi.series = series
+
+        with patch("module.services.rss_engine.RSSEngine.download_bangumi") as mock_dl:
+            mock_dl.return_value = {
+                "status": True,
+                "message": "Downloaded 1 torrent",
+                "count": 1,
+            }
+
+            result = await SeasonCollectorService.subscribe_season(
+                async_session, mock_downloader, new_bangumi, parser="mikan"
+            )
+
+        assert isinstance(result, ResponseModel)
+        assert result.status is True
+
+        rss_rows = await rss_repo.get_all()
+        created_rss = next(r for r in rss_rows if r.url == new_bangumi.rss_link)
+        bangumi_rows = await bangumi_repo.get_all()
+
+        assert created_rss.name == "Recovered Anime"
+        assert len(bangumi_rows) == 1
+        assert bangumi_rows[0].rss_id == created_rss.id
 
 
 class TestSubscribeBatch:
@@ -638,3 +692,76 @@ class TestSubscribeBatch:
         assert len(all_bangumi) == 1, (
             f"expected dedup to collapse duplicate identity to 1 row, got {len(all_bangumi)}"
         )
+
+    @pytest.mark.asyncio
+    async def test_subscribe_batch_applies_manual_torrent_selection(
+        self, async_session, mock_downloader
+    ):
+        from module.repositories.bangumi import BangumiRepository
+        from module.repositories.rss import RSSRepository
+        from module.repositories.torrent import TorrentRepository
+
+        bangumi_repo = BangumiRepository(async_session)
+        rss_repo = RSSRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        series = await _add_series(async_session, "Anime Manual")
+
+        rss = await rss_repo.create({
+            "name": "Aggregate RSS",
+            "url": "https://example.com/rss/aggregate",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        await async_session.commit()
+
+        b1 = Bangumi(
+            group_name="TestGroup",
+            rss_link=rss.url,
+            filter="合集,繁体",
+            dpi="1080P",
+            source="WEB-DL",
+            subtitle="CHS",
+            offset=0,
+        )
+        b1.series = series
+
+        with patch("module.services.rss_engine.RSSEngine.download_bangumi") as mock_dl:
+            mock_dl.return_value = {
+                "status": True,
+                "message": "Downloaded torrents",
+                "count": 1,
+            }
+
+            result = await SeasonCollectorService.subscribe_batch(
+                async_session,
+                mock_downloader,
+                [b1],
+                rss.id,
+                parser="mikan",
+                torrent_selections=[
+                    {
+                        "included_hashes": ["batchhash"],
+                        "excluded_hashes": ["skiphash"],
+                    }
+                ],
+            )
+
+        assert result.status is True
+        assert result.status_code == 200
+
+        all_bangumi = await bangumi_repo.get_by_rss(rss.id)
+        assert len(all_bangumi) == 1
+
+        mock_dl.assert_awaited_once_with(
+            async_session,
+            mock_downloader,
+            all_bangumi[0].id,
+            included_hashes=["batchhash"],
+        )
+
+        torrents = await torrent_repo.get_by_bangumi(all_bangumi[0].id)
+        excluded = [t for t in torrents if t.hash == "skiphash"]
+        assert len(excluded) == 1
+        assert excluded[0].state == TorrentState.EXCLUDED

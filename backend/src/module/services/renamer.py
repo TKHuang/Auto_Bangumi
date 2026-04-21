@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent
 from module.domain.parser.title_parser import TitleParser
-from module.domain.value_objects import EpisodeFile, SubtitleFile
+from module.domain.value_objects import (
+    EpisodeFile,
+    SubtitleFile,
+    sanitize_path_component,
+)
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.torrent import TorrentRepository
 
@@ -41,16 +45,19 @@ class RenamerService:
     ) -> str:
         is_subtitle = isinstance(file_info, SubtitleFile)
 
+        def safe_name(name: str) -> str:
+            return sanitize_path_component(name)
+
         if file_info.is_movie or file_info.episode is None:
             if method == "none" or method == "subtitle_none":
                 return file_info.media_path
             elif method == "pn" or method == "subtitle_pn":
-                base_name = file_info.title
+                base_name = safe_name(file_info.title)
                 if is_subtitle:
                     return f"{base_name}.{file_info.language}{file_info.suffix}"
                 return f"{base_name}{file_info.suffix}"
             elif method == "advance" or method == "subtitle_advance":
-                base_name = bangumi_name
+                base_name = safe_name(bangumi_name)
                 if is_subtitle:
                     return f"{base_name}.{file_info.language}{file_info.suffix}"
                 return f"{base_name}{file_info.suffix}"
@@ -74,12 +81,16 @@ class RenamerService:
             if method == "none" or method == "subtitle_none":
                 return file_info.media_path
             elif method == "pn" or method == "subtitle_pn":
-                base_name = f"{file_info.title} {ep_type} {episode}{version_suffix}"
+                base_name = safe_name(
+                    f"{file_info.title} {ep_type} {episode}{version_suffix}"
+                )
                 if is_subtitle:
                     return f"{base_name}.{file_info.language}{file_info.suffix}"
                 return f"{base_name}{file_info.suffix}"
             elif method == "advance" or method == "subtitle_advance":
-                base_name = f"{bangumi_name} {ep_type} {episode}{version_suffix}"
+                base_name = safe_name(
+                    f"{bangumi_name} {ep_type} {episode}{version_suffix}"
+                )
                 if is_subtitle:
                     return f"{base_name}.{file_info.language}{file_info.suffix}"
                 return f"{base_name}{file_info.suffix}"
@@ -93,14 +104,16 @@ class RenamerService:
         if method == "none" or method == "subtitle_none":
             return file_info.media_path
         elif method == "pn" or method == "subtitle_pn":
-            base_name = (
+            base_name = safe_name(
                 f"{file_info.title} S{season}E{episode}{version_suffix}"
             )
             if is_subtitle:
                 return f"{base_name}.{file_info.language}{file_info.suffix}"
             return f"{base_name}{file_info.suffix}"
         elif method == "advance" or method == "subtitle_advance":
-            base_name = f"{bangumi_name} S{season}E{episode}{version_suffix}"
+            base_name = safe_name(
+                f"{bangumi_name} S{season}E{episode}{version_suffix}"
+            )
             if is_subtitle:
                 return f"{base_name}.{file_info.language}{file_info.suffix}"
             return f"{base_name}{file_info.suffix}"

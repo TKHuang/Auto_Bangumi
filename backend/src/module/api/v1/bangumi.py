@@ -631,6 +631,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
 async def activate_pending_bangumi(
     bangumi_id: int,
     filter: str = Body(default=None, embed=True),
+    included_hashes: list[str] | None = Body(default=None, embed=True),
     excluded_hashes: list[str] | None = Body(default=None, embed=True),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -675,7 +676,12 @@ async def activate_pending_bangumi(
         )
 
     downloader = create_downloader(settings, session)
-    download_result = await AsyncRSSEngine.download_bangumi(session, downloader, bangumi_id)
+    download_result = await AsyncRSSEngine.download_bangumi(
+        session,
+        downloader,
+        bangumi_id,
+        included_hashes=included_hashes,
+    )
 
     if isinstance(download_result, dict) and download_result.get("status"):
         return JSONResponse(
