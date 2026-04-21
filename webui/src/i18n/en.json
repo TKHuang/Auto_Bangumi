@@ -119,6 +119,7 @@
     "please_enter": "Please Enter {0}!",
     "please_update": "Please Update AutoBangumi!",
     "rss_link": "RSS Link",
+    "rename_busy": "Background rename is running. Please try again shortly.",
     "success": "Success!",
     "update_failed": "Update Failed!",
     "update_success": "Update Success!"

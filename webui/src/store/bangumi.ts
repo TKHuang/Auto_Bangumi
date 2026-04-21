@@ -2,6 +2,8 @@ import type { BangumiRule } from '#/bangumi';
 import { ruleTemplate } from '#/bangumi';
 
 export const useBangumiStore = defineStore('bangumi', () => {
+  const message = useMessage();
+  const { t } = useMyI18n();
   const bangumi = ref<BangumiRule[]>();
   const editRule = reactive<{
     show: boolean;
@@ -60,6 +62,12 @@ export const useBangumiStore = defineStore('bangumi', () => {
     getAll();
   }
 
+  function showRenameBusy(error: any) {
+    if (error?.status === 409) {
+      message.error(t('notify.rename_busy'));
+    }
+  }
+
   const opts = {
     showMessage: true,
     onSuccess() {
@@ -67,12 +75,18 @@ export const useBangumiStore = defineStore('bangumi', () => {
     },
   };
 
-  const { execute: updateRule } = useApi(apiBangumi.updateRule, opts);
+  const { execute: updateRule } = useApi(apiBangumi.updateRule, {
+    ...opts,
+    onError: showRenameBusy,
+  });
   const { execute: enableRule } = useApi(apiBangumi.enableRule, opts);
   const { execute: disableRule } = useApi(apiBangumi.disableRule, opts);
   const { execute: deleteRule } = useApi(apiBangumi.deleteRule, opts);
   const { execute: refreshPoster } = useApi(apiBangumi.refreshPoster, opts);
-  const { execute: retriggerRename } = useApi(apiBangumi.retriggerRename, opts);
+  const { execute: retriggerRename } = useApi(apiBangumi.retriggerRename, {
+    ...opts,
+    onError: showRenameBusy,
+  });
 
   const batchOpts = {
     showMessage: true,

@@ -135,6 +135,26 @@ def torrent_parser(
     # For torrent files, we typically use the start episode
     episode = parsed.episode
 
+    # Disambiguate sequel-title formats like "Title 2 - 03" when the caller
+    # already knows the intended season. BangumiParser may read this as batch
+    # range 2-3, but in rename flows the explicit season argument means the
+    # dash-suffixed number is the real episode.
+    if (
+        season is not None
+        and parsed.episode_end is not None
+        and parsed.episode == season
+        and parsed.title
+        and parsed.title.rstrip().endswith(f" {season}")
+    ):
+        import re
+
+        ambiguous_dash = re.search(
+            rf"\b{int(season)}\s-\s*(\d+(?:\.\d+)?)\b",
+            parse_name,
+        )
+        if ambiguous_dash:
+            episode = parser._parse_episode_number(ambiguous_dash.group(1))
+
     # If episode not found by BangumiParser, try simple S##E## extraction
     if episode is None:
         import re

@@ -119,6 +119,7 @@
     "please_enter": "请输入{0}!",
     "please_update": "请更新AutoBangumi!",
     "rss_link": "RSS链接",
+    "rename_busy": "背景正在执行重命名，请稍后再试。",
     "success": "成功!",
     "update_failed": "更新失败!",
     "update_success": "更新成功!"

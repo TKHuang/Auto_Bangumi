@@ -12,6 +12,7 @@ axios.interceptors.response.use(
     const status = err.response?.status as StatusCode;
     const msg_en = err.response?.data.msg_en ?? '';
     const msg_zh = err.response?.data.msg_zh ?? '';
+    const suppressErrorMessage = Boolean((err.config as any)?.suppressErrorMessage);
 
     const message = useMessage();
     const { returnUserLangText } = useMyI18n();
@@ -39,7 +40,7 @@ axios.interceptors.response.use(
         break;
       /** 冲突 (如重复订阅) */
       case 409:
-        if (errorMsg) message.error(errorMsg);
+        if (!suppressErrorMessage && errorMsg) message.error(errorMsg);
         break;
       /** 验证失败 (如解析失败需要手动输入) */
       case 422:
@@ -53,13 +54,15 @@ axios.interceptors.response.use(
         // Don't logout on server errors — they don't invalidate the session.
         // Prefer the structured msg_en / msg_zh the API may surface (e.g. for
         // downloader-unreachable cases) over the generic fallback.
-        message.error(
-          errorMsg ||
-            returnUserLangText({
-              en: 'Server error!',
-              'zh-CN': '服务器错误！',
-            })
-        );
+        if (!suppressErrorMessage) {
+          message.error(
+            errorMsg ||
+              returnUserLangText({
+                en: 'Server error!',
+                'zh-CN': '服务器错误！',
+              })
+          );
+        }
         break;
     }
 

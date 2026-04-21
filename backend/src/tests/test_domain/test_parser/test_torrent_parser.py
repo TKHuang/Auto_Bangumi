@@ -92,6 +92,12 @@ def test_torrent_parser():
     assert sf.season == 3
     assert sf.language == "zh-tw"
 
+    file_name = "[LoliHouse] Isekai Nonbiri Nouka 2 - 03 [WebRip 1080p HEVC-10bit AAC SRTx2].mkv"
+    bf = torrent_parser(file_name, season=2)
+    assert bf.title == "Isekai Nonbiri Nouka 2"
+    assert bf.season == 2
+    assert bf.episode == 3
+
 
 class TestTorrentFilePathParsing:
     """Test comprehensive file path parsing scenarios.

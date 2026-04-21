@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from module.concurrency import rename_lock as rename_lock_module
 from module.scheduler.jobs import rename as rename_module
 from module.scheduler.jobs.rename import rename_job
 
@@ -16,9 +17,9 @@ class TestRenameJob:
     @pytest.fixture(autouse=True)
     async def reset_lock(self):
         """Reset lock before each test."""
-        rename_module._rename_lock = asyncio.Lock()
+        rename_lock_module._rename_lock = asyncio.Lock()
         yield
-        rename_module._rename_lock = asyncio.Lock()
+        rename_lock_module._rename_lock = asyncio.Lock()
 
     def _make_session_cm(self, mock_session: AsyncMock):
         """Build an async context-manager that yields mock_session.
@@ -62,7 +63,7 @@ class TestRenameJob:
     @pytest.mark.asyncio
     async def test_rename_job_skips_when_locked(self):
         """Test that rename job skips when lock is already held."""
-        await rename_module._rename_lock.acquire()
+        await rename_lock_module._rename_lock.acquire()
 
         mock_session_local = MagicMock()
 
@@ -76,7 +77,7 @@ class TestRenameJob:
                 mock_session_local.assert_not_called()
                 mock_renamer_class.assert_not_called()
 
-        rename_module._rename_lock.release()
+        rename_lock_module._rename_lock.release()
 
     @pytest.mark.asyncio
     async def test_rename_job_handles_exception(self):
@@ -242,7 +243,7 @@ class TestRenameJob:
 
                     await rename_job()
 
-                    assert not rename_module._rename_lock.locked()
+                    assert not rename_lock_module._rename_lock.locked()
 
                     await rename_job()
 

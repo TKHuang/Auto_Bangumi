@@ -5,6 +5,7 @@ any threading or sync bridging.
 """
 
 import json
+import logging
 import os
 import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -892,6 +893,51 @@ class TestPikPakRenameFile:
             id="file_id",
             new_file_name=new_name,
         )
+
+    @pytest.mark.asyncio
+    async def test_rename_file_skips_partial_resolution_warning_when_target_exists(
+        self, pikpak_downloader, mock_pikpak_api, caplog
+    ):
+        _, mock_instance = mock_pikpak_api
+
+        old_name = "[LoliHouse] Isekai Nonbiri Nouka 2 - 02 [WebRip 1080p HEVC-10bit AAC SRTx2].mkv"
+        new_name = "异世界悠闲农家 第二季 S02E02.mkv"
+
+        async def path_to_id_side_effect(path, create=False):
+            if path == "/downloads/Bangumi":
+                return [{"id": "folder_id", "name": "downloads/Bangumi"}]
+            if path in {
+                f"/downloads/Bangumi/{old_name}",
+                f"/downloads/Bangumi/{new_name}",
+            }:
+                return [{"id": "folder_id", "name": "downloads/Bangumi"}]
+            return None
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {
+                        "id": "target_file_id",
+                        "name": new_name,
+                        "kind": "drive#file",
+                    }
+                ]
+            }
+        )
+        mock_instance.file_rename = AsyncMock()
+
+        with caplog.at_level(logging.WARNING):
+            result = await pikpak_downloader.torrents_rename_file(
+                "abc123def456abc123def456abc123def456abc1",
+                old_name,
+                new_name,
+            )
+
+        assert result is True
+        assert "Partial path resolution in _find_file_id_by_path" not in caplog.text
+        assert "File not found for rename" not in caplog.text
+        mock_instance.file_rename.assert_not_awaited()
 
 
 class TestPikPakDownloaderTokenRefresh:

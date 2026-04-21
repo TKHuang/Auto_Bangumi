@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.api.middleware.auth import get_current_user
 from module.conf import settings
+from module.concurrency.rename_lock import try_acquire_rename_lock
 from module.database.engine import get_db_session
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import gen_save_path
@@ -154,66 +155,79 @@ async def update_rule(
             content={"msg_en": f"Can't find data with {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id} 的数据"},
         )
 
-    _old_season = old_data.series.season if old_data.series is not None else 1
-    _old_title = old_data.series.canonical_title if old_data.series is not None else ""
-    rename_fields_changed = (
-        _old_season != data.season or _old_title != data.official_title
-    )
+    lock = await try_acquire_rename_lock()
+    if lock is None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "msg_en": "Rename is already in progress. Please try Apply again shortly.",
+                "msg_zh": "当前正在执行重命名，请稍后再试。",
+            },
+        )
 
-    downloader = create_downloader(settings, session)
-    match_list = await _match_torrents_list(downloader, torrent_repo, old_data)
+    try:
+        _old_season = old_data.series.season if old_data.series is not None else 1
+        _old_title = old_data.series.canonical_title if old_data.series is not None else ""
+        rename_fields_changed = (
+            _old_season != data.season or _old_title != data.official_title
+        )
 
-    path = _gen_save_path(data)
-    if match_list:
-        await downloader.move_torrent(match_list, path)
+        downloader = create_downloader(settings, session)
+        match_list = await _match_torrents_list(downloader, torrent_repo, old_data)
 
-    update_dict = {
-        "official_title": data.official_title,
-        "title_raw": data.title_raw,
-        "season": data.season,
-        "season_raw": data.season_raw,
-        "group_name": data.group_name,
-        "dpi": data.dpi,
-        "source": data.source,
-        "subtitle": data.subtitle,
-        "eps_collect": data.eps_collect,
-        "offset": data.offset,
-        "filter": data.filter,
-        "rss_link": data.rss_link,
-        "poster_link": data.poster_link,
-        "added": data.added,
-        "rule_name": data.rule_name,
-        "save_path": path,
-        "deleted": data.deleted,
-        "year": data.year,
-        "rss_id": data.rss_id,
-    }
-    await bangumi_repo.update_simple(bangumi_id, update_dict)
+        path = _gen_save_path(data)
+        if match_list:
+            await downloader.move_torrent(match_list, path)
 
-    renamed_count = 0
-    if rename_fields_changed:
-        await torrent_repo.clear_rename_status(bangumi_id, new_cloud_path=path)
-        logger.info(f"[API] Cleared rename status (season/title changed for bangumi {bangumi_id})")
-        await session.commit()
+        update_dict = {
+            "official_title": data.official_title,
+            "title_raw": data.title_raw,
+            "season": data.season,
+            "season_raw": data.season_raw,
+            "group_name": data.group_name,
+            "dpi": data.dpi,
+            "source": data.source,
+            "subtitle": data.subtitle,
+            "eps_collect": data.eps_collect,
+            "offset": data.offset,
+            "filter": data.filter,
+            "rss_link": data.rss_link,
+            "poster_link": data.poster_link,
+            "added": data.added,
+            "rule_name": data.rule_name,
+            "save_path": path,
+            "deleted": data.deleted,
+            "year": data.year,
+            "rss_id": data.rss_id,
+        }
+        await bangumi_repo.update_simple(bangumi_id, update_dict)
 
-        # Trigger immediate re-rename so renamed_at gets set right away
-        renamer = RenamerService(session)
-        renamed_results = await renamer.rename_bangumi(downloader, bangumi_id)
-        renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
-        logger.info(f"[API] Re-renamed {renamed_count} files for bangumi {bangumi_id}")
-    else:
-        await session.commit()
+        renamed_count = 0
+        if rename_fields_changed:
+            await torrent_repo.clear_rename_status(bangumi_id, new_cloud_path=path)
+            logger.info(f"[API] Cleared rename status (season/title changed for bangumi {bangumi_id})")
+            await session.commit()
 
-    msg_suffix_en = f" (renamed {renamed_count} files)" if renamed_count else ""
-    msg_suffix_zh = f"（重命名了 {renamed_count} 个文件）" if renamed_count else ""
-    _title = _orm_title(old_data)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "msg_en": f"Update rule for {_title}{msg_suffix_en}",
-            "msg_zh": f"更新 {_title} 规則{msg_suffix_zh}",
-        },
-    )
+            # Trigger immediate re-rename so renamed_at gets set right away
+            renamer = RenamerService(session)
+            renamed_results = await renamer.rename_bangumi(downloader, bangumi_id)
+            renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
+            logger.info(f"[API] Re-renamed {renamed_count} files for bangumi {bangumi_id}")
+        else:
+            await session.commit()
+
+        msg_suffix_en = f" (renamed {renamed_count} files)" if renamed_count else ""
+        msg_suffix_zh = f"（重命名了 {renamed_count} 个文件）" if renamed_count else ""
+        _title = _orm_title(old_data)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "msg_en": f"Update rule for {_title}{msg_suffix_en}",
+                "msg_zh": f"更新 {_title} 规則{msg_suffix_zh}",
+            },
+        )
+    finally:
+        lock.release()
 
 
 @router.delete(
@@ -722,14 +736,27 @@ async def activate_pending_bangumi(
     dependencies=[Depends(get_current_user)],
 )
 async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):
+    lock = await try_acquire_rename_lock()
+    if lock is None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "msg_en": "Rename is already in progress. Please try again shortly.",
+                "msg_zh": "当前正在执行重命名，请稍后再试。",
+            },
+        )
+
     downloader = create_downloader(settings, session)
     renamer = RenamerService(session)
-    renamed_results = await renamer.rename_bangumi(downloader, bangumi_id, retrigger=True)
-    renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "msg_en": f"Re-rename completed, renamed {renamed_count} files",
-            "msg_zh": f"重新重命名完成，重命名了 {renamed_count} 个文件",
-        },
-    )
+    try:
+        renamed_results = await renamer.rename_bangumi(downloader, bangumi_id, retrigger=True)
+        renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "msg_en": f"Re-rename completed, renamed {renamed_count} files",
+                "msg_zh": f"重新重命名完成，重命名了 {renamed_count} 个文件",
+            },
+        )
+    finally:
+        lock.release()

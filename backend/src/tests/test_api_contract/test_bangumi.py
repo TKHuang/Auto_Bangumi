@@ -300,6 +300,29 @@ class TestUpdateBangumi:
                         response = client.patch("/api/v1/bangumi/update/999", json=update_data)
                     assert response.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_update_returns_409_when_rename_lock_held(self, client):
+        update_data = {
+            "official_title": "Updated Bangumi", "title_raw": "[Group] Updated - 01",
+            "season": 2, "season_raw": "S02", "group_name": "Group",
+            "dpi": "1080p", "source": "WEB-DL", "subtitle": "CHT",
+            "filter": "1080p", "rss_link": "https://example.com/new",
+            "poster_link": "", "year": "2024", "added": False, "deleted": False,
+            "eps_collect": False, "offset": 0, "rule_name": "Updated Bangumi",
+            "save_path": "/downloads", "rss_id": 1,
+        }
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
+            with patch("module.api.v1.bangumi.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
+                mock_b = AsyncMock()
+                mock_b_cls.return_value = mock_b
+                mock_b.get_by_id.return_value = _mock_bangumi_obj()
+
+                response = client.patch("/api/v1/bangumi/update/1", json=update_data)
+
+                assert response.status_code == 409
+                body = response.json()
+                assert "rename" in body["msg_en"].lower()
+
 
 class TestDeleteBangumi:
 
@@ -785,3 +808,11 @@ class TestRetriggerRename:
                 assert response.status_code == 200
                 data = response.json()
                 assert "0" in data["msg_en"]
+
+    @pytest.mark.asyncio
+    async def test_retrigger_rename_returns_409_when_lock_held(self, client):
+        with patch("module.api.v1.bangumi.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
+            response = client.post("/api/v1/bangumi/1/retrigger-rename")
+            assert response.status_code == 409
+            data = response.json()
+            assert "rename" in data["msg_en"].lower()

@@ -49,7 +49,8 @@ export const apiBangumi = {
     const post = omit(rule, ['id']);
     const { data } = await axios.patch<ApiSuccess>(
       `api/v1/bangumi/update/${bangumiId}`,
-      post
+      post,
+      { suppressErrorMessage: true } as any
     );
     return data;
   },
@@ -189,7 +190,9 @@ export const apiBangumi = {
    */
   async retriggerRename(bangumiId: number) {
     const { data } = await axios.post<ApiSuccess>(
-      `api/v1/bangumi/${bangumiId}/retrigger-rename`
+      `api/v1/bangumi/${bangumiId}/retrigger-rename`,
+      null,
+      { suppressErrorMessage: true } as any
     );
     return data;
   },

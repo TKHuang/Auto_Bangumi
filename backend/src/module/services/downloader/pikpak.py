@@ -726,7 +726,12 @@ class PikPakDownloader:
                 return task.get("file_id")
         return None
 
-    async def _find_file_id_by_path(self, cloud_path: str) -> str | None:
+    async def _find_file_id_by_path(
+        self,
+        cloud_path: str,
+        *,
+        warn_on_miss: bool = True,
+    ) -> str | None:
         """Find a file ID by its full cloud path.
 
         Validates full path resolution to avoid returning a parent folder ID
@@ -735,6 +740,11 @@ class PikPakDownloader:
 
         Args:
             cloud_path: Full path like "/downloads/Bangumi/Series/S01E01.mkv".
+
+        Args:
+            warn_on_miss: When False, partial/missing resolution is logged at
+                debug level instead of warning. Use this for probe-style checks
+                where the caller has a fallback path and doesn't want noisy logs.
 
         Returns:
             File ID if found, None otherwise.
@@ -752,7 +762,8 @@ class PikPakDownloader:
                 requested_path = cloud_path.lstrip("/")
 
                 if returned_path != requested_path:
-                    logger.warning(
+                    log_fn = logger.warning if warn_on_miss else logger.debug
+                    log_fn(
                         f"Partial path resolution in _find_file_id_by_path: "
                         f"requested '{cloud_path}' but resolved to "
                         f"'/{returned_path}'. Returning None to prevent "
@@ -766,7 +777,8 @@ class PikPakDownloader:
         except Exception as e:
             logger.debug(f"path_to_id failed for {cloud_path}: {e}")
 
-        logger.warning(f"Could not find file ID for path: {cloud_path}")
+        log_fn = logger.warning if warn_on_miss else logger.debug
+        log_fn(f"Could not find file ID for path: {cloud_path}")
         return None
 
     async def _find_file_or_folder_id_by_name(
@@ -1150,7 +1162,7 @@ class PikPakDownloader:
 
         logger.info(f"Renaming file in PikPak: {full_old_path} -> {full_new_path}")
 
-        file_id = await self._find_file_id_by_path(full_old_path)
+        file_id = await self._find_file_id_by_path(full_old_path, warn_on_miss=False)
         if not file_id:
             file_id, kind = await self._find_file_or_folder_id_by_name(
                 os.path.dirname(full_old_path),
@@ -1159,7 +1171,10 @@ class PikPakDownloader:
             if kind != "drive#file":
                 file_id = None
         if not file_id:
-            target_file_id = await self._find_file_id_by_path(full_new_path)
+            target_file_id = await self._find_file_id_by_path(
+                full_new_path,
+                warn_on_miss=False,
+            )
             if not target_file_id:
                 target_file_id, target_kind = await self._find_file_or_folder_id_by_name(
                     os.path.dirname(full_new_path),
@@ -1734,6 +1749,32 @@ class PikPakDownloader:
         try:
             tasks = await self._get_all_tasks_cached()
             result: dict[str, str] = {}
+            task_by_hash: dict[str, dict[str, Any]] = {}
+
+            for task in tasks:
+                file_url = task.get("file_url", "") or task.get("params", {}).get(
+                    "url", ""
+                )
+                torrent_hash = self._extract_hash(file_url)
+                if torrent_hash:
+                    task_by_hash[torrent_hash.lower()] = task
+
+            cloud_paths_by_hash: dict[str, str] = {}
+            if self.session and task_by_hash:
+                repo = TorrentRepository(self.session)
+                if hasattr(repo, "get_by_hashes"):
+                    torrent_rows = await repo.get_by_hashes(list(task_by_hash.keys()))
+                    if isinstance(torrent_rows, dict):
+                        cloud_paths_by_hash = {
+                            torrent_hash: row.pikpak_cloud_path
+                            for torrent_hash, row in torrent_rows.items()
+                            if row.pikpak_cloud_path
+                        }
+                if not cloud_paths_by_hash:
+                    for torrent_hash in task_by_hash.keys():
+                        torrent_record = await repo.get_by_hash(torrent_hash)
+                        if torrent_record and torrent_record.pikpak_cloud_path:
+                            cloud_paths_by_hash[torrent_hash] = torrent_record.pikpak_cloud_path
 
             for task in tasks:
                 file_url = task.get("file_url", "") or task.get("params", {}).get(
@@ -1743,11 +1784,7 @@ class PikPakDownloader:
                 if torrent_hash:
                     phase = task.get("phase", "")
                     state = PHASE_STATE_MAP.get(phase, "unknown")
-                    save_path: str | None = None
-                    if self.session:
-                        repo = TorrentRepository(self.session)
-                        torrent_record = await repo.get_by_hash(torrent_hash.lower())
-                        save_path = torrent_record.pikpak_cloud_path if torrent_record else None
+                    save_path = cloud_paths_by_hash.get(torrent_hash.lower())
                     files: list[TorrentFile] = []
                     if save_path:
                         files = await self._resolve_task_files(task, save_path, state)
