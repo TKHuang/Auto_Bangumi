@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import {
   CheckOne,
+  CloseOne,
+  DeleteOne,
   DownloadFour,
   Refresh,
   UnorderedList,
@@ -118,69 +120,44 @@ const boxSize = computed(() => {
       <ab-rule v-model:rule="rule"></ab-rule>
 
       <div class="action-section">
-        <div class="action-grid">
-          <ab-button
-            size="small"
-            class="action-btn action-btn--rename"
-            @click="emitRetriggerRename"
-          >
-            <div class="action-btn-inner">
-              <span class="action-icon">
-                <Refresh theme="outline" size="14" :stroke-width="3" />
-              </span>
-              <span class="action-label">
-                {{ $t('homepage.rule.retrigger_rename') }}
-              </span>
-            </div>
-          </ab-button>
-          <ab-button
-            size="small"
-            class="action-btn action-btn--backfill"
-            @click="emitBackfillSource"
-          >
-            <div class="action-btn-inner">
-              <span class="action-icon">
-                <DownloadFour theme="outline" size="14" :stroke-width="3" />
-              </span>
-              <span class="action-label">
-                {{ $t('homepage.rule.backfill_source') }}
-              </span>
-            </div>
-          </ab-button>
-          <ab-button
-            size="small"
-            class="action-btn action-btn--torrents"
-            @click="() => (showTorrents = true)"
-          >
-            <div class="action-btn-inner">
-              <span class="action-icon">
-                <UnorderedList theme="outline" size="14" :stroke-width="3" />
-              </span>
-              <span class="action-label">
-                {{ $t('rss.torrents') }}
-              </span>
-            </div>
-          </ab-button>
+        <div class="action-row">
+          <button class="action-tile action-tile--rename" @click="emitRetriggerRename">
+            <span class="tile-icon tile-icon--rename">
+              <Refresh theme="outline" size="15" :stroke-width="3" />
+            </span>
+            <span class="tile-label">{{ $t('homepage.rule.retrigger_rename') }}</span>
+          </button>
+
+          <button class="action-tile action-tile--backfill" @click="emitBackfillSource">
+            <span class="tile-icon tile-icon--backfill">
+              <DownloadFour theme="outline" size="15" :stroke-width="3" />
+            </span>
+            <span class="tile-label">{{ $t('homepage.rule.backfill_source') }}</span>
+          </button>
+
+          <button class="action-tile action-tile--torrents" @click="() => (showTorrents = true)">
+            <span class="tile-icon tile-icon--torrents">
+              <UnorderedList theme="outline" size="15" :stroke-width="3" />
+            </span>
+            <span class="tile-label">{{ $t('rss.torrents') }}</span>
+          </button>
         </div>
 
         <div class="action-footer">
-          <div class="delete-wrap">
-            <ab-button-multi
-              size="small"
-              type="warn"
-              :selections="[t('homepage.rule.delete'), t('homepage.rule.disable')]"
-              @click="showDeleteFileDialog"
-            />
-          </div>
+          <button class="footer-btn footer-btn--disable" @click="showDeleteFileDialog('disable')">
+            <CloseOne theme="outline" size="14" :stroke-width="3" />
+            <span>{{ $t('homepage.rule.disable') }}</span>
+          </button>
 
-          <ab-button size="small" class="apply-accent" @click="emitApply">
-            <div class="apply-inner">
-              <span class="apply-icon">
-                <CheckOne theme="outline" size="15" :stroke-width="4" />
-              </span>
-              <span class="apply-label">{{ $t('homepage.rule.apply') }}</span>
-            </div>
-          </ab-button>
+          <button class="footer-btn footer-btn--danger" @click="showDeleteFileDialog('delete')">
+            <DeleteOne theme="outline" size="14" :stroke-width="3" />
+            <span>{{ $t('homepage.rule.delete') }}</span>
+          </button>
+
+          <button class="footer-btn footer-btn--apply" @click="emitApply">
+            <CheckOne theme="outline" size="15" :stroke-width="3" />
+            <span>{{ $t('homepage.rule.apply') }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -211,276 +188,193 @@ const boxSize = computed(() => {
 
 <style scoped lang="scss">
 .action-section {
-  --action-primary: #4e3c94;
-  --action-primary-deep: #281e52;
-  --action-primary-soft: #f2eefb;
-  --action-primary-border: rgba(78, 60, 148, 0.16);
-  --action-warn: #943c61;
-  --action-warn-deep: #521e2a;
-  --action-warn-soft: rgba(148, 60, 97, 0.1);
-  --action-apply: #5f4bb2;
-  --action-apply-deep: #3f3180;
-
   position: relative;
-  margin-top: 1.1rem;
-  padding: 1rem 0 0;
-  border-top: 1px solid rgba(78, 60, 148, 0.12);
-  border-radius: 0;
-  background:
-    linear-gradient(180deg, rgba(247, 244, 255, 0.78), rgba(255, 255, 255, 0));
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid rgba(78, 60, 148, 0.08);
 }
 
-.action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.action-row {
+  display: flex;
+  gap: 8px;
+}
+
+.action-tile {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(78, 60, 148, 0.06);
+  cursor: pointer;
+  outline: none;
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease,
+    box-shadow 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(78, 60, 148, 0.1);
+  }
+
+  &:active {
+    transform: translateY(0) scale(0.97);
+    box-shadow: none;
+  }
+}
+
+.action-tile--rename:hover {
+  background: rgba(99, 91, 255, 0.1);
+}
+
+.action-tile--backfill:hover {
+  background: rgba(45, 156, 180, 0.1);
+}
+
+.action-tile--torrents:hover {
+  background: rgba(124, 77, 200, 0.1);
+}
+
+.tile-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  transition: box-shadow 0.2s ease;
+}
+
+.tile-icon--rename {
+  background: linear-gradient(135deg, #e8e0ff, #d4c6f9);
+  color: #5b4cad;
+  box-shadow: 0 2px 6px rgba(91, 76, 173, 0.15);
+}
+
+.tile-icon--backfill {
+  background: linear-gradient(135deg, #d6f0f5, #b8e4ee);
+  color: #2d7d8f;
+  box-shadow: 0 2px 6px rgba(45, 125, 143, 0.15);
+}
+
+.tile-icon--torrents {
+  background: linear-gradient(135deg, #ece0ff, #d9c5fa);
+  color: #6b42b8;
+  box-shadow: 0 2px 6px rgba(107, 66, 184, 0.15);
+}
+
+.tile-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #52476b;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .action-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(78, 60, 148, 0.1);
+  gap: 10px;
+  margin-top: 10px;
 }
 
-.action-btn-inner,
-.apply-inner {
+.footer-btn {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  width: 100%;
-  padding: 0 12px;
-}
-
-.apply-inner {
-  gap: 10px;
-  padding: 0 14px;
-}
-
-.action-icon,
-.apply-icon {
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  border-radius: 999px;
-}
-
-.action-icon {
-  width: 26px;
-  height: 26px;
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 4px 10px rgba(78, 60, 148, 0.12);
-}
-
-.apply-icon {
-  width: 28px;
-  height: 28px;
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 4px 10px rgba(63, 49, 128, 0.18);
-}
-
-.action-label,
-.apply-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:deep(.action-btn) {
-  min-width: 0;
-  width: 100% !important;
-  height: 44px !important;
-  border-radius: 12px !important;
-  border: 1px solid var(--action-primary-border);
-  color: var(--action-primary) !important;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 9px;
+  font-size: 12px;
   font-weight: 700;
-  font-size: 12px;
   letter-spacing: 0.02em;
-  position: relative;
-  overflow: hidden;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
   transition:
-    transform 0.18s ease,
+    background 0.2s ease,
+    transform 0.15s ease,
     box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    background 0.2s ease;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 8px 18px rgba(78, 60, 148, 0.08);
+    opacity 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0) scale(0.98);
+  }
 }
 
-:deep(.action-btn::before) {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.58), transparent 60%);
-  opacity: 0.8;
+.footer-btn--disable {
+  background: rgba(120, 100, 160, 0.08);
+  color: #756a8f;
+
+  &:hover {
+    background: rgba(120, 100, 160, 0.14);
+    box-shadow: 0 4px 12px rgba(120, 100, 160, 0.1);
+  }
+
+  &:active {
+    background: rgba(120, 100, 160, 0.18);
+  }
 }
 
-:deep(.action-btn--rename) {
-  background: linear-gradient(180deg, #e7dbff 0%, #cfbbf7 100%) !important;
-  border-color: rgba(88, 66, 173, 0.3);
+.footer-btn--danger {
+  background: rgba(180, 60, 90, 0.08);
+  color: #a0405e;
+
+  &:hover {
+    background: rgba(180, 60, 90, 0.14);
+    box-shadow: 0 4px 12px rgba(180, 60, 90, 0.1);
+  }
+
+  &:active {
+    background: rgba(180, 60, 90, 0.18);
+  }
 }
 
-:deep(.action-btn--rename .action-icon) {
-  color: #4e369f;
-  background: rgba(78, 54, 159, 0.16);
-}
+.footer-btn--apply {
+  flex: 1;
+  background: #5b46b2;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(91, 70, 178, 0.25);
 
-:deep(.action-btn--backfill) {
-  background: linear-gradient(180deg, #dfd0ff 0%, #c5aff1 100%) !important;
-  border-color: rgba(95, 68, 181, 0.3);
-  color: #573aa9 !important;
-}
+  &:hover {
+    background: #5040a5;
+    box-shadow: 0 6px 16px rgba(91, 70, 178, 0.3);
+  }
 
-:deep(.action-btn--backfill .action-icon) {
-  color: #5e3fb4;
-  background: rgba(94, 63, 180, 0.16);
-}
-
-:deep(.action-btn--torrents) {
-  grid-column: 1 / -1;
-  background: linear-gradient(180deg, #cfbcf7 0%, #ae90e4 100%) !important;
-  border-color: rgba(80, 56, 163, 0.34);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    0 10px 18px rgba(78, 60, 148, 0.18);
-}
-
-:deep(.action-btn--torrents .action-icon) {
-  color: #4b31a1;
-  background: rgba(75, 49, 161, 0.18);
-}
-
-:deep(.action-btn:hover) {
-  transform: translateY(-1px);
-  border-color: rgba(78, 60, 148, 0.3);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 10px 18px rgba(78, 60, 148, 0.16);
-}
-
-:deep(.action-btn:active) {
-  transform: translateY(0);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 4px 10px rgba(78, 60, 148, 0.08);
-}
-
-:deep(.apply-accent) {
-  flex-shrink: 0;
-  width: 136px !important;
-  height: 44px !important;
-  border-radius: 12px !important;
-  border: 1px solid rgba(79, 57, 168, 0.4);
-  background: linear-gradient(180deg, #b191ef 0%, #7655cb 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 12px 24px rgba(78, 60, 148, 0.22);
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.03em;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.22s ease,
-    filter 0.22s ease;
-}
-
-:deep(.apply-accent:hover) {
-  filter: brightness(1.05) saturate(1.05);
-  transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 14px 26px rgba(78, 60, 148, 0.26);
-}
-
-:deep(.apply-accent:active) {
-  transform: translateY(0);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 7px 14px rgba(78, 60, 148, 0.18);
-}
-
-.delete-wrap {
-  flex-shrink: 0;
-}
-
-// ab-button-multi trigger row (split button)
-.delete-wrap :deep(> div:first-child) {
-  width: 136px !important;
-  height: 44px !important;
-  border-radius: 12px !important;
-  overflow: hidden;
-  border: 1px solid rgba(145, 65, 112, 0.38);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 12px 24px rgba(120, 45, 73, 0.2);
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.22s ease,
-    filter 0.22s ease;
-}
-
-.delete-wrap :deep(> div:first-child:hover) {
-  transform: translateY(-1px);
-  filter: brightness(1.05) saturate(1.05);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 14px 26px rgba(120, 45, 73, 0.24);
-}
-
-.delete-wrap :deep(> div:first-child:active) {
-  transform: translateY(0);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 7px 14px rgba(120, 45, 73, 0.16);
-}
-
-.delete-wrap :deep(.type-warn),
-.delete-wrap :deep(.selector-warn) {
-  background: linear-gradient(180deg, #be7aa2 0%, #94476d 100%) !important;
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.03em;
-  text-shadow: 0 1px 0 rgba(88, 31, 60, 0.2);
-}
-
-.delete-wrap :deep(.selector-warn) {
-  border-left: 1px solid rgba(255, 255, 255, 0.16);
-}
-
-.delete-wrap :deep(.type-warn) {
-  padding-left: 14px !important;
-}
-
-.delete-wrap :deep(.selector-warn) {
-  min-width: 38px;
+  &:active {
+    background: #483a96;
+    box-shadow: 0 2px 6px rgba(91, 70, 178, 0.2);
+  }
 }
 
 @media (max-width: 640px) {
-  .action-grid {
-    grid-template-columns: 1fr;
+  .action-row {
+    flex-wrap: wrap;
+  }
+
+  .action-tile {
+    min-width: calc(33.33% - 6px);
   }
 
   .action-footer {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: column-reverse;
   }
 
-  :deep(.apply-accent),
-  .delete-wrap,
-  .delete-wrap :deep(> div:first-child) {
-    width: 100% !important;
+  .footer-btn {
+    width: 100%;
   }
 }
 </style>
