@@ -53,6 +53,29 @@ class TorrentRepository:
         await self.session.refresh(torrent)
         return torrent
 
+    async def create_or_ignore(self, data: dict) -> bool:
+        stmt = sqlite_insert(Torrent).values(
+            bangumi_id=data["bangumi_id"],
+            rss_id=data["rss_id"],
+            name=data.get("name") or "",
+            url=data.get("url") or "",
+            homepage=data.get("homepage"),
+            hash=data.get("hash"),
+            state=data.get("state", TorrentState.PENDING.value),
+            downloaded=data.get("downloaded", False),
+            renamed_at=data.get("renamed_at"),
+            renamed_file_count=data.get("renamed_file_count"),
+            pikpak_cloud_path=data.get("pikpak_cloud_path"),
+            pikpak_task_id=data.get("pikpak_task_id"),
+            mikan_bangumi_id=data.get("mikan_bangumi_id"),
+            mikan_subgroup_id=data.get("mikan_subgroup_id"),
+        )
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["hash", "bangumi_id"]
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount > 0
+
     async def add_all_or_ignore(self, torrents: list[Torrent]) -> int:
         if not torrents:
             return 0

@@ -183,7 +183,7 @@ async def finalize_resolved_item(
             "active": True,
         })
 
-    await torrent_repo.create({
+    await torrent_repo.create_or_ignore({
         "bangumi_id": bangumi.id,
         "rss_id": item.rss_id,
         "name": item.raw_name,

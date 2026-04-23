@@ -186,6 +186,41 @@ async def test_resolved_idempotent_on_existing_bangumi(db_session):
 
 
 @pytest.mark.integration
+async def test_resolved_duplicate_torrent_keeps_pipeline_healthy(db_session):
+    """Re-seeing the same hash for the same Bangumi should be idempotent."""
+    await _seed_rss(db_session)
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=7,
+        canonical_title="Show",
+        poster_url=None,
+    )
+
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    first = await pipeline.run_for_feed(rss_id=1, items=[_item(info_hash="dup-hash")])
+    second = await pipeline.run_for_feed(rss_id=1, items=[_item(info_hash="dup-hash")])
+
+    assert first.items_resolved == 1
+    assert first.items_failed == 0
+    assert second.items_resolved == 1
+    assert second.items_failed == 0
+
+    from sqlalchemy import func, select
+    from module.domain.models.torrent import Torrent
+
+    torrent_count = (
+        await db_session.execute(select(func.count(Torrent.id)))
+    ).scalar()
+
+    assert torrent_count == 1
+
+
+@pytest.mark.integration
 async def test_resolved_prefers_page_mikan_ref_over_rss_link_ids(db_session):
     """When the RSS link has no bangumiId (aggregate feed) but the Mikan
     episode page returns authoritative ids, the pipeline must build a Tier 1
