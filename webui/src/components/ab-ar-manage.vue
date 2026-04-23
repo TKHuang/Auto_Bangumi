@@ -2,7 +2,7 @@
 import { useDebounceFn } from '@vueuse/core';
 import { NCheckbox, NDynamicTags } from 'naive-ui';
 import type { BangumiAPI } from '#/bangumi';
-import type { RSS } from '#/rss';
+import type { PendingTorrentPreview } from '@/api/rss';
 
 interface PendingBangumi extends BangumiAPI {
   global_filter_matches: string[];
@@ -12,14 +12,6 @@ interface PendingResponse {
   bangumi: PendingBangumi[];
   pending_count: number;
   active_count: number;
-}
-
-interface TorrentPreview {
-  name: string;
-  url: string;
-  homepage: string;
-  filter: boolean;
-  hash: string | null;
 }
 
 const props = defineProps<{
@@ -39,9 +31,6 @@ const pendingBangumi = ref<PendingBangumi[]>([]);
 const pendingCount = ref(0);
 const activeCount = ref(0);
 
-// RSS item for torrent analysis
-const rssItem = ref<RSS | null>(null);
-
 // Track selected bangumi for batch operations
 const selectedIds = ref<Set<number>>(new Set());
 
@@ -52,7 +41,7 @@ const expandedId = ref<number | null>(null);
 const localFilters = ref<Map<number, string[]>>(new Map());
 
 // Torrent preview data - Map<bangumi_id, torrents[]>
-const torrentPreviews = ref<Map<number, TorrentPreview[]>>(new Map());
+const torrentPreviews = ref<Map<number, PendingTorrentPreview[]>>(new Map());
 const torrentPreviewLoading = ref<Set<number>>(new Set());
 
 const { t } = useMyI18n();
@@ -172,13 +161,13 @@ function resetToGlobal(id: number) {
 }
 
 // Get torrents that will be kept (not filtered out)
-function getTorrentsKeep(id: number): TorrentPreview[] {
+function getTorrentsKeep(id: number): PendingTorrentPreview[] {
   const torrents = torrentPreviews.value.get(id) || [];
   return torrents.filter((t) => !t.filter);
 }
 
 // Get torrents that will be excluded (filtered out)
-function getTorrentsExclude(id: number): TorrentPreview[] {
+function getTorrentsExclude(id: number): PendingTorrentPreview[] {
   const torrents = torrentPreviews.value.get(id) || [];
   return torrents.filter((t) => t.filter);
 }
@@ -197,8 +186,6 @@ function toggleTorrentFilter(bangumiId: number, torrentUrl: string) {
 
 // Fetch torrent preview for a specific bangumi
 async function fetchTorrentPreview(id: number) {
-  if (!rssItem.value?.url) return;
-
   const bangumi = pendingBangumi.value.find((b) => b.id === id);
   if (!bangumi) return;
 
@@ -209,10 +196,10 @@ async function fetchTorrentPreview(id: number) {
   torrentPreviewLoading.value = new Set(torrentPreviewLoading.value);
 
   try {
-    const res = await apiDownload.analysisTorrents(
-      rssItem.value,
-      filterStr,
-      bangumi.title_raw
+    const res = await apiRSS.getPendingTorrentPreview(
+      props.rssId,
+      id,
+      filterStr
     );
     torrentPreviews.value.set(id, res);
     torrentPreviews.value = new Map(torrentPreviews.value);
@@ -231,13 +218,8 @@ async function fetchPendingBangumi() {
   pendingBangumi.value = [];
   pendingCount.value = 0;
   activeCount.value = 0;
-  rssItem.value = null;
 
   try {
-    // Fetch RSS list to get the RSS item for torrent analysis
-    const rssList = await apiRSS.get();
-    rssItem.value = rssList.find((r) => r.id === props.rssId) || null;
-
     const { data } = await axios.get<PendingResponse>(
       `api/v1/rss/aggregate/pending/${props.rssId}`
     );
@@ -308,7 +290,6 @@ watch(show, (visible) => {
     pendingBangumi.value = [];
     pendingCount.value = 0;
     activeCount.value = 0;
-    rssItem.value = null;
     selectedIds.value = new Set();
     expandedId.value = null;
     localFilters.value = new Map();

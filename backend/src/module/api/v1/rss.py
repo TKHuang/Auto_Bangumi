@@ -1,7 +1,8 @@
 import asyncio
 import logging
+import re
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -701,3 +702,55 @@ async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(
         "active_count": active_count,
         "bangumi": bangumi_data,
     }
+
+
+@router.get(
+    path="/aggregate/pending/{rss_id}/{bangumi_id}/torrents",
+    response_model=list[dict],  # type: ignore[type-arg]
+    dependencies=[Depends(get_current_user)],
+)
+async def get_pending_torrent_preview(
+    rss_id: int,
+    bangumi_id: int,
+    _filter: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_db_session),
+):
+    rss_repo = RSSRepository(session)
+    bangumi_repo = BangumiRepository(session)
+    torrent_repo = TorrentRepository(session)
+
+    rss = await rss_repo.get_by_id(rss_id)
+    if not rss:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "RSS feed not found"},
+        )
+    if not rss.aggregate:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "This endpoint only works for aggregate RSS feeds"},
+        )
+
+    bangumi = await bangumi_repo.get_by_id(bangumi_id)
+    if not bangumi or bangumi.rss_id != rss_id or not bangumi.pending_review:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Pending bangumi not found"},
+        )
+
+    filter_value = bangumi.filter if _filter is None else _filter
+    pattern = filter_value.replace(",", "|") if filter_value else ""
+
+    torrents = await torrent_repo.get_visible_by_bangumi(bangumi_id)
+    return [
+        {
+            "name": torrent.name,
+            "url": torrent.url,
+            "homepage": torrent.homepage,
+            "filter": bool(
+                pattern and re.search(pattern, torrent.name, re.IGNORECASE)
+            ),
+            "hash": torrent.hash,
+        }
+        for torrent in torrents
+    ]

@@ -407,6 +407,51 @@ class TestPikPakDownloaderTorrents:
         assert len(result[0].files) == 2
 
     @pytest.mark.asyncio
+    async def test_torrents_info_task_file_deleted_single_file_ignores_other_episode_root_files(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """Single-episode deleted task should not reuse unrelated season files."""
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "[LoliHouse] Nigetsuri - 04 [1080p].mkv",
+                        "file_name": "[LoliHouse] Nigetsuri - 04 [1080p].mkv",
+                        "phase": "PHASE_TYPE_ERROR",
+                        "message": "File deleted",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                        "params": {"error_detail": "task_file_deleted"},
+                    }
+                ]
+            }
+        )
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "Nigetsuri S01E01.mkv", "kind": "drive#file", "id": "e1"},
+                    {"name": "Nigetsuri S01E02.mkv", "kind": "drive#file", "id": "e2"},
+                    {"name": "Nigetsuri S01E03.mkv", "kind": "drive#file", "id": "e3"},
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.torrents_info(status_filter="all")
+
+        assert len(result) == 1
+        assert result[0].state == "error"
+        assert result[0].files == []
+
+    @pytest.mark.asyncio
     async def test_torrents_delete_single_hash(
         self, pikpak_downloader, mock_pikpak_api
     ):
@@ -678,6 +723,48 @@ class TestPikPakDownloaderTorrents:
         result = await pikpak_downloader.get_hash_status_map()
 
         assert result[target_hash] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_get_hash_status_map_single_file_deleted_does_not_use_other_episode_root_files(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        target_hash = "abc123def456abc123def456abc123def456abc1"
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "name": "[LoliHouse] Nigetsuri - 04 [1080p].mkv",
+                        "file_name": "[LoliHouse] Nigetsuri - 04 [1080p].mkv",
+                        "phase": "PHASE_TYPE_ERROR",
+                        "message": "File deleted",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{target_hash}",
+                        "params": {"error_detail": "task_file_deleted"},
+                    }
+                ]
+            }
+        )
+        mock_instance.path_to_id = AsyncMock(
+            return_value=[
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+        )
+        mock_instance.file_list = AsyncMock(
+            return_value={
+                "files": [
+                    {"name": "Nigetsuri S01E01.mkv", "kind": "drive#file", "id": "e1"},
+                    {"name": "Nigetsuri S01E02.mkv", "kind": "drive#file", "id": "e2"},
+                    {"name": "Nigetsuri S01E03.mkv", "kind": "drive#file", "id": "e3"},
+                ]
+            }
+        )
+
+        result = await pikpak_downloader.get_hash_status_map()
+
+        assert result[target_hash] == "error"
 
     @pytest.mark.asyncio
     async def test_torrents_info_summarizes_untracked_tasks_without_warning_spam(

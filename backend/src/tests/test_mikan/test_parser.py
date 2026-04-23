@@ -46,6 +46,33 @@ class TestParseMikanPage:
         assert ref.mikan_subgroup_id == 99
         assert ref.poster_url is None or isinstance(ref.poster_url, str)
 
+    def test_title_wrapped_in_p_tag(self):
+        html = (
+            '<html><body>'
+            '<a class="js-subscribe-bangumi" data-bangumiid="42" data-subtitlegroupid="7">sub</a>'
+            '<p class="bangumi-title">\n'
+            '  <a href="/Home/Bangumi/42">玩命邪神</a>\n'
+            '</p>'
+            '</body></html>'
+        )
+        ref = parse_mikan_page(html)
+        assert ref is not None
+        assert ref.canonical_title == "玩命邪神"
+
+    def test_title_with_html_entities(self):
+        # Real Mikan pages encode CJK characters as numeric HTML entities.
+        html = (
+            '<html><body>'
+            '<a class="js-subscribe-bangumi" data-bangumiid="1" data-subtitlegroupid="1">sub</a>'
+            '<p class="bangumi-title"><a href="/Home/Bangumi/1">'
+            '&#x59EC;&#x9A91;&#x58EB;&#x662F;&#x86EE;&#x65CF;&#x7684;&#x65B0;&#x5A18;'
+            '</a></p>'
+            '</body></html>'
+        )
+        ref = parse_mikan_page(html)
+        assert ref is not None
+        assert ref.canonical_title == "姬骑士是蛮族的新娘"
+
     def test_no_ref_returns_none(self):
         html = _load("episode_page_no_ref.html")
         assert parse_mikan_page(html) is None

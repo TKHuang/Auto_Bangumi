@@ -931,6 +931,9 @@ class TestDownloadBangumi:
         torrents = await torrent_repo.get_by_bangumi(bangumi.id)
         assert len(torrents) == 3
 
+        refreshed = await bangumi_repo.get_by_id(bangumi.id)
+        assert refreshed.eps_collect is True
+
         # Verify downloader was called
         mock_downloader.add_torrents.assert_called()
 

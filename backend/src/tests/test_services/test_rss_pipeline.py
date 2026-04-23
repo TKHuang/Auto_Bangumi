@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from sqlalchemy import func, select
+
 from module.domain.models.rss import RSSItem
+from module.domain.models.bangumi import Bangumi
+from module.domain.models.pending_enrichment import PendingTorrentEnrichment
+from module.domain.models.torrent import Torrent
 from module.mikan.parser import MikanRef
 from module.services.pipeline.rss_pipeline import (
     FeedItem,
@@ -20,6 +25,7 @@ from module.services.pipeline.rss_pipeline import (
 def _item(
     info_hash: str = "h1",
     homepage: str | None = "https://mikanani.me/Home/Episode/h1",
+    globally_filtered: bool = False,
 ) -> FeedItem:
     return FeedItem(
         info_hash=info_hash,
@@ -32,6 +38,7 @@ def _item(
         parsed_title="Show",
         parsed_season=1,
         parsed_poster=None,
+        globally_filtered=globally_filtered,
     )
 
 
@@ -103,8 +110,8 @@ async def test_unresolvable_homepage_enqueues(db_session):
 
 
 @pytest.mark.integration
-async def test_no_homepage_enqueues_without_resolver_call(db_session):
-    """Items with no homepage skip the resolver and go directly to pending."""
+async def test_no_homepage_still_attempts_resolve_then_enqueues(db_session):
+    """Items with no homepage still attempt resolve; unresolved go to pending."""
     await _seed_rss(db_session)
     resolver = _resolver(ref=None)
 
@@ -118,7 +125,7 @@ async def test_no_homepage_enqueues_without_resolver_call(db_session):
 
     assert result.items_enqueued == 1
     assert result.items_resolved == 0
-    resolver.resolve.assert_not_called()
+    resolver.resolve.assert_called_once()
 
 
 @pytest.mark.integration
@@ -246,6 +253,7 @@ async def test_resolved_prefers_page_mikan_ref_over_rss_link_ids(db_session):
         parsed_title="Show",
         parsed_season=1,
         parsed_poster=None,
+        globally_filtered=False,
     )
     pipeline = RssPipeline(
         db_session,
@@ -298,3 +306,214 @@ async def test_lock_released_even_on_item_failure(db_session):
     assert result.items_failed == 1
     assert result.items_resolved == 0
     lock.release.assert_called_once()
+
+
+@pytest.mark.integration
+async def test_globally_filtered_existing_bangumi_still_creates_torrent(db_session):
+    """Existing subscriptions bypass the global filter during refresh."""
+    await _seed_rss(db_session)
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=7,
+        canonical_title="Show",
+        poster_url=None,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    first = await pipeline.run_for_feed(rss_id=1, items=[_item(info_hash="h1")])
+    second = await pipeline.run_for_feed(
+        rss_id=1,
+        items=[_item(info_hash="h2", globally_filtered=True)],
+    )
+
+    assert first.items_resolved == 1
+    assert second.items_resolved == 1
+
+    bangumi_count = (await db_session.execute(select(func.count(Bangumi.id)))).scalar()
+    torrent_count = (await db_session.execute(select(func.count(Torrent.id)))).scalar()
+
+    assert bangumi_count == 1
+    assert torrent_count == 2
+
+
+@pytest.mark.integration
+async def test_existing_bangumi_filter_skips_matching_torrent(db_session):
+    """Per-bangumi exclusion filters prevent filtered torrents entering DB."""
+    await _seed_rss(db_session)
+    from module.domain.models.series import Series
+
+    series = Series(
+        canonical_title="Re：从零开始的异世界生活 第二季 后半部分",
+        normalized_title="re_zero_s2_part2",
+        season=2,
+        root_path="/downloads/ReZeroS2",
+        mikan_bangumi_id=2348,
+        pending_review=False,
+    )
+    db_session.add(series)
+    await db_session.flush()
+
+    bangumi = Bangumi(
+        series_id=series.id,
+        rss_id=1,
+        mikan_subgroup_id=554,
+        group_name="百冬练习组",
+        filter="简",
+        rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=2348&subgroupid=554",
+        active=True,
+    )
+    db_session.add(bangumi)
+    await db_session.commit()
+
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=2348,
+        mikan_subgroup_id=554,
+        canonical_title="Re：从零开始的异世界生活 第二季 后半部分",
+        poster_url=None,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    result = await pipeline.run_for_feed(
+        rss_id=1,
+        items=[
+            FeedItem(
+                info_hash="simp",
+                raw_name=(
+                    "【百冬练习组】【Re: 从零开始的异世界的生活 S2】"
+                    "[25END][1080p AVC AAC][简体]"
+                ),
+                homepage="https://mikanani.me/Home/Episode/simp",
+                url="magnet:?xt=urn:btih:simp",
+                rss_id=1,
+                published_at=None,
+                rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=2348&subgroupid=554",
+                parsed_title="Re：从零开始的异世界生活 第二季 后半部分",
+                parsed_season=2,
+                parsed_poster=None,
+                parsed_group_name="百冬练习组",
+                globally_filtered=False,
+            )
+        ],
+    )
+
+    assert result.items_seen == 1
+    assert result.items_failed == 0
+    assert result.items_enqueued == 0
+
+    torrent_count = (await db_session.execute(select(func.count(Torrent.id)))).scalar()
+    assert torrent_count == 0
+
+
+@pytest.mark.integration
+async def test_globally_filtered_no_homepage_existing_bangumi_still_creates_torrent(db_session):
+    """Existing subscriptions should bypass global filter even without homepage."""
+    await _seed_rss(db_session)
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=7,
+        canonical_title="Show",
+        poster_url=None,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    first = await pipeline.run_for_feed(rss_id=1, items=[_item(info_hash="h1")])
+    second = await pipeline.run_for_feed(
+        rss_id=1,
+        items=[_item(info_hash="h2", homepage=None, globally_filtered=True)],
+    )
+
+    assert first.items_resolved == 1
+    assert second.items_resolved == 1
+
+    bangumi_count = (await db_session.execute(select(func.count(Bangumi.id)))).scalar()
+    torrent_count = (await db_session.execute(select(func.count(Torrent.id)))).scalar()
+
+    assert bangumi_count == 1
+    assert torrent_count == 2
+
+
+@pytest.mark.integration
+async def test_globally_filtered_new_item_does_not_create_or_enqueue(db_session):
+    """A new globally filtered item should not create Bangumi/Torrent rows."""
+    await _seed_rss(db_session)
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=7,
+        canonical_title="Show",
+        poster_url=None,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    result = await pipeline.run_for_feed(
+        rss_id=1,
+        items=[_item(info_hash="h1", globally_filtered=True)],
+    )
+
+    assert result.items_seen == 1
+    assert result.items_enqueued == 0
+    assert result.items_failed == 0
+
+    bangumi_count = (await db_session.execute(select(func.count(Bangumi.id)))).scalar()
+    torrent_count = (await db_session.execute(select(func.count(Torrent.id)))).scalar()
+    pending_count = (
+        await db_session.execute(select(func.count(PendingTorrentEnrichment.info_hash)))
+    ).scalar()
+
+    assert bangumi_count == 0
+    assert torrent_count == 0
+    assert pending_count == 0
+
+
+@pytest.mark.integration
+async def test_resolved_item_persists_authoritative_season_rss_link(db_session):
+    """Resolved Mikan items store the authoritative season RSS link on Bangumi."""
+    await _seed_rss(db_session)
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=7,
+        canonical_title="Show",
+        poster_url=None,
+    )
+    item = FeedItem(
+        info_hash="h1",
+        raw_name="[G] Show 01",
+        homepage="https://mikanani.me/Home/Episode/h1",
+        url="magnet:?xt=urn:btih:h1",
+        rss_id=1,
+        published_at=None,
+        rss_link="https://mikanani.me/RSS/MyBangumi?token=aggregate-style",
+        parsed_title="Show",
+        parsed_season=1,
+        parsed_poster=None,
+        globally_filtered=False,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    result = await pipeline.run_for_feed(rss_id=1, items=[item])
+
+    assert result.items_resolved == 1
+
+    bangumi = (await db_session.execute(select(Bangumi))).scalar_one()
+    assert bangumi.rss_link == (
+        "https://mikanani.me/RSS/Bangumi?bangumiId=99&subgroupid=7"
+    )

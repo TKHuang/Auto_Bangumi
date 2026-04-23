@@ -17,6 +17,7 @@ import httpx
 from pikpakapi import PikPakApi
 
 from ...conf import settings
+from ...domain.parser.title_parser import TitleParser
 from ...repositories.torrent import TorrentRepository
 from .interface import TorrentFile, TorrentInfo
 
@@ -1016,6 +1017,53 @@ class PikPakDownloader:
 
         return files
 
+    @staticmethod
+    def _task_display_name(task: dict[str, Any]) -> str:
+        return task.get("file_name", "") or task.get("name", "")
+
+    @classmethod
+    def _task_represents_single_file(cls, task: dict[str, Any]) -> bool:
+        task_name = cls._task_display_name(task)
+        basename = task_name.rsplit("/", 1)[-1] if task_name else ""
+        return bool(basename) and "." in basename and not basename.startswith(".")
+
+    @staticmethod
+    def _episode_key_for_name(name: str) -> tuple[int, float | int] | None:
+        if not name:
+            return None
+        parsed = TitleParser.torrent_parser(name, torrent_name=name)
+        if not parsed or parsed.is_movie or parsed.episode is None:
+            return None
+        season = parsed.season or 1
+        return int(season), parsed.episode
+
+    @classmethod
+    def _filter_root_files_for_task(
+        cls,
+        task: dict[str, Any],
+        root_files: list[TorrentFile],
+    ) -> list[TorrentFile]:
+        if not root_files:
+            return []
+
+        task_name = cls._task_display_name(task)
+        exact = [
+            f for f in root_files
+            if f.name.casefold() == task_name.casefold()
+        ]
+        if exact:
+            return exact
+
+        target_episode = cls._episode_key_for_name(task_name)
+        if target_episode is None:
+            return []
+
+        matched = [
+            f for f in root_files
+            if cls._episode_key_for_name(f.name) == target_episode
+        ]
+        return matched
+
     async def _list_all_file_ids_in_folder(
         self,
         folder_path: str,
@@ -1886,6 +1934,11 @@ class PikPakDownloader:
                 # its original folder/file_id disappeared, while the moved files
                 # still exist in the save_path root.
                 root_files = await self._list_direct_files_in_folder(save_path)
+                if self._task_represents_single_file(task):
+                    matched_root_files = self._filter_root_files_for_task(task, root_files)
+                    if matched_root_files:
+                        return matched_root_files
+                    return []
                 if root_files:
                     return root_files
                 if task_file_name:

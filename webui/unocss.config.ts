@@ -68,7 +68,7 @@ export default defineConfig({
     ],
   ],
   shortcuts: [
-    [/^wh-(.*)$/, ([, t]) => `w-${t} h-${t}`],
+    [/^wh-([\w./%-]+)$/, ([, t]) => `w-${t} h-${t}`],
     [/^text-limit-(\d{0,})$/, ([, n]) => `line-clamp-${n}`],
 
     // position

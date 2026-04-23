@@ -11,17 +11,14 @@ if TYPE_CHECKING:
 
     from module.conf import Config
 
-_pikpak_instance: DownloaderProtocol | None = None
-
-
 def create_downloader(
     config: Config, session: AsyncSession | None = None
 ) -> DownloaderProtocol:
     """Create a downloader instance based on configuration.
 
-    PikPak instances are cached to preserve auth tokens and task cache
-    across calls. The DB session is updated on each call since it is
-    request-scoped.
+    PikPak downloader instances are created per call so request-scoped
+    database sessions never leak across concurrent requests. PikPak auth
+    tokens still persist through the token file on disk.
 
     Args:
         config: Application configuration containing downloader settings.
@@ -33,7 +30,6 @@ def create_downloader(
     Raises:
         ValueError: If downloader type is not supported.
     """
-    global _pikpak_instance
     downloader_type = config.downloader.type.lower()
 
     if downloader_type == "qbittorrent":
@@ -48,15 +44,11 @@ def create_downloader(
     elif downloader_type == "pikpak":
         from module.services.downloader.pikpak import PikPakDownloader
 
-        if _pikpak_instance is None:
-            _pikpak_instance = PikPakDownloader(
-                username=config.downloader.username,
-                password=config.downloader.password,
-                session=session,
-            )
-        else:
-            _pikpak_instance.session = session  # type: ignore[attr-defined]
-        return _pikpak_instance
+        return PikPakDownloader(
+            username=config.downloader.username,
+            password=config.downloader.password,
+            session=session,
+        )
     else:
         raise ValueError(
             f"Unsupported downloader type: {downloader_type}. "

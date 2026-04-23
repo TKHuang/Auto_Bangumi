@@ -715,3 +715,59 @@ class TestGetAggregatePending:
                 response = client.get("/api/v1/rss/aggregate/pending/1")
 
                 assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_get_pending_torrent_preview_uses_bangumi_torrents_only(self, client):
+        """Pending preview returns torrents already bound to that bangumi."""
+        mock_rss = _mock_rss_obj(id=1, aggregate=True)
+
+        mock_bangumi = MagicMock()
+        mock_bangumi.id = 21
+        mock_bangumi.rss_id = 1
+        mock_bangumi.pending_review = True
+        mock_bangumi.filter = "720,合集"
+
+        keep_torrent = MagicMock()
+        keep_torrent.name = "[LoliHouse] Target Show - 03 [1080p]"
+        keep_torrent.url = "magnet:?xt=urn:btih:keep"
+        keep_torrent.homepage = "https://mikanani.me/Home/Episode/keep"
+        keep_torrent.hash = "keep"
+
+        filtered_torrent = MagicMock()
+        filtered_torrent.name = "[LoliHouse] Target Show - 04 [720p]"
+        filtered_torrent.url = "magnet:?xt=urn:btih:filtered"
+        filtered_torrent.homepage = "https://mikanani.me/Home/Episode/filtered"
+        filtered_torrent.hash = "filtered"
+
+        with patch("module.api.v1.rss.RSSRepository") as mock_r_cls:
+            with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
+                with patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
+                    mock_r = AsyncMock()
+                    mock_r_cls.return_value = mock_r
+                    mock_r.get_by_id.return_value = mock_rss
+
+                    mock_b = AsyncMock()
+                    mock_b_cls.return_value = mock_b
+                    mock_b.get_by_id.return_value = mock_bangumi
+
+                    mock_t = AsyncMock()
+                    mock_t_cls.return_value = mock_t
+                    mock_t.get_visible_by_bangumi.return_value = [
+                        keep_torrent,
+                        filtered_torrent,
+                    ]
+
+                    response = client.get(
+                        "/api/v1/rss/aggregate/pending/1/21/torrents",
+                        params={"_filter": "720"},
+                    )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [t["name"] for t in data] == [
+            "[LoliHouse] Target Show - 03 [1080p]",
+            "[LoliHouse] Target Show - 04 [720p]",
+        ]
+        assert data[0]["filter"] is False
+        assert data[1]["filter"] is True
+        mock_t.get_visible_by_bangumi.assert_awaited_once_with(21)

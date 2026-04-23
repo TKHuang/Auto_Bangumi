@@ -98,6 +98,7 @@ async def get_all_data(session: AsyncSession = Depends(get_db_session)):
         downloader = create_downloader(settings, session)
         hash_status_map = await downloader.get_hash_status_map()
     except Exception:
+        await session.rollback()
         logger.debug("Failed to query downloader for hash status, using DB-only counts")
 
     orm_bangumi_list = await bangumi_repo.get_active()

@@ -18,6 +18,7 @@ resolution (Branch A: no homepage → skip resolver entirely).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -25,7 +26,8 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.concurrency.rss_lock import RssLockRegistry
-from module.mikan.parser import MikanRef
+from module.conf import settings
+from module.mikan.parser import MikanRef, build_season_rss_url
 from module.mikan.resolver import MikanResolver
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.torrent import TorrentRepository
@@ -49,6 +51,8 @@ class FeedItem:
     parsed_title: str       # title parsed from torrent name
     parsed_season: int
     parsed_poster: Optional[str]
+    parsed_group_name: Optional[str] = None
+    globally_filtered: bool = False
 
 
 @dataclass
@@ -113,21 +117,20 @@ class RssPipeline:
         return result
 
     async def _process_item(self, item: FeedItem) -> None:
-        # Branch A: no homepage at all → directly pending (no network needed).
-        if not item.homepage:
-            await self._pending.enqueue(
-                info_hash=item.info_hash,
-                raw_name=item.raw_name,
-                homepage=None,
-                url=item.url,
-                rss_id=item.rss_id,
-                published_at=item.published_at,
-            )
-            raise _Pending
-
-        # Branch B: try to resolve via Mikan using info_hash as the page key.
+        # Try to resolve via Mikan using info_hash as the page key.
+        #
+        # Note: homepage may be missing in some RSS feeds, but resolution is
+        # still possible via info_hash alone. We therefore resolve first and
+        # only fall back to pending/global-filter decisions on failure.
         mikan_ref = await self.mikan_resolver.resolve(item.info_hash)
         if mikan_ref is None:
+            if item.globally_filtered:
+                logger.debug(
+                    "[pipeline] skip globally filtered unresolved item: hash=%s name=%s",
+                    item.info_hash,
+                    item.raw_name,
+                )
+                return
             await self._pending.enqueue(
                 info_hash=item.info_hash,
                 raw_name=item.raw_name,
@@ -138,7 +141,7 @@ class RssPipeline:
             )
             raise _Pending
 
-        # Branch C: resolved → ensure Series + Bangumi + Torrent exist.
+        # Resolved → ensure Series + Bangumi + Torrent exist.
         await finalize_resolved_item(
             self.session, item=item, mikan_ref=mikan_ref
         )
@@ -173,15 +176,39 @@ async def finalize_resolved_item(
     bangumi = await bangumi_repo.get_by_series_and_subgroup(
         resolved.series.id, mikan_ref.mikan_subgroup_id
     )
+    authoritative_rss_link = build_season_rss_url(
+        mikan_ref.mikan_bangumi_id,
+        mikan_ref.mikan_subgroup_id,
+    )
+    if bangumi is None and item.globally_filtered:
+        logger.debug(
+            "[pipeline] skip globally filtered new item: hash=%s title=%s series_id=%s subgroup=%s",
+            item.info_hash,
+            item.raw_name,
+            resolved.series.id,
+            mikan_ref.mikan_subgroup_id,
+        )
+        return
     if bangumi is None:
         bangumi = await bangumi_repo.create({
             "series_id": resolved.series.id,
             "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
             "rss_id": item.rss_id,
-            "rss_link": item.rss_link,
-            "group_name": "Unknown",
+            "rss_link": authoritative_rss_link,
+            "group_name": item.parsed_group_name or "Unknown",
+            "filter": ",".join(settings.rss_parser.filter),
             "active": True,
         })
+    elif bangumi.filter:
+        pattern = bangumi.filter.replace(",", "|")
+        if re.search(pattern, item.raw_name, re.IGNORECASE):
+            logger.debug(
+                "[pipeline] skip torrent excluded by bangumi filter: hash=%s bangumi=%s filter=%s",
+                item.info_hash,
+                bangumi.id,
+                bangumi.filter,
+            )
+            return
 
     await torrent_repo.create_or_ignore({
         "bangumi_id": bangumi.id,

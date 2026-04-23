@@ -15,6 +15,7 @@ fetching the page, used by the bangumi creation pipeline.
 """
 from __future__ import annotations
 
+import html as html_module
 import re
 from dataclasses import dataclass
 from typing import Optional
@@ -61,7 +62,7 @@ _TIER_A = re.compile(
 _TIER_B = re.compile(r'/Home/Bangumi/(\d+)#(\d+)')
 _TIER_C = re.compile(r'bangumiId=(\d+)&subgroupid=(\d+)')
 _TITLE = re.compile(
-    r'<div[^>]*class="[^"]*bangumi-title[^"]*"[^>]*>\s*'
+    r'<(?:div|p)[^>]*class="[^"]*bangumi-title[^"]*"[^>]*>\s*'
     r'<a[^>]*>([^<]+)</a>'
 )
 _POSTER = re.compile(
@@ -90,7 +91,11 @@ def parse_mikan_page(html: str) -> Optional[MikanRef]:
     bid, sid = ids
 
     title_match = _TITLE.search(html)
-    title = title_match.group(1).strip() if title_match else None
+    title = (
+        html_module.unescape(title_match.group(1)).strip()
+        if title_match
+        else None
+    )
 
     poster_match = _POSTER.search(html)
     poster = poster_match.group(1) if poster_match else None
@@ -135,6 +140,21 @@ def build_canonical_bangumi_url(
     if bangumi_id <= 0 or subgroup_id <= 0:
         raise ValueError("bangumi_id and subgroup_id must both be positive")
     return f"{base_url.rstrip('/')}/Home/Bangumi/{bangumi_id}#{subgroup_id}"
+
+
+def build_season_rss_url(
+    bangumi_id: int,
+    subgroup_id: int,
+    *,
+    base_url: str = _DEFAULT_MIKAN_BASE_URL,
+) -> str:
+    """Return the season-specific Mikan RSS URL for a bangumi/subgroup pair."""
+    if bangumi_id <= 0 or subgroup_id <= 0:
+        raise ValueError("bangumi_id and subgroup_id must both be positive")
+    return (
+        f"{base_url.rstrip('/')}/RSS/Bangumi"
+        f"?bangumiId={bangumi_id}&subgroupid={subgroup_id}"
+    )
 
 
 def parse_canonical_bangumi_url(url: Optional[str]) -> Optional[tuple[int, int]]:

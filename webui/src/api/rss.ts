@@ -3,6 +3,14 @@ import type { Torrent } from '#/torrent';
 import type { ApiSuccess } from '#/api';
 import type { BangumiAPI } from '#/bangumi';
 
+export interface PendingTorrentPreview {
+  name: string;
+  url: string;
+  homepage: string;
+  filter: boolean;
+  hash: string | null;
+}
+
 export const apiRSS = {
   async get() {
     const { data } = await axios.get<RSS[]>('api/v1/rss');
@@ -144,6 +152,18 @@ export const apiRSS = {
   async getPendingBangumi(rss_id: number) {
     const { data } = await axios.get<BangumiAPI[]>(
       `api/v1/rss/${rss_id}/pending`
+    );
+    return data!;
+  },
+
+  async getPendingTorrentPreview(
+    rss_id: number,
+    bangumi_id: number,
+    filter: string
+  ) {
+    const { data } = await axios.get<PendingTorrentPreview[]>(
+      `api/v1/rss/aggregate/pending/${rss_id}/${bangumi_id}/torrents`,
+      { params: { _filter: filter } }
     );
     return data!;
   },

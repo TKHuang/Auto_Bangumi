@@ -32,7 +32,9 @@ from ...domain.models.bangumi import Bangumi
 from ...domain.parser.title_parser import TitleParser
 from ...domain.value_objects import BangumiParsingError, gen_save_path
 from ...mikan.client import MikanClient
+from ...mikan.parser import extract_mikan_ids_from_rss
 from ...mikan.resolver import MikanResolver
+from ...repositories.bangumi import BangumiRepository
 from ...repositories.mikan_ref import MikanEpisodeRefRepository
 from ...repositories.rss import RSSRepository
 from ...repositories.torrent import TorrentRepository
@@ -83,6 +85,8 @@ def _build_feed_item(
     parsed_title: str,
     parsed_season: int,
     parsed_poster: Optional[str],
+    parsed_group_name: Optional[str] = None,
+    globally_filtered: bool = False,
 ) -> FeedItem:
     """Convert a raw Torrent + parse result into a FeedItem for the pipeline."""
     return FeedItem(
@@ -96,15 +100,17 @@ def _build_feed_item(
         parsed_title=parsed_title,
         parsed_season=parsed_season,
         parsed_poster=parsed_poster,
+        parsed_group_name=parsed_group_name,
+        globally_filtered=globally_filtered,
     )
 
 
 def _parse_torrent_title(
     torrent_name: str,
-) -> tuple[str, int, Optional[str]]:
-    """Parse torrent name and extract title, season, poster fields.
+) -> tuple[str, int, Optional[str], Optional[str]]:
+    """Parse torrent name and extract title, season, poster, group_name fields.
 
-    Returns (parsed_title, parsed_season, parsed_poster).
+    Returns (parsed_title, parsed_season, parsed_poster, parsed_group_name).
     Falls back to the raw name as title and season=1 on parse failure.
     """
     try:
@@ -115,12 +121,13 @@ def _parse_torrent_title(
                 bangumi_data.official_title or torrent_name,
                 bangumi_data.season or 1,
                 getattr(bangumi_data, "poster_link", None),
+                getattr(bangumi_data, "group_name", None) or None,
             )
     except BangumiParsingError:
         pass
     except Exception:
         pass
-    return torrent_name, 1, None
+    return torrent_name, 1, None, None
 
 
 async def _trigger_downloads(
@@ -173,6 +180,17 @@ async def _trigger_downloads(
         if bangumi is None:
             continue
 
+        if bangumi.filter:
+            pattern = bangumi.filter.replace(",", "|")
+            if re.search(pattern, torrent.name, re.IGNORECASE):
+                logger.debug(
+                    "[rss_refresh] skip filtered torrent: bangumi=%s name=%s filter=%s",
+                    bangumi.id,
+                    torrent.name,
+                    bangumi.filter,
+                )
+                continue
+
         _rr_series = bangumi.series
         _rr_title = _rr_series.canonical_title if _rr_series is not None else ""
         _rr_season = _rr_series.season if _rr_series is not None else 1
@@ -205,6 +223,52 @@ async def _trigger_downloads(
             logger.error(
                 "[rss_refresh] download failed for torrent %s: %s",
                 torrent.name, exc,
+            )
+
+
+def _supports_source_backfill(rss_link: str | None) -> bool:
+    if not rss_link:
+        return False
+    bangumi_id, subgroup_id = extract_mikan_ids_from_rss(rss_link)
+    return bangumi_id is not None and subgroup_id is not None
+
+
+async def _run_eps_completion(
+    session: AsyncSession,
+    downloader,
+    *,
+    rss_id: int,
+) -> None:
+    if not settings.bangumi_manage.eps_complete:
+        return
+
+    bangumi_repo = BangumiRepository(session)
+    bangumi_list = await bangumi_repo.get_by_rss(rss_id)
+
+    if not bangumi_list:
+        return
+
+    for bangumi in bangumi_list:
+        if bangumi.deleted or bangumi.pending_review or not bangumi.active:
+            continue
+        if bangumi.eps_collect:
+            continue
+
+        if settings.bangumi_manage.eps_complete_from_source:
+            if not _supports_source_backfill(bangumi.rss_link):
+                logger.debug(
+                    "[rss_refresh] skip source backfill for bangumi=%s rss_link=%s",
+                    bangumi.id,
+                    bangumi.rss_link,
+                )
+                continue
+            result = await RSSEngine.download_bangumi(
+                session, downloader, bangumi.id
+            )
+            logger.info(
+                "[rss_refresh] source backfill bangumi=%s result=%s",
+                bangumi.id,
+                result,
             )
 
 
@@ -267,13 +331,6 @@ async def rss_refresh_job() -> None:
 
                     feed_items: list[FeedItem] = []
                     for torrent in raw_torrents:
-                        # Skip items matching global exclusion filter.
-                        if _is_globally_filtered(torrent.name, global_filter_pattern):
-                            logger.debug(
-                                "[rss_refresh] global-filtered: %s", torrent.name
-                            )
-                            continue
-
                         if not torrent.hash:
                             logger.debug(
                                 "[rss_refresh] skip torrent with no hash: %s",
@@ -281,7 +338,15 @@ async def rss_refresh_job() -> None:
                             )
                             continue
 
-                        parsed_title, parsed_season, parsed_poster = (
+                        globally_filtered = _is_globally_filtered(
+                            torrent.name, global_filter_pattern
+                        )
+                        if globally_filtered:
+                            logger.debug(
+                                "[rss_refresh] global-filtered candidate: %s", torrent.name
+                            )
+
+                        parsed_title, parsed_season, parsed_poster, parsed_group_name = (
                             await asyncio.to_thread(_parse_torrent_title, torrent.name)
                         )
                         feed_items.append(
@@ -292,6 +357,8 @@ async def rss_refresh_job() -> None:
                                 parsed_title=parsed_title,
                                 parsed_season=parsed_season,
                                 parsed_poster=parsed_poster,
+                                parsed_group_name=parsed_group_name,
+                                globally_filtered=globally_filtered,
                             )
                         )
 
@@ -301,12 +368,26 @@ async def rss_refresh_job() -> None:
                         rss.id, rss.name, pipeline_result,
                     )
 
+                    if pipeline_result.skipped_locked:
+                        logger.info(
+                            "[rss_refresh] rss_id=%d name=%s skipped status update because lock was held",
+                            rss.id,
+                            rss.name,
+                        )
+                        continue
+
                     await rss_repo.update_status(rss.id, "Success", None)
                     await session.commit()
 
-                # After all feeds processed, trigger downloader for pending torrents.
-                await _trigger_downloads(session, downloader)
-                await session.commit()
+                    await _run_eps_completion(
+                        session,
+                        downloader,
+                        rss_id=rss.id,
+                    )
+                    await session.commit()
+
+                    await _trigger_downloads(session, downloader)
+                    await session.commit()
 
             logger.info("[rss_refresh] job completed successfully")
 

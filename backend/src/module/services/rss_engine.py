@@ -941,6 +941,8 @@ class RSSEngine:
                     torrent.hash, bangumi.id, save_path
                 )
 
+        await bangumi_repo.update_simple(bangumi.id, {"eps_collect": True})
+
         await session.commit()
 
         return {

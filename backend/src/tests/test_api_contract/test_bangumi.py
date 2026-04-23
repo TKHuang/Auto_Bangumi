@@ -222,6 +222,42 @@ class TestGetAllBangumi:
             data = response.json()
             assert data[0]["completed_count"] == 1
 
+    @pytest.mark.asyncio
+    async def test_get_all_rolls_back_session_after_downloader_error(self, client, app):
+        from module.database.engine import get_db_session
+
+        session = AsyncMock()
+
+        async def override_get_session():
+            yield session
+
+        app.dependency_overrides[get_db_session] = override_get_session
+
+        bangumi = _mock_bangumi_obj(id=1, official_title="Test")
+        torrent = MagicMock(downloaded=True, hash="aaa")
+
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
+             patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.get_active.return_value = [bangumi]
+
+            mock_torrent = AsyncMock()
+            mock_torrent_cls.return_value = mock_torrent
+            mock_torrent.get_visible_by_bangumi.return_value = [torrent]
+
+            downloader = AsyncMock()
+            downloader.get_hash_status_map = AsyncMock(
+                side_effect=Exception("disk I/O error")
+            )
+            mock_dl.return_value = downloader
+
+            response = client.get("/api/v1/bangumi/get/all")
+
+        assert response.status_code == 200
+        session.rollback.assert_awaited_once()
+
 
 class TestGetBangumiById:
 
