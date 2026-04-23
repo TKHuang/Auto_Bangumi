@@ -607,17 +607,72 @@ class TestGetPendingCount:
     @pytest.mark.asyncio
     async def test_get_pending_count_success(self, client):
         """Test successful retrieval of pending bangumi count."""
-        with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
+        with patch("module.api.v1.rss.RSSRepository") as mock_rss_cls:
+            with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
+                mock_rss = AsyncMock()
+                mock_rss_cls.return_value = mock_rss
+                mock_rss.get_by_id.return_value = _mock_rss_obj(aggregate=False)
+
+                mock_b = AsyncMock()
+                mock_b_cls.return_value = mock_b
+                mock_b.count_pending_by_rss_id.return_value = 5
+                mock_b.get_by_rss.return_value = [MagicMock()]
+
+                response = client.get("/api/v1/rss/1/pending-count")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert "pending_count" in data
+                assert data["pending_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_get_pending_count_marks_normal_rss_without_rule_for_review(self, client):
+        """A copied normal RSS row without bangumi should surface in RSS page."""
+        with patch("module.api.v1.rss.RSSRepository") as mock_rss_cls:
+            with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
+                mock_rss = AsyncMock()
+                mock_rss_cls.return_value = mock_rss
+                mock_rss.get_by_id.return_value = _mock_rss_obj(aggregate=False)
+
+                mock_b = AsyncMock()
+                mock_b_cls.return_value = mock_b
+                mock_b.count_pending_by_rss_id.return_value = 0
+                mock_b.get_by_rss.return_value = []
+
+                response = client.get("/api/v1/rss/5/pending-count")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["pending_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_get_pending_count_does_not_mark_aggregate_without_rules(self, client):
+        with patch("module.api.v1.rss.RSSRepository") as mock_rss_cls:
+            with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
+                mock_rss = AsyncMock()
+                mock_rss_cls.return_value = mock_rss
+                mock_rss.get_by_id.return_value = _mock_rss_obj(aggregate=True)
+
+                mock_b = AsyncMock()
+                mock_b_cls.return_value = mock_b
+                mock_b.count_pending_by_rss_id.return_value = 0
+                mock_b.get_by_rss.return_value = []
+
+                response = client.get("/api/v1/rss/1/pending-count")
+
+                assert response.status_code == 200
+                assert response.json()["pending_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_pending_count_missing_rss(self, client):
+        with patch("module.api.v1.rss.RSSRepository") as mock_rss_cls:
             mock_b = AsyncMock()
-            mock_b_cls.return_value = mock_b
-            mock_b.count_pending_by_rss_id.return_value = 5
+            mock_rss_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = None
 
             response = client.get("/api/v1/rss/1/pending-count")
 
-            assert response.status_code == 200
-            data = response.json()
-            assert "pending_count" in data
-            assert data["pending_count"] == 5
+            assert response.status_code == 404
 
 
 class TestGetPendingBangumi:

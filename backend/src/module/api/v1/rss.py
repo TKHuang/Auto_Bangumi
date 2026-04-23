@@ -629,8 +629,21 @@ async def subscribe_batch(
     dependencies=[Depends(get_current_user)],
 )
 async def get_pending_count(rss_id: int, session: AsyncSession = Depends(get_db_session)):
+    rss_repo = RSSRepository(session)
     bangumi_repo = BangumiRepository(session)
+
+    rss = await rss_repo.get_by_id(rss_id)
+    if not rss:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "RSS feed not found"},
+        )
+
     count = await bangumi_repo.count_pending_by_rss_id(rss_id)
+    if count == 0 and not rss.aggregate:
+        bangumi = await bangumi_repo.get_by_rss(rss_id)
+        if not bangumi:
+            count = 1
     return {"pending_count": count}
 
 
