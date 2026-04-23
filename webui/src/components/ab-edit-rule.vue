@@ -19,6 +19,15 @@ const emit = defineEmits<{
   ): void;
 }>();
 
+const props = withDefaults(
+  defineProps<{
+    renameInProgress?: boolean;
+  }>(),
+  {
+    renameInProgress: false,
+  }
+);
+
 const { t } = useMyI18n();
 
 const show = defineModel('show', { default: false });
@@ -35,6 +44,7 @@ const deleteFileDialog = reactive<{
 });
 
 const showTorrents = ref(false);
+const renameInProgress = computed(() => props.renameInProgress);
 
 watch(show, (val) => {
   if (!val) {
@@ -69,6 +79,7 @@ function emitEnable() {
 }
 
 function emitRetriggerRename() {
+  if (renameInProgress.value) return;
   emit('retriggerRename', rule.value.id);
 }
 
@@ -98,6 +109,8 @@ const boxSize = computed(() => {
     v-model:show="show"
     :title="popupTitle"
     :css="`${boxSize} max-w-90vw`"
+    :escape-close="!renameInProgress"
+    :show-progress="renameInProgress"
   >
     <div v-if="rule.deleted">
       <div>{{ $t('homepage.rule.enable_hit') }}</div>
@@ -117,11 +130,19 @@ const boxSize = computed(() => {
     <div v-else space-y-12>
       <ab-rule v-model:rule="rule"></ab-rule>
 
+      <div v-if="renameInProgress" class="rename-progress">
+        <span class="rename-progress-icon" animate-spin>
+          <Refresh theme="outline" size="15" :stroke-width="3" />
+        </span>
+        <span>{{ $t('homepage.rule.retrigger_rename_progress') }}</span>
+      </div>
+
       <div class="action-section">
         <div class="action-grid">
           <ab-button
             size="small"
             class="action-btn action-btn--rename"
+            :loading="renameInProgress"
             @click="emitRetriggerRename"
           >
             <div class="action-btn-inner">
@@ -228,6 +249,27 @@ const boxSize = computed(() => {
   border-radius: 0;
   background:
     linear-gradient(180deg, rgba(247, 244, 255, 0.78), rgba(255, 255, 255, 0));
+}
+
+.rename-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(78, 60, 148, 0.16);
+  border-radius: 8px;
+  color: #4e3c94;
+  background: rgba(242, 238, 251, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rename-progress-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .action-grid {

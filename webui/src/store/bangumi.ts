@@ -3,8 +3,9 @@ import { ruleTemplate } from '#/bangumi';
 
 export const useBangumiStore = defineStore('bangumi', () => {
   const message = useMessage();
-  const { t } = useMyI18n();
+  const { t, returnUserLangMsg } = useMyI18n();
   const bangumi = ref<BangumiRule[]>();
+  const renamingIds = ref<Set<number>>(new Set());
   const editRule = reactive<{
     show: boolean;
     item: BangumiRule;
@@ -47,6 +48,10 @@ export const useBangumiStore = defineStore('bangumi', () => {
     return selectedIds.value.has(id);
   }
 
+  function isRenaming(id: number) {
+    return renamingIds.value.has(id);
+  }
+
   async function getAll() {
     const res = await apiBangumi.getAll();
     const sort = (arr: BangumiRule[]) => arr.sort((a, b) => b.id - a.id);
@@ -83,11 +88,28 @@ export const useBangumiStore = defineStore('bangumi', () => {
   const { execute: disableRule } = useApi(apiBangumi.disableRule, opts);
   const { execute: deleteRule } = useApi(apiBangumi.deleteRule, opts);
   const { execute: refreshPoster } = useApi(apiBangumi.refreshPoster, opts);
-  const { execute: retriggerRename } = useApi(apiBangumi.retriggerRename, {
-    ...opts,
-    onError: showRenameBusy,
-  });
   const { execute: backfillSource } = useApi(apiBangumi.backfillSource, opts);
+
+  async function retriggerRename(id: number) {
+    if (renamingIds.value.has(id)) return;
+
+    const next = new Set(renamingIds.value);
+    next.add(id);
+    renamingIds.value = next;
+
+    try {
+      const res = await apiBangumi.retriggerRename(id);
+      refreshData();
+      const msg = returnUserLangMsg(res);
+      if (msg) message.success(msg);
+    } catch (error) {
+      showRenameBusy(error);
+    } finally {
+      const done = new Set(renamingIds.value);
+      done.delete(id);
+      renamingIds.value = done;
+    }
+  }
 
   const batchOpts = {
     showMessage: true,
@@ -123,6 +145,7 @@ export const useBangumiStore = defineStore('bangumi', () => {
   return {
     bangumi,
     editRule,
+    renamingIds,
     selectMode,
     selectedIds,
     selectedCount,
@@ -142,6 +165,7 @@ export const useBangumiStore = defineStore('bangumi', () => {
     toggleSelect,
     selectAll,
     isSelected,
+    isRenaming,
     batchDelete,
     batchDisable,
   };

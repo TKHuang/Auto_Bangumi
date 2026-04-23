@@ -225,6 +225,9 @@ function subscribe() {
       rule.value,
       rss.value,
       false,
+      torrentsKeep.value
+        .map((t) => t.hash)
+        .filter((h): h is string => h !== null),
       torrentsExclude.value
         .map((t) => t.hash)
         .filter((h): h is string => h !== null),

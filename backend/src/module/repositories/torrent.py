@@ -104,6 +104,47 @@ class TorrentRepository:
         result = await self.session.execute(stmt)
         return result.rowcount
 
+    async def exclude_hashes(
+        self, hashes: list[str], bangumi_id: int, rss_id: Optional[int] = None
+    ) -> int:
+        excluded_hashes = list(dict.fromkeys(h for h in hashes if h))
+        if not excluded_hashes:
+            return 0
+
+        update_stmt = (
+            update(Torrent)
+            .where(
+                Torrent.bangumi_id == bangumi_id,
+                Torrent.hash.in_(excluded_hashes),
+            )
+            .values(downloaded=True, state=TorrentState.EXCLUDED)
+        )
+        update_result = await self.session.execute(update_stmt)
+
+        existing_stmt = select(Torrent.hash).where(
+            Torrent.bangumi_id == bangumi_id,
+            Torrent.hash.in_(excluded_hashes),
+        )
+        existing_result = await self.session.execute(existing_stmt)
+        existing_hashes = set(existing_result.scalars().all())
+
+        missing_torrents = [
+            Torrent(
+                name="",
+                url="",
+                hash=hash_value,
+                bangumi_id=bangumi_id,
+                rss_id=rss_id,
+                downloaded=True,
+                state=TorrentState.EXCLUDED,
+            )
+            for hash_value in excluded_hashes
+            if hash_value not in existing_hashes
+        ]
+        inserted_count = await self.add_all_or_ignore(missing_torrents)
+        await self.session.flush()
+        return update_result.rowcount + inserted_count
+
     async def get_by_bangumi(self, bangumi_id: int) -> list[Torrent]:
         stmt = select(Torrent).where(Torrent.bangumi_id == bangumi_id)
         result = await self.session.execute(stmt)

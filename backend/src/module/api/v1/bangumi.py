@@ -18,7 +18,7 @@ from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
-from module.domain.models.torrent import Torrent, TorrentState
+from module.domain.models.torrent import TorrentState
 from module.repositories.torrent import TorrentRepository
 from module.services.downloader.factory import create_downloader
 from module.services.renamer import RenamerService
@@ -681,24 +681,13 @@ async def activate_pending_bangumi(
             content={"msg_en": message, "msg_zh": "该番剧不在待审核状态"},
         )
 
-    # Insert manually-excluded torrents as "downloaded" so they are
-    # skipped by download_bangumi and future cron refreshes.
     if excluded_hashes:
         bangumi = await bangumi_repo.get_by_id(bangumi_id)
-        excluded_torrents = [
-            Torrent(
-                name="",
-                url="",
-                hash=h,
-                bangumi_id=bangumi_id,
-                rss_id=bangumi.rss_id if bangumi else None,
-                downloaded=True,
-                state=TorrentState.EXCLUDED,
-            )
-            for h in excluded_hashes
-            if h
-        ]
-        await torrent_repo.add_all_or_ignore(excluded_torrents)
+        await torrent_repo.exclude_hashes(
+            excluded_hashes,
+            bangumi_id,
+            rss_id=bangumi.rss_id if bangumi else None,
+        )
 
     await session.commit()
 

@@ -89,6 +89,7 @@
       "official_title": "Official Title",
       "offset": "Offset",
       "retrigger_rename": "Re-rename",
+      "retrigger_rename_progress": "Re-rename is running. This can take a while for large batches.",
       "retrigger_rename_success": "Rename status reset",
       "season": "Season",
       "year": "Year",

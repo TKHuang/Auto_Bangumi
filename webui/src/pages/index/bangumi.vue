@@ -18,6 +18,7 @@ const {
   toggleSelect,
   selectAll,
   isSelected,
+  isRenaming,
   batchDelete,
   batchDisable,
 } = store;
@@ -113,6 +114,7 @@ onActivated(() => {
       <ab-edit-rule
         v-model:show="editRule.show"
         v-model:rule="editRule.item"
+        :rename-in-progress="isRenaming(editRule.item.id)"
         @enable="(id) => enableRule(id)"
         @retrigger-rename="(id) => retriggerRename(id)"
         @backfill-source="(id) => backfillSource(id)"

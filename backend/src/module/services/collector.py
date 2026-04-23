@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.domain.models.bangumi import Bangumi
-from module.domain.models.torrent import Torrent, TorrentState
+from module.domain.models.torrent import Torrent
 from module.domain.value_objects import ResponseModel, gen_save_path
 from module.mikan.parser import extract_mikan_ids_from_rss
 from module.repositories.bangumi import BangumiRepository
@@ -432,23 +432,12 @@ class SeasonCollectorService:
                 "active": True,
             })
 
-            # Insert manually-excluded torrents as "downloaded" so they are
-            # skipped by download_bangumi and future cron refreshes.
             if excluded_hashes:
-                excluded_torrents = [
-                    Torrent(
-                        name="",
-                        url="",
-                        hash=h,
-                        bangumi_id=created_bangumi.id,
-                        rss_id=data.rss_id,
-                        downloaded=True,
-                        state=TorrentState.EXCLUDED,
-                    )
-                    for h in excluded_hashes
-                    if h
-                ]
-                await torrent_repo.add_all_or_ignore(excluded_torrents)
+                await torrent_repo.exclude_hashes(
+                    excluded_hashes,
+                    created_bangumi.id,
+                    rss_id=data.rss_id,
+                )
                 logger.info(
                     f"[Collector] Inserted {len(excluded_hashes)} excluded torrents "
                     f"for {_data_title}"
@@ -677,19 +666,11 @@ class SeasonCollectorService:
                         "active": True,
                     })
                     if excluded_hashes:
-                        excluded_torrents = [
-                            Torrent(
-                                name="",
-                                url="",
-                                hash=h,
-                                bangumi_id=created.id,
-                                rss_id=rss_id,
-                                downloaded=True,
-                                state=TorrentState.EXCLUDED,
-                            )
-                            for h in excluded_hashes
-                        ]
-                        await torrent_repo.add_all_or_ignore(excluded_torrents)
+                        await torrent_repo.exclude_hashes(
+                            excluded_hashes,
+                            created.id,
+                            rss_id=rss_id,
+                        )
 
                     created_entries.append((created.id, _d_title, included_hashes))
                     success_count += 1

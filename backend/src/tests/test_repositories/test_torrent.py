@@ -724,6 +724,42 @@ class TestTorrentRepository:
         assert torrent.downloaded is True
         assert torrent.name == ""
 
+    async def test_exclude_hashes_updates_existing_and_inserts_missing(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            await repo.create({
+                "name": "Visible Torrent",
+                "url": "https://example.com/visible.torrent",
+                "hash": "hash_visible",
+                "rss_id": 1,
+                "bangumi_id": 1,
+                "downloaded": False,
+            })
+
+        async with async_session.begin():
+            affected = await repo.exclude_hashes(
+                ["hash_visible", "hash_missing", "hash_visible"],
+                bangumi_id=1,
+                rss_id=1,
+            )
+
+        async with async_session.begin():
+            all_torrents = await repo.get_by_bangumi(1)
+            visible_torrents = await repo.get_visible_by_bangumi(1)
+
+        assert affected == 2
+        assert len(all_torrents) == 2
+        assert visible_torrents == []
+
+        by_hash = {torrent.hash: torrent for torrent in all_torrents}
+        assert by_hash["hash_visible"].state == TorrentState.EXCLUDED
+        assert by_hash["hash_visible"].downloaded is True
+        assert by_hash["hash_visible"].name == "Visible Torrent"
+        assert by_hash["hash_missing"].state == TorrentState.EXCLUDED
+        assert by_hash["hash_missing"].downloaded is True
+        assert by_hash["hash_missing"].name == ""
+
     async def test_get_unrenamed_excludes_excluded_state(self, async_session):
         repo = TorrentRepository(async_session)
 

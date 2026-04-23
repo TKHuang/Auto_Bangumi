@@ -1,5 +1,5 @@
 """API contract tests for bangumi endpoints."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -762,6 +762,52 @@ class TestActivatePendingBangumi:
                     data = response.json()
                     assert "msg_en" in data
                     assert "activated" in data["msg_en"].lower()
+
+    @pytest.mark.asyncio
+    async def test_activate_applies_manual_torrent_selections(self, client):
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
+            with patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls:
+                with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+                    with patch("module.api.v1.bangumi.AsyncRSSEngine") as mock_engine:
+                        mock_b = AsyncMock()
+                        mock_b_cls.return_value = mock_b
+                        mock_b.activate_pending.return_value = (True, "Activated")
+                        mock_b.get_by_id.return_value = _mock_bangumi_obj(rss_id=12)
+
+                        mock_t = AsyncMock()
+                        mock_t_cls.return_value = mock_t
+
+                        dl = AsyncMock()
+                        mock_dl.return_value = dl
+                        mock_engine.download_bangumi = AsyncMock(
+                            return_value={
+                                "status": True,
+                                "message": "Downloaded 1 torrents",
+                            }
+                        )
+
+                        with patch("module.api.v1.bangumi.settings"):
+                            response = client.post(
+                                "/api/v1/bangumi/1/activate",
+                                json={
+                                    "filter": "720p",
+                                    "included_hashes": ["keep_hash"],
+                                    "excluded_hashes": ["drop_hash"],
+                                },
+                            )
+
+                        assert response.status_code == 200
+                        mock_t.exclude_hashes.assert_awaited_once_with(
+                            ["drop_hash"],
+                            1,
+                            rss_id=12,
+                        )
+                        mock_engine.download_bangumi.assert_awaited_once_with(
+                            ANY,
+                            dl,
+                            1,
+                            included_hashes=["keep_hash"],
+                        )
 
     @pytest.mark.asyncio
     async def test_activate_not_pending(self, client):
