@@ -314,7 +314,17 @@ async function activateSelected() {
   if (successCount > 0) {
     message.success(t('rss.activated_success_count', { count: successCount }));
     emit('activated', successCount);
-    selectedIds.value = new Set();
+  }
+
+  if (failCount === 0) {
+    show.value = false;
+    return;
+  }
+
+  if (successCount > 0) {
+    selectedIds.value = new Set(
+      ids.filter((id) => getActivationState(id) === 'error')
+    );
     await fetchPendingBangumi();
   }
 
