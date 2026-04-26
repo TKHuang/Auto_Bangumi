@@ -14,6 +14,8 @@ interface PendingResponse {
   active_count: number;
 }
 
+type ActivationState = 'running' | 'success' | 'error';
+
 const props = defineProps<{
   rssId: number;
   rssName: string;
@@ -49,6 +51,26 @@ const message = useMessage();
 
 // Track activation state
 const activating = ref(false);
+const activationStates = ref<Map<number, ActivationState>>(new Map());
+const activationDone = ref(0);
+const activationTotal = ref(0);
+
+const activationProgressText = computed(() => {
+  if (!activating.value) return '';
+  return t('rss.activation_progress', {
+    done: activationDone.value,
+    total: activationTotal.value,
+  });
+});
+
+function getActivationState(id: number): ActivationState | undefined {
+  return activationStates.value.get(id);
+}
+
+function setActivationState(id: number, state: ActivationState) {
+  activationStates.value.set(id, state);
+  activationStates.value = new Map(activationStates.value);
+}
 
 // Computed: check if all bangumi are selected
 const isAllSelected = computed(() => {
@@ -70,6 +92,7 @@ const selectedCount = computed(() => selectedIds.value.size);
 
 // Toggle all selection
 function toggleAll() {
+  if (activating.value) return;
   if (isAllSelected.value) {
     // Deselect all
     selectedIds.value = new Set();
@@ -81,6 +104,7 @@ function toggleAll() {
 
 // Select all
 function selectAll() {
+  if (activating.value) return;
   selectedIds.value = new Set(pendingBangumi.value.map((b) => b.id));
 }
 
@@ -91,6 +115,7 @@ function isSelected(id: number): boolean {
 
 // Toggle selection for a single bangumi
 function toggleSelection(id: number) {
+  if (activating.value) return;
   if (selectedIds.value.has(id)) {
     selectedIds.value.delete(id);
   } else {
@@ -107,6 +132,7 @@ function isExpanded(id: number): boolean {
 
 // Toggle row expansion
 function toggleExpand(id: number) {
+  if (activating.value) return;
   if (expandedId.value === id) {
     expandedId.value = null;
   } else {
@@ -211,6 +237,11 @@ async function fetchTorrentPreview(id: number) {
   }
 }
 
+async function ensureTorrentPreview(id: number) {
+  if (torrentPreviews.value.has(id)) return;
+  await fetchTorrentPreview(id);
+}
+
 async function fetchPendingBangumi() {
   if (!props.rssId) return;
 
@@ -245,11 +276,17 @@ async function activateSelected() {
   }
 
   activating.value = true;
+  activationDone.value = 0;
+  activationTotal.value = selectedIds.value.size;
+  activationStates.value = new Map();
   let successCount = 0;
   let failCount = 0;
+  const ids = Array.from(selectedIds.value);
 
-  for (const id of selectedIds.value) {
+  for (const id of ids) {
+    setActivationState(id, 'running');
     try {
+      await ensureTorrentPreview(id);
       // Get the local filter for this bangumi (if edited) or empty string
       const filters = localFilters.value.get(id) || [];
       const filterStr = filters.join(',');
@@ -261,10 +298,14 @@ async function activateSelected() {
         .map((t) => t.hash)
         .filter((h): h is string => h !== null);
       await apiBangumi.activatePending(id, filterStr, included, excluded);
+      setActivationState(id, 'success');
       successCount++;
     } catch (e) {
       console.error(`Failed to activate bangumi ${id}:`, e);
+      setActivationState(id, 'error');
       failCount++;
+    } finally {
+      activationDone.value++;
     }
   }
 
@@ -273,7 +314,8 @@ async function activateSelected() {
   if (successCount > 0) {
     message.success(t('rss.activated_success_count', { count: successCount }));
     emit('activated', successCount);
-    show.value = false;
+    selectedIds.value = new Set();
+    await fetchPendingBangumi();
   }
 
   if (failCount > 0) {
@@ -295,6 +337,9 @@ watch(show, (visible) => {
     localFilters.value = new Map();
     torrentPreviews.value = new Map();
     torrentPreviewLoading.value = new Set();
+    activationStates.value = new Map();
+    activationDone.value = 0;
+    activationTotal.value = 0;
   }
 });
 </script>
@@ -328,6 +373,7 @@ watch(show, (visible) => {
           <NCheckbox
             :checked="isAllSelected"
             :indeterminate="isSomeSelected"
+            :disabled="activating"
             @update:checked="toggleAll"
           />
           <span class="text-14 text-gray-700 dark:text-gray-300">
@@ -373,6 +419,7 @@ watch(show, (visible) => {
             <!-- Checkbox -->
             <NCheckbox
               :checked="isSelected(item.id)"
+              :disabled="activating"
               @update:checked="toggleSelection(item.id)"
               @click.stop
             />
@@ -387,6 +434,30 @@ watch(show, (visible) => {
                 >
                   {{ item.official_title }}
                 </span>
+                <n-tag
+                  v-if="getActivationState(item.id) === 'running'"
+                  size="tiny"
+                  type="info"
+                  :bordered="false"
+                >
+                  {{ $t('rss.activation_running') }}
+                </n-tag>
+                <n-tag
+                  v-if="getActivationState(item.id) === 'success'"
+                  size="tiny"
+                  type="success"
+                  :bordered="false"
+                >
+                  {{ $t('rss.activation_done') }}
+                </n-tag>
+                <n-tag
+                  v-if="getActivationState(item.id) === 'error'"
+                  size="tiny"
+                  type="error"
+                  :bordered="false"
+                >
+                  {{ $t('rss.activation_error') }}
+                </n-tag>
               </div>
 
               <!-- Season and Group -->
@@ -593,7 +664,9 @@ watch(show, (visible) => {
       >
         <div text="12 gray-500" flex-1 flex="~ items-center">
           {{
-            selectedCount > 0
+            activating
+              ? activationProgressText
+              : selectedCount > 0
               ? $t('rss.selected_count', { count: selectedCount })
               : ''
           }}
@@ -602,10 +675,10 @@ watch(show, (visible) => {
           size="small"
           class="!w-auto whitespace-nowrap px-16"
           :loading="activating"
-          :disabled="selectedCount === 0"
+          :disabled="selectedCount === 0 || activating"
           @click="activateSelected"
         >
-          {{ $t('rss.apply_activate') }}
+          {{ activating ? $t('rss.activating') : $t('rss.apply_activate') }}
         </ab-button>
       </div>
     </div>
