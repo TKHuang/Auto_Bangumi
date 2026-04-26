@@ -197,6 +197,16 @@ async def finalize_resolved_item(
             "global_filter_matches": filter_value if item.globally_filtered else None,
         })
         if item.globally_filtered:
+            await torrent_repo.create_or_ignore({
+                "bangumi_id": bangumi.id,
+                "rss_id": item.rss_id,
+                "name": item.raw_name,
+                "url": item.url,
+                "hash": item.info_hash,
+                "homepage": item.homepage,
+                "mikan_bangumi_id": mikan_ref.mikan_bangumi_id,
+                "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
+            })
             logger.debug(
                 "[pipeline] created pending review for globally filtered item: hash=%s bangumi=%s filter=%s",
                 item.info_hash,
@@ -207,6 +217,17 @@ async def finalize_resolved_item(
     elif bangumi.filter:
         pattern = bangumi.filter.replace(",", "|")
         if re.search(pattern, item.raw_name, re.IGNORECASE):
+            if bangumi.pending_review:
+                await torrent_repo.create_or_ignore({
+                    "bangumi_id": bangumi.id,
+                    "rss_id": item.rss_id,
+                    "name": item.raw_name,
+                    "url": item.url,
+                    "hash": item.info_hash,
+                    "homepage": item.homepage,
+                    "mikan_bangumi_id": mikan_ref.mikan_bangumi_id,
+                    "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
+                })
             logger.debug(
                 "[pipeline] skip torrent excluded by bangumi filter: hash=%s bangumi=%s filter=%s",
                 item.info_hash,

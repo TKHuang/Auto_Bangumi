@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf import settings
 from module.domain.models.bangumi import Bangumi
-from module.domain.models.torrent import Torrent
+from module.domain.models.torrent import Torrent, TorrentState
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import BangumiParsingError, gen_save_path
 from module.mikan.parser import (
@@ -889,17 +889,25 @@ class RSSEngine:
                 "count": 0,
             }
 
+        existing_torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+        existing_by_hash = {
+            existing.hash: existing
+            for existing in existing_torrents
+            if existing.hash
+        }
+
         new_torrents = []
         for torrent in filtered_torrents:
             torrent.bangumi_id = bangumi.id
             torrent.rss_id = bangumi.rss_id
 
             if torrent.hash:
-                new_hashes = await torrent_repo.check_new_by_hash(
-                    [torrent.hash], bangumi.id
-                )
-                if torrent.hash in new_hashes:
-                    new_torrents.append(torrent)
+                existing = existing_by_hash.get(torrent.hash)
+                if existing and (
+                    existing.downloaded or existing.state == TorrentState.EXCLUDED
+                ):
+                    continue
+                new_torrents.append(torrent)
             else:
                 new_torrents.append(torrent)
 

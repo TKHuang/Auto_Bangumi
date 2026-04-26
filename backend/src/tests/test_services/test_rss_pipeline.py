@@ -27,10 +27,11 @@ def _item(
     homepage: str | None = "https://mikanani.me/Home/Episode/h1",
     globally_filtered: bool = False,
     global_filter_matches: tuple[str, ...] = (),
+    raw_name: str = "[G] Show 01",
 ) -> FeedItem:
     return FeedItem(
         info_hash=info_hash,
-        raw_name="[G] Show 01",
+        raw_name=raw_name,
         homepage=homepage,
         url="magnet:?xt=urn:btih:" + info_hash,
         rss_id=1,
@@ -478,7 +479,7 @@ async def test_globally_filtered_new_item_creates_pending_review_without_torrent
     assert result.items_failed == 0
 
     bangumi = (await db_session.execute(select(Bangumi))).scalar_one()
-    torrent_count = (await db_session.execute(select(func.count(Torrent.id)))).scalar()
+    torrent = (await db_session.execute(select(Torrent))).scalar_one()
     pending_count = (
         await db_session.execute(select(func.count(PendingTorrentEnrichment.info_hash)))
     ).scalar()
@@ -486,8 +487,59 @@ async def test_globally_filtered_new_item_creates_pending_review_without_torrent
     assert bangumi.pending_review is True
     assert bangumi.global_filter_matches == "简"
     assert bangumi.filter == "简"
-    assert torrent_count == 0
+    assert torrent.bangumi_id == bangumi.id
+    assert torrent.rss_id == 1
+    assert torrent.name == "[G] Show 01"
+    assert torrent.hash == "h1"
+    assert torrent.downloaded is False
     assert pending_count == 0
+
+
+@pytest.mark.integration
+async def test_existing_pending_review_keeps_new_filtered_candidate(db_session):
+    """A pending review row should keep later filtered candidates for preview."""
+    await _seed_rss(db_session)
+    mikan_ref = MikanRef(
+        mikan_bangumi_id=99,
+        mikan_subgroup_id=7,
+        canonical_title="Show",
+        poster_url=None,
+    )
+    pipeline = RssPipeline(
+        db_session,
+        lock_registry=_lock_registry(),
+        mikan_resolver=_resolver(ref=mikan_ref),
+    )
+
+    await pipeline.run_for_feed(
+        rss_id=1,
+        items=[
+            _item(
+                info_hash="h1",
+                globally_filtered=True,
+                global_filter_matches=("简",),
+                raw_name="[G] Show 01 [简]",
+            )
+        ],
+    )
+    result = await pipeline.run_for_feed(
+        rss_id=1,
+        items=[
+            _item(
+                info_hash="h2",
+                globally_filtered=True,
+                global_filter_matches=("简",),
+                raw_name="[G] Show 02 [简]",
+            )
+        ],
+    )
+
+    assert result.items_seen == 1
+    assert result.items_failed == 0
+
+    torrents = (await db_session.execute(select(Torrent))).scalars().all()
+    assert [torrent.hash for torrent in torrents] == ["h1", "h2"]
+    assert all(torrent.downloaded is False for torrent in torrents)
 
 
 @pytest.mark.integration

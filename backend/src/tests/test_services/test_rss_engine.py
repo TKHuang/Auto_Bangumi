@@ -1039,6 +1039,63 @@ class TestDownloadBangumi:
         mock_downloader.add_torrents.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_download_bangumi_downloads_existing_pending_keep_selection(
+        self, async_session, mock_downloader
+    ):
+        """Manual keep should download an existing preview candidate row."""
+        from module.repositories import BangumiRepository, TorrentRepository
+
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        series = await _add_series(async_session, "Test Anime")
+
+        bangumi = await bangumi_repo.create({
+            "group_name": "TestGroup",
+            "series_id": series.id,
+            "rss_link": "https://example.com/rss",
+            "filter": "合集,繁体",
+        })
+        await torrent_repo.create({
+            "bangumi_id": bangumi.id,
+            "rss_id": 1,
+            "name": "[TestGroup] Test Anime [01-12][1080p][繁体]",
+            "url": "https://example.com/batch.torrent",
+            "hash": "batchhash",
+            "downloaded": False,
+        })
+        await async_session.commit()
+
+        with patch("module.services.rss_engine.RequestContent") as mock_request:
+            mock_instance = MagicMock()
+            mock_request.return_value.__enter__.return_value = mock_instance
+
+            mock_instance.get_torrents.return_value = [
+                Torrent(
+                    name="[TestGroup] Test Anime [01-12][1080p][繁体]",
+                    url="https://example.com/batch.torrent",
+                    hash="batchhash",
+                ),
+            ]
+
+            result = await RSSEngine.download_bangumi(
+                async_session,
+                mock_downloader,
+                bangumi.id,
+                included_hashes=["batchhash"],
+            )
+
+        await async_session.commit()
+
+        assert result["status"] is True
+        assert result["count"] == 1
+
+        torrents = await torrent_repo.get_by_bangumi(bangumi.id)
+        assert len(torrents) == 1
+        assert torrents[0].downloaded is True
+        mock_downloader.add_torrents.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_download_bangumi_mikan_feed_does_not_require_canonical_title(
         self, async_session, mock_downloader
     ):
