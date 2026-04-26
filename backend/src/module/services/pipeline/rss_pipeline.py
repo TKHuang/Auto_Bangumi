@@ -53,6 +53,7 @@ class FeedItem:
     parsed_poster: Optional[str]
     parsed_group_name: Optional[str] = None
     globally_filtered: bool = False
+    global_filter_matches: tuple[str, ...] = ()
 
 
 @dataclass
@@ -180,25 +181,29 @@ async def finalize_resolved_item(
         mikan_ref.mikan_bangumi_id,
         mikan_ref.mikan_subgroup_id,
     )
-    if bangumi is None and item.globally_filtered:
-        logger.debug(
-            "[pipeline] skip globally filtered new item: hash=%s title=%s series_id=%s subgroup=%s",
-            item.info_hash,
-            item.raw_name,
-            resolved.series.id,
-            mikan_ref.mikan_subgroup_id,
-        )
-        return
     if bangumi is None:
+        filter_value = ",".join(
+            item.global_filter_matches or tuple(settings.rss_parser.filter)
+        )
         bangumi = await bangumi_repo.create({
             "series_id": resolved.series.id,
             "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
             "rss_id": item.rss_id,
             "rss_link": authoritative_rss_link,
             "group_name": item.parsed_group_name or "Unknown",
-            "filter": ",".join(settings.rss_parser.filter),
+            "filter": filter_value,
             "active": True,
+            "pending_review": item.globally_filtered,
+            "global_filter_matches": filter_value if item.globally_filtered else None,
         })
+        if item.globally_filtered:
+            logger.debug(
+                "[pipeline] created pending review for globally filtered item: hash=%s bangumi=%s filter=%s",
+                item.info_hash,
+                bangumi.id,
+                filter_value,
+            )
+            return
     elif bangumi.filter:
         pattern = bangumi.filter.replace(",", "|")
         if re.search(pattern, item.raw_name, re.IGNORECASE):

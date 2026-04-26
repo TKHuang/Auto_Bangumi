@@ -26,6 +26,7 @@ def _item(
     info_hash: str = "h1",
     homepage: str | None = "https://mikanani.me/Home/Episode/h1",
     globally_filtered: bool = False,
+    global_filter_matches: tuple[str, ...] = (),
 ) -> FeedItem:
     return FeedItem(
         info_hash=info_hash,
@@ -39,6 +40,7 @@ def _item(
         parsed_season=1,
         parsed_poster=None,
         globally_filtered=globally_filtered,
+        global_filter_matches=global_filter_matches,
     )
 
 
@@ -445,8 +447,8 @@ async def test_globally_filtered_no_homepage_existing_bangumi_still_creates_torr
 
 
 @pytest.mark.integration
-async def test_globally_filtered_new_item_does_not_create_or_enqueue(db_session):
-    """A new globally filtered item should not create Bangumi/Torrent rows."""
+async def test_globally_filtered_new_item_creates_pending_review_without_torrent(db_session):
+    """A resolved new item blocked by the global filter surfaces in RSS review."""
     await _seed_rss(db_session)
     mikan_ref = MikanRef(
         mikan_bangumi_id=99,
@@ -462,20 +464,28 @@ async def test_globally_filtered_new_item_does_not_create_or_enqueue(db_session)
 
     result = await pipeline.run_for_feed(
         rss_id=1,
-        items=[_item(info_hash="h1", globally_filtered=True)],
+        items=[
+            _item(
+                info_hash="h1",
+                globally_filtered=True,
+                global_filter_matches=("简",),
+            )
+        ],
     )
 
     assert result.items_seen == 1
     assert result.items_enqueued == 0
     assert result.items_failed == 0
 
-    bangumi_count = (await db_session.execute(select(func.count(Bangumi.id)))).scalar()
+    bangumi = (await db_session.execute(select(Bangumi))).scalar_one()
     torrent_count = (await db_session.execute(select(func.count(Torrent.id)))).scalar()
     pending_count = (
         await db_session.execute(select(func.count(PendingTorrentEnrichment.info_hash)))
     ).scalar()
 
-    assert bangumi_count == 0
+    assert bangumi.pending_review is True
+    assert bangumi.global_filter_matches == "简"
+    assert bangumi.filter == "简"
     assert torrent_count == 0
     assert pending_count == 0
 

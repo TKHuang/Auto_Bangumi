@@ -78,6 +78,16 @@ def _is_globally_filtered(torrent_name: str, global_pattern: Optional[str]) -> b
     return bool(re.search(global_pattern, torrent_name, re.IGNORECASE))
 
 
+def _matching_global_filters(torrent_name: str) -> tuple[str, ...]:
+    """Return configured global filters that match `torrent_name`."""
+    matches: list[str] = []
+    for pattern in settings.rss_parser.filter:
+        regex = pattern if _is_regex(pattern) else re.escape(pattern)
+        if re.search(regex, torrent_name, re.IGNORECASE):
+            matches.append(pattern)
+    return tuple(matches)
+
+
 def _build_feed_item(
     torrent: Torrent,
     rss_id: int,
@@ -87,6 +97,7 @@ def _build_feed_item(
     parsed_poster: Optional[str],
     parsed_group_name: Optional[str] = None,
     globally_filtered: bool = False,
+    global_filter_matches: tuple[str, ...] = (),
 ) -> FeedItem:
     """Convert a raw Torrent + parse result into a FeedItem for the pipeline."""
     return FeedItem(
@@ -102,6 +113,7 @@ def _build_feed_item(
         parsed_poster=parsed_poster,
         parsed_group_name=parsed_group_name,
         globally_filtered=globally_filtered,
+        global_filter_matches=global_filter_matches,
     )
 
 
@@ -341,6 +353,11 @@ async def rss_refresh_job() -> None:
                         globally_filtered = _is_globally_filtered(
                             torrent.name, global_filter_pattern
                         )
+                        global_filter_matches = (
+                            _matching_global_filters(torrent.name)
+                            if globally_filtered
+                            else ()
+                        )
                         if globally_filtered:
                             logger.debug(
                                 "[rss_refresh] global-filtered candidate: %s", torrent.name
@@ -359,6 +376,7 @@ async def rss_refresh_job() -> None:
                                 parsed_poster=parsed_poster,
                                 parsed_group_name=parsed_group_name,
                                 globally_filtered=globally_filtered,
+                                global_filter_matches=global_filter_matches,
                             )
                         )
 
