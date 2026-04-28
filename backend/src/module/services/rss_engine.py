@@ -67,6 +67,93 @@ class RSSEngine:
     """RSS Engine for feed processing and torrent management."""
 
     @staticmethod
+    async def _record_pending_candidate(
+        session: AsyncSession,
+        *,
+        torrent: Torrent,
+        bangumi: Bangumi,
+        rss_item,
+        mikan_bangumi_id: int | None = None,
+        mikan_subgroup_id: int | None = None,
+        rss_id: int | None = None,
+    ) -> bool:
+        candidate_rss_id = rss_id if rss_id is not None else rss_item.id
+        return await TorrentRepository(session).create_or_ignore({
+            "bangumi_id": bangumi.id,
+            "rss_id": candidate_rss_id,
+            "name": torrent.name,
+            "url": torrent.url,
+            "homepage": torrent.homepage,
+            "hash": torrent.hash,
+            "mikan_bangumi_id": mikan_bangumi_id,
+            "mikan_subgroup_id": mikan_subgroup_id,
+        })
+
+    @staticmethod
+    async def collect_pending_candidates_from_source(
+        session: AsyncSession,
+        bangumi_id: int,
+    ) -> int:
+        """Store source-RSS torrents for a pending review bangumi.
+
+        This mirrors eps_complete_from_source for manual review: a bangumi
+        discovered from aggregate RSS can preview the whole source feed before
+        activation, while keeping every torrent undownloaded until the user
+        confirms the selection.
+        """
+        bangumi_repo = BangumiRepository(session)
+        bangumi = await bangumi_repo.get_by_id(bangumi_id)
+        if not bangumi or not bangumi.pending_review or not bangumi.rss_link:
+            return 0
+
+        def _fetch():
+            with RequestContent() as req:
+                legacy_torrents = req.get_torrents(bangumi.rss_link, _filter="")
+                return [
+                    Torrent(
+                        name=t.name,
+                        url=t.url,
+                        homepage=t.homepage,
+                        hash=t.hash,
+                    )
+                    for t in legacy_torrents
+                ]
+
+        try:
+            all_torrents = await asyncio.to_thread(_fetch)
+        except Exception as exc:
+            logger.warning(
+                "[Engine] Failed to collect pending candidates from source for bangumi=%s: %s",
+                bangumi_id,
+                exc,
+            )
+            return 0
+
+        _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
+        title_matched = [
+            torrent for torrent in all_torrents
+            if _canonical and _canonical in torrent.name
+        ]
+        candidates = title_matched or all_torrents
+        mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(
+            bangumi.rss_link
+        )
+
+        inserted = 0
+        for torrent in candidates:
+            if await RSSEngine._record_pending_candidate(
+                session,
+                torrent=torrent,
+                bangumi=bangumi,
+                rss_item=bangumi,
+                rss_id=bangumi.rss_id,
+                mikan_bangumi_id=mikan_bangumi_id,
+                mikan_subgroup_id=mikan_subgroup_id,
+            ):
+                inserted += 1
+        return inserted
+
+    @staticmethod
     async def parse_rss_feed(url: str) -> list[Torrent]:
         """Parse RSS feed and extract torrents.
 
@@ -257,6 +344,13 @@ class RSSEngine:
                 if RSSEngine._torrent_excluded_by_filter(
                     torrent.name, short.filter
                 ):
+                    if short.pending_review:
+                        await RSSEngine._record_pending_candidate(
+                            session,
+                            torrent=torrent,
+                            bangumi=short,
+                            rss_item=rss_item,
+                        )
                     logger.debug(
                         f"[Engine] Torrent {torrent.name} excluded by filter: {short.filter}"
                     )
@@ -328,6 +422,15 @@ class RSSEngine:
             )
             if existing:
                 if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
+                    if existing.pending_review:
+                        await RSSEngine._record_pending_candidate(
+                            session,
+                            torrent=torrent,
+                            bangumi=existing,
+                            rss_item=rss_item,
+                            mikan_bangumi_id=mikan_bangumi_id,
+                            mikan_subgroup_id=mikan_subgroup_id,
+                        )
                     logger.debug(
                         f"[Engine] Torrent {torrent.name} excluded by filter: {existing.filter}"
                     )
@@ -359,6 +462,15 @@ class RSSEngine:
         if existing:
             auto_created_keys.add(composite_key)
             if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
+                if existing.pending_review:
+                    await RSSEngine._record_pending_candidate(
+                        session,
+                        torrent=torrent,
+                        bangumi=existing,
+                        rss_item=rss_item,
+                        mikan_bangumi_id=mikan_bangumi_id,
+                        mikan_subgroup_id=mikan_subgroup_id,
+                    )
                 logger.debug(
                     f"[Engine] Torrent {torrent.name} excluded by filter: {existing.filter}"
                 )
@@ -366,6 +478,9 @@ class RSSEngine:
             return existing
 
         bangumi_filter = bangumi_data.filter or ""
+        excluded_by_filter = RSSEngine._torrent_excluded_by_filter(
+            torrent.name, bangumi_filter
+        )
 
         try:
             created = await bangumi_repo.create({
@@ -383,20 +498,36 @@ class RSSEngine:
                 "offset": bangumi_data.offset,
                 "added": True,
                 "deleted": False,
-                "pending_review": False,
+                "pending_review": excluded_by_filter,
+                "global_filter_matches": bangumi_filter if excluded_by_filter else None,
                 "active": True,
             })
             auto_created_keys.add(composite_key)
-            newly_created_ids.add(created.id)
             logger.info(
                 f"[Engine] Auto-created bangumi from aggregate RSS: {bangumi_data.official_title} "
                 f"S{bangumi_data.season} [{group_name}]"
             )
-            if RSSEngine._torrent_excluded_by_filter(torrent.name, bangumi_filter):
+            if excluded_by_filter:
+                await RSSEngine._record_pending_candidate(
+                    session,
+                    torrent=torrent,
+                    bangumi=created,
+                    rss_item=rss_item,
+                    mikan_bangumi_id=mikan_bangumi_id,
+                    mikan_subgroup_id=mikan_subgroup_id,
+                )
+                if (
+                    settings.bangumi_manage.eps_complete
+                    and settings.bangumi_manage.eps_complete_from_source
+                ):
+                    await RSSEngine.collect_pending_candidates_from_source(
+                        session, created.id
+                    )
                 logger.debug(
                     f"[Engine] Torrent {torrent.name} excluded by filter: {bangumi_filter}"
                 )
                 return None
+            newly_created_ids.add(created.id)
             return created
         except ValueError:
             auto_created_keys.add(composite_key)

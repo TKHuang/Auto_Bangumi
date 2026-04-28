@@ -754,6 +754,16 @@ async def get_pending_torrent_preview(
     filter_value = bangumi.filter if _filter is None else _filter
     pattern = filter_value.replace(",", "|") if filter_value else ""
 
+    if (
+        settings.bangumi_manage.eps_complete
+        and settings.bangumi_manage.eps_complete_from_source
+    ):
+        inserted = await AsyncRSSEngine.collect_pending_candidates_from_source(
+            session, bangumi_id
+        )
+        if inserted:
+            await session.commit()
+
     torrents = await torrent_repo.get_visible_by_bangumi(bangumi_id)
     return [
         {

@@ -533,6 +533,94 @@ class TestRefreshRSS:
         assert torrents[0].pikpak_cloud_path
         mock_downloader.add_torrents.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_aggregate_refresh_keeps_filtered_auto_created_candidate(
+        self, async_session, mock_downloader
+    ):
+        from module.conf import settings
+        from module.repositories import (
+            BangumiRepository,
+            RSSRepository,
+            TorrentRepository,
+        )
+
+        rss_repo = RSSRepository(async_session)
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+
+        rss = await rss_repo.create({
+            "name": "My Bangumi",
+            "url": "https://example.com/aggregate.rss",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        await async_session.commit()
+
+        feed_torrent = Torrent(
+            name="[LoliHouse] 黑猫与魔女的教室 - 01 [简繁内封字幕]",
+            url="https://example.com/hash_01.torrent",
+            homepage=None,
+            hash="hash_01",
+        )
+
+        parsed = MagicMock()
+        parsed.official_title = "黑猫与魔女的教室"
+        parsed.title_raw = "黑猫与魔女的教室"
+        parsed.season = 1
+        parsed.season_raw = "S1"
+        parsed.group_name = "LoliHouse"
+        parsed.dpi = "1080p"
+        parsed.source = "WebRip"
+        parsed.subtitle = "CHS_CHT"
+        parsed.rss_link = "https://mikanani.me/RSS/Bangumi?bangumiId=3928&subgroupid=370"
+        parsed.poster_link = ""
+        parsed.filter = "简"
+        parsed.eps_collect = False
+        parsed.offset = 0
+
+        source_torrents = [
+            Torrent(
+                name=f"[LoliHouse] 黑猫与魔女的教室 - 0{episode} [简繁内封字幕]",
+                url=f"https://example.com/hash_0{episode}.torrent",
+                homepage=f"https://example.com/episode/{episode}",
+                hash=f"hash_0{episode}",
+            )
+            for episode in range(1, 4)
+        ]
+
+        with patch.object(settings.bangumi_manage, "eps_complete", True), \
+             patch.object(settings.bangumi_manage, "eps_complete_from_source", True), \
+             patch.object(RSSEngine, "parse_rss_feed", return_value=[feed_torrent]), \
+             patch("module.services.rss_engine.RequestContent") as mock_request, \
+             patch("module.services.rss_engine.TitleParser") as mock_parser_class:
+            mock_parser = MagicMock()
+            mock_parser_class.return_value = mock_parser
+            mock_parser.raw_parser.return_value = parsed
+            mock_request.return_value.__enter__.return_value.get_torrents.return_value = (
+                source_torrents
+            )
+
+            await RSSEngine.refresh_rss(
+                async_session, mock_downloader, rss_id=rss.id
+            )
+
+        pending = await bangumi_repo.get_pending_review(rss_id=rss.id)
+        assert len(pending) == 1
+        assert pending[0].filter == "简"
+        assert pending[0].global_filter_matches == "简"
+
+        torrents = await torrent_repo.get_by_rss(rss.id)
+        assert len(torrents) == 3
+        assert {torrent.bangumi_id for torrent in torrents} == {pending[0].id}
+        assert {torrent.hash for torrent in torrents} == {
+            "hash_01",
+            "hash_02",
+            "hash_03",
+        }
+        assert all(torrent.downloaded is False for torrent in torrents)
+        mock_downloader.add_torrents.assert_not_called()
+
 
 class TestRefreshAllRSS:
     """Test refresh_all_rss function."""

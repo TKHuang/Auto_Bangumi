@@ -794,9 +794,13 @@ class TestGetAggregatePending:
         filtered_torrent.homepage = "https://mikanani.me/Home/Episode/filtered"
         filtered_torrent.hash = "filtered"
 
-        with patch("module.api.v1.rss.RSSRepository") as mock_r_cls:
+        with patch(
+            "module.api.v1.rss.AsyncRSSEngine.collect_pending_candidates_from_source",
+            new_callable=AsyncMock,
+        ) as mock_collect, patch("module.api.v1.rss.RSSRepository") as mock_r_cls:
             with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
                 with patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
+                    mock_collect.return_value = 0
                     mock_r = AsyncMock()
                     mock_r_cls.return_value = mock_r
                     mock_r.get_by_id.return_value = mock_rss
@@ -826,3 +830,60 @@ class TestGetAggregatePending:
         assert data[0]["filter"] is False
         assert data[1]["filter"] is True
         mock_t.get_visible_by_bangumi.assert_awaited_once_with(21)
+
+    async def test_get_pending_torrent_preview_syncs_source_candidates(self, client):
+        """Pending preview follows eps_complete_from_source before returning."""
+        from module.conf import settings
+
+        mock_rss = _mock_rss_obj(id=1, aggregate=True)
+
+        mock_bangumi = MagicMock()
+        mock_bangumi.id = 21
+        mock_bangumi.rss_id = 1
+        mock_bangumi.pending_review = True
+        mock_bangumi.filter = "简"
+
+        source_torrent = MagicMock()
+        source_torrent.name = "[LoliHouse] Target Show - 01 [简繁]"
+        source_torrent.url = "magnet:?xt=urn:btih:source"
+        source_torrent.homepage = "https://mikanani.me/Home/Episode/source"
+        source_torrent.hash = "source"
+
+        with patch.object(settings.bangumi_manage, "eps_complete", True), \
+             patch.object(settings.bangumi_manage, "eps_complete_from_source", True), \
+             patch(
+                 "module.api.v1.rss.AsyncRSSEngine.collect_pending_candidates_from_source",
+                 new_callable=AsyncMock,
+             ) as mock_collect, \
+             patch("module.api.v1.rss.RSSRepository") as mock_r_cls, \
+             patch("module.api.v1.rss.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
+            mock_collect.return_value = 1
+
+            mock_r = AsyncMock()
+            mock_r_cls.return_value = mock_r
+            mock_r.get_by_id.return_value = mock_rss
+
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = mock_bangumi
+
+            mock_t = AsyncMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_visible_by_bangumi.return_value = [source_torrent]
+
+            response = client.get(
+                "/api/v1/rss/aggregate/pending/1/21/torrents",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "name": "[LoliHouse] Target Show - 01 [简繁]",
+                "url": "magnet:?xt=urn:btih:source",
+                "homepage": "https://mikanani.me/Home/Episode/source",
+                "filter": True,
+                "hash": "source",
+            }
+        ]
+        mock_collect.assert_awaited_once()
