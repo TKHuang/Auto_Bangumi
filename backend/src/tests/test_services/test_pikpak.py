@@ -912,6 +912,61 @@ class TestCollectionTorrentDetection:
         assert files[2].name == f"{folder_name}/subtitles.zip"
 
     @pytest.mark.asyncio
+    async def test_collection_folder_with_dotted_title_enumerates_files(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        _, mock_instance = mock_pikpak_api
+        folder_name = (
+            "[Sakurato][202601] Arisugawa Ren tte Honto wa Onna Nanda yo ne. "
+            "[01-08 Fin][1080P][简繁内封]"
+        )
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [self._make_task(name=folder_name, file_name=folder_name)]
+            }
+        )
+
+        async def path_to_id_side_effect(path, create=False):
+            if folder_name in path:
+                return [
+                    {"id": "dl_id", "name": "downloads"},
+                    {"id": "bg_id", "name": "Bangumi"},
+                    {"id": "col_id", "name": folder_name},
+                ]
+            return [
+                {"id": "dl_id", "name": "downloads"},
+                {"id": "bg_id", "name": "Bangumi"},
+            ]
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+
+        async def file_list_side_effect(parent_id=None):
+            if parent_id == "col_id":
+                return {
+                    "files": [
+                        {"name": "episode01.mkv", "kind": "drive#file", "id": "e1"},
+                        {"name": "episode02.mkv", "kind": "drive#file", "id": "e2"},
+                    ]
+                }
+            if parent_id == "bg_id":
+                return {
+                    "files": [
+                        {"name": folder_name, "kind": "drive#folder", "id": "col_id"},
+                    ]
+                }
+            return {"files": []}
+
+        mock_instance.file_list = AsyncMock(side_effect=file_list_side_effect)
+
+        result = await pikpak_downloader.torrents_info(status_filter="completed")
+
+        assert len(result) == 1
+        assert [f.name for f in result[0].files] == [
+            f"{folder_name}/episode01.mkv",
+            f"{folder_name}/episode02.mkv",
+        ]
+
+    @pytest.mark.asyncio
     async def test_collection_empty_folder_marks_missing(
         self, pikpak_downloader, mock_pikpak_api
     ):

@@ -251,8 +251,6 @@ class RenamerService:
                         bangumi,
                         downloader,
                     )
-                success = True
-                file_count = 0
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -427,12 +425,6 @@ class RenamerService:
                         bangumi,
                         downloader,
                     )
-                success = True
-                file_count = 0
-
-            if retrigger and not success:
-                success = True
-                file_count = 0
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))

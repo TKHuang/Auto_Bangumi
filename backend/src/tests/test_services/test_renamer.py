@@ -509,6 +509,44 @@ class TestRenameBangumi:
         assert torrent.renamed_file_count == 1
 
     @pytest.mark.asyncio
+    async def test_rename_bangumi_retrigger_keeps_failed_torrent_retryable(
+        self, db_session, mock_downloader, mock_parser
+    ):
+        series = await _add_series(
+            db_session,
+            title="Test Bangumi",
+            root_path="/data/Bangumi/Test/Season 1",
+        )
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
+
+        torrent = Torrent(
+            bangumi_id=bangumi.id,
+            name="[Group] Title - 01",
+            url="https://example.com/torrent",
+            hash="abc123",
+            state=TorrentState.RENAMED,
+            renamed_at=datetime.now(),
+            renamed_file_count=1,
+        )
+        db_session.add(torrent)
+        await db_session.flush()
+
+        mock_downloader.torrents_rename_file.return_value = False
+
+        service = RenamerService(db_session, rename_method="advance")
+        result = await service.rename_bangumi(
+            mock_downloader, bangumi.id, retrigger=True
+        )
+
+        assert result == []
+
+        await db_session.refresh(torrent)
+        assert torrent.renamed_at is None
+        assert torrent.renamed_file_count is None
+
+    @pytest.mark.asyncio
     async def test_rename_bangumi_moves_torrents_if_path_changed(
         self, db_session, mock_downloader, mock_parser
     ):
@@ -662,13 +700,11 @@ class TestRenameAllMediaZero:
             with patch.object(service, "_rename_subtitles", new_callable=AsyncMock):
                 result = await service.rename_all(mock_downloader)
 
-        assert len(result) == 1
-        assert result[0]["torrent_id"] == torrent.id
-        assert result[0]["file_count"] == 0
+        assert result == []
 
         await db_session.refresh(torrent)
-        assert torrent.renamed_at is not None
-        assert torrent.renamed_file_count == 0
+        assert torrent.renamed_at is None
+        assert torrent.renamed_file_count is None
 
     @pytest.mark.asyncio
     async def test_rename_all_media_zero_no_subtitles(
@@ -706,10 +742,8 @@ class TestRenameAllMediaZero:
         service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_all(mock_downloader)
 
-        assert len(result) == 1
-        assert result[0]["torrent_id"] == torrent.id
-        assert result[0]["file_count"] == 0
+        assert result == []
 
         await db_session.refresh(torrent)
-        assert torrent.renamed_at is not None
-        assert torrent.renamed_file_count == 0
+        assert torrent.renamed_at is None
+        assert torrent.renamed_file_count is None

@@ -40,6 +40,20 @@ MAX_FOLDER_DEPTH = 20
 
 TASK_CACHE_TTL = 60
 
+MEDIA_EXTENSIONS = (
+    ".mkv",
+    ".mp4",
+    ".avi",
+    ".wmv",
+    ".webm",
+    ".flv",
+    ".mov",
+    ".ts",
+    ".m2ts",
+)
+SUBTITLE_EXTENSIONS = (".ass", ".ssa", ".srt", ".sub", ".vtt")
+DOWNLOAD_FILE_EXTENSIONS = MEDIA_EXTENSIONS + SUBTITLE_EXTENSIONS
+
 ALL_PHASES = [
     "PHASE_TYPE_RUNNING",
     "PHASE_TYPE_ERROR",
@@ -1025,7 +1039,11 @@ class PikPakDownloader:
     def _task_represents_single_file(cls, task: dict[str, Any]) -> bool:
         task_name = cls._task_display_name(task)
         basename = task_name.rsplit("/", 1)[-1] if task_name else ""
-        return bool(basename) and "." in basename and not basename.startswith(".")
+        return cls._name_has_download_file_extension(basename)
+
+    @staticmethod
+    def _name_has_download_file_extension(name: str) -> bool:
+        return bool(name) and name.lower().endswith(DOWNLOAD_FILE_EXTENSIONS)
 
     @staticmethod
     def _episode_key_for_name(name: str) -> tuple[int, float | int] | None:
@@ -1967,7 +1985,7 @@ class PikPakDownloader:
         task_file_name = task.get("file_name", "")
         task_file_size = int(task.get("file_size", 0) or 0)
         basename = task_file_name.rsplit("/", 1)[-1] if task_file_name else ""
-        is_single_file = bool(basename) and "." in basename and not basename.startswith(".")
+        is_single_file = self._name_has_download_file_extension(basename)
 
         logger.info(
             f"[PikPak] File detection: task_file_name='{task_file_name}', "
