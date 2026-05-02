@@ -615,7 +615,7 @@ class TestGetPendingCount:
 
                 mock_b = AsyncMock()
                 mock_b_cls.return_value = mock_b
-                mock_b.get_pending_review.return_value = [MagicMock() for _ in range(5)]
+                mock_b.count_pending_by_rss_id.return_value = 5
                 mock_b.get_by_rss.return_value = [MagicMock()]
 
                 response = client.get("/api/v1/rss/1/pending-count")
@@ -636,7 +636,7 @@ class TestGetPendingCount:
 
                 mock_b = AsyncMock()
                 mock_b_cls.return_value = mock_b
-                mock_b.get_pending_review.return_value = []
+                mock_b.count_pending_by_rss_id.return_value = 0
                 mock_b.get_by_rss.return_value = []
 
                 response = client.get("/api/v1/rss/5/pending-count")
@@ -655,43 +655,13 @@ class TestGetPendingCount:
 
                 mock_b = AsyncMock()
                 mock_b_cls.return_value = mock_b
-                mock_b.get_pending_review.return_value = []
+                mock_b.count_pending_by_rss_id.return_value = 0
                 mock_b.get_by_rss.return_value = []
 
                 response = client.get("/api/v1/rss/1/pending-count")
 
                 assert response.status_code == 200
                 assert response.json()["pending_count"] == 0
-
-    @pytest.mark.asyncio
-    async def test_get_pending_count_clears_aggregate_with_included_candidates(self, client):
-        mock_pending = MagicMock()
-        mock_pending.id = 42
-        mock_pending.filter = r"\d+-\d"
-
-        included_torrent = MagicMock()
-        included_torrent.name = "[Group] Target Show [08][1080p]"
-
-        with patch("module.api.v1.rss.RSSRepository") as mock_rss_cls, \
-             patch("module.api.v1.rss.BangumiRepository") as mock_b_cls, \
-             patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
-            mock_rss = AsyncMock()
-            mock_rss_cls.return_value = mock_rss
-            mock_rss.get_by_id.return_value = _mock_rss_obj(aggregate=True)
-
-            mock_b = AsyncMock()
-            mock_b_cls.return_value = mock_b
-            mock_b.get_pending_review.return_value = [mock_pending]
-
-            mock_t = AsyncMock()
-            mock_t_cls.return_value = mock_t
-            mock_t.get_visible_by_bangumi.return_value = [included_torrent]
-
-            response = client.get("/api/v1/rss/1/pending-count")
-
-        assert response.status_code == 200
-        assert response.json()["pending_count"] == 0
-        mock_b.activate_pending.assert_awaited_once_with(42, r"\d+-\d")
 
     @pytest.mark.asyncio
     async def test_get_pending_count_missing_rss(self, client):
@@ -735,12 +705,7 @@ class TestGetPendingBangumi:
         ).items():
             setattr(mock_bangumi2, k, v)
 
-        with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls, \
-             patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
-            mock_t = AsyncMock()
-            mock_t_cls.return_value = mock_t
-            mock_t.get_visible_by_bangumi.return_value = []
-
+        with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
             mock_b = AsyncMock()
             mock_b_cls.return_value = mock_b
             mock_b.get_pending_review.return_value = [mock_bangumi1, mock_bangumi2]
@@ -774,21 +739,16 @@ class TestGetAggregatePending:
 
         with patch("module.api.v1.rss.RSSRepository") as mock_r_cls:
             with patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
-                with patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
-                    mock_t = AsyncMock()
-                    mock_t_cls.return_value = mock_t
-                    mock_t.get_visible_by_bangumi.return_value = []
+                mock_r = AsyncMock()
+                mock_r_cls.return_value = mock_r
+                mock_r.get_by_id.return_value = mock_rss
 
-                    mock_r = AsyncMock()
-                    mock_r_cls.return_value = mock_r
-                    mock_r.get_by_id.return_value = mock_rss
+                mock_b = AsyncMock()
+                mock_b_cls.return_value = mock_b
+                mock_b.get_pending_review.return_value = [mock_pending_bangumi]
+                mock_b.count_active_by_rss_id.return_value = 3
 
-                    mock_b = AsyncMock()
-                    mock_b_cls.return_value = mock_b
-                    mock_b.get_pending_review.return_value = [mock_pending_bangumi]
-                    mock_b.count_active_by_rss_id.return_value = 3
-
-                    response = client.get("/api/v1/rss/aggregate/pending/1")
+                response = client.get("/api/v1/rss/aggregate/pending/1")
 
                 assert response.status_code == 200
                 data = response.json()
@@ -927,57 +887,3 @@ class TestGetAggregatePending:
             }
         ]
         mock_collect.assert_awaited_once()
-
-    async def test_get_pending_torrent_preview_clears_stale_pending_with_included(self, client):
-        mock_rss = _mock_rss_obj(id=1, aggregate=True)
-
-        mock_bangumi = MagicMock()
-        mock_bangumi.id = 42
-        mock_bangumi.rss_id = 1
-        mock_bangumi.pending_review = True
-        mock_bangumi.filter = r"\d+-\d"
-
-        included_torrent = MagicMock()
-        included_torrent.name = "[Group] Target Show [08][1080p]"
-        included_torrent.url = "magnet:?xt=urn:btih:included"
-        included_torrent.homepage = "https://mikanani.me/Home/Episode/included"
-        included_torrent.hash = "included"
-
-        filtered_torrent = MagicMock()
-        filtered_torrent.name = "[Group] Target Show [01-08 Fin][1080p]"
-        filtered_torrent.url = "magnet:?xt=urn:btih:filtered"
-        filtered_torrent.homepage = "https://mikanani.me/Home/Episode/filtered"
-        filtered_torrent.hash = "filtered"
-
-        with patch(
-            "module.api.v1.rss.AsyncRSSEngine.collect_pending_candidates_from_source",
-            new_callable=AsyncMock,
-        ) as mock_collect, \
-             patch("module.api.v1.rss.RSSRepository") as mock_r_cls, \
-             patch("module.api.v1.rss.BangumiRepository") as mock_b_cls, \
-             patch("module.api.v1.rss.TorrentRepository") as mock_t_cls:
-            mock_collect.return_value = 0
-
-            mock_r = AsyncMock()
-            mock_r_cls.return_value = mock_r
-            mock_r.get_by_id.return_value = mock_rss
-
-            mock_b = AsyncMock()
-            mock_b_cls.return_value = mock_b
-            mock_b.get_by_id.return_value = mock_bangumi
-
-            mock_t = AsyncMock()
-            mock_t_cls.return_value = mock_t
-            mock_t.get_visible_by_bangumi.return_value = [
-                filtered_torrent,
-                included_torrent,
-            ]
-
-            response = client.get(
-                "/api/v1/rss/aggregate/pending/1/42/torrents",
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert [item["filter"] for item in data] == [True, False]
-        mock_b.activate_pending.assert_awaited_once_with(42, r"\d+-\d")

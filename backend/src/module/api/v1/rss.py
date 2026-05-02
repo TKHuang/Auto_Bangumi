@@ -34,38 +34,6 @@ router = APIRouter(prefix="/rss", tags=["rss"])
 analyser = AsyncRSSAnalyserAdapter()
 
 
-def _torrent_matches_filter(name: str, filter_value: str | None) -> bool:
-    if not filter_value:
-        return False
-    return bool(re.search(filter_value.replace(",", "|"), name, re.IGNORECASE))
-
-
-async def _clear_pending_with_included_candidates(
-    *,
-    session: AsyncSession,
-    bangumi_repo: BangumiRepository,
-    torrent_repo: TorrentRepository,
-    bangumi_list: list,
-) -> list:
-    """Clear stale pending-review rows that already have included candidates."""
-    remaining = []
-    changed = False
-    for bangumi in bangumi_list:
-        torrents = await torrent_repo.get_visible_by_bangumi(bangumi.id)
-        has_included = any(
-            not _torrent_matches_filter(torrent.name, bangumi.filter)
-            for torrent in torrents
-        )
-        if has_included:
-            await bangumi_repo.activate_pending(bangumi.id, bangumi.filter)
-            changed = True
-        else:
-            remaining.append(bangumi)
-    if changed:
-        await session.commit()
-    return remaining
-
-
 def _sqlmodel_to_domain_bangumi(data: Bangumi) -> DomainBangumi:
     """Map a Pydantic Bangumi schema onto an ORM Bangumi instance.
 
@@ -663,7 +631,6 @@ async def subscribe_batch(
 async def get_pending_count(rss_id: int, session: AsyncSession = Depends(get_db_session)):
     rss_repo = RSSRepository(session)
     bangumi_repo = BangumiRepository(session)
-    torrent_repo = TorrentRepository(session)
 
     rss = await rss_repo.get_by_id(rss_id)
     if not rss:
@@ -672,16 +639,7 @@ async def get_pending_count(rss_id: int, session: AsyncSession = Depends(get_db_
             content={"detail": "RSS feed not found"},
         )
 
-    pending = await bangumi_repo.get_pending_review(rss_id=rss_id)
-    if rss.aggregate and pending:
-        pending = await _clear_pending_with_included_candidates(
-            session=session,
-            bangumi_repo=bangumi_repo,
-            torrent_repo=torrent_repo,
-            bangumi_list=pending,
-        )
-
-    count = len(pending)
+    count = await bangumi_repo.count_pending_by_rss_id(rss_id)
     if count == 0 and not rss.aggregate:
         bangumi = await bangumi_repo.get_by_rss(rss_id)
         if not bangumi:
@@ -696,14 +654,7 @@ async def get_pending_count(rss_id: int, session: AsyncSession = Depends(get_db_
 )
 async def get_pending_bangumi(rss_id: int, session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
-    torrent_repo = TorrentRepository(session)
-    pending = await bangumi_repo.get_pending_review(rss_id=rss_id)
-    return await _clear_pending_with_included_candidates(
-        session=session,
-        bangumi_repo=bangumi_repo,
-        torrent_repo=torrent_repo,
-        bangumi_list=pending,
-    )
+    return await bangumi_repo.get_pending_review(rss_id=rss_id)
 
 
 @router.get(
@@ -714,7 +665,6 @@ async def get_pending_bangumi(rss_id: int, session: AsyncSession = Depends(get_d
 async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(get_db_session)):
     rss_repo = RSSRepository(session)
     bangumi_repo = BangumiRepository(session)
-    torrent_repo = TorrentRepository(session)
 
     rss = await rss_repo.get_by_id(rss_id)
     if not rss:
@@ -729,13 +679,6 @@ async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(
         )
 
     pending_list = await bangumi_repo.get_pending_review(rss_id=rss_id)
-    if pending_list:
-        pending_list = await _clear_pending_with_included_candidates(
-            session=session,
-            bangumi_repo=bangumi_repo,
-            torrent_repo=torrent_repo,
-            bangumi_list=pending_list,
-        )
 
     bangumi_data = []
     for bangumi in pending_list:
@@ -809,6 +752,7 @@ async def get_pending_torrent_preview(
         )
 
     filter_value = bangumi.filter if _filter is None else _filter
+    pattern = filter_value.replace(",", "|") if filter_value else ""
 
     if (
         settings.bangumi_manage.eps_complete
@@ -821,20 +765,14 @@ async def get_pending_torrent_preview(
             await session.commit()
 
     torrents = await torrent_repo.get_visible_by_bangumi(bangumi_id)
-    has_included = any(
-        not _torrent_matches_filter(torrent.name, filter_value)
-        for torrent in torrents
-    )
-    if _filter is None and has_included:
-        await bangumi_repo.activate_pending(bangumi.id, filter_value)
-        await session.commit()
-
     return [
         {
             "name": torrent.name,
             "url": torrent.url,
             "homepage": torrent.homepage,
-            "filter": _torrent_matches_filter(torrent.name, filter_value),
+            "filter": bool(
+                pattern and re.search(pattern, torrent.name, re.IGNORECASE)
+            ),
             "hash": torrent.hash,
         }
         for torrent in torrents
