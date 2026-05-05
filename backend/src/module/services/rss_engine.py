@@ -29,6 +29,26 @@ logger = logging.getLogger(__name__)
 _FILTERED = object()
 
 
+def _extract_season_from_title(title: str | None) -> int | None:
+    """Best-effort season parse for use by Mikan-page fallbacks.
+
+    Returns the parsed season when the title carries an explicit marker
+    (S02, Season 2, 第二季, II, Part 2, ...) and ``None`` otherwise so the
+    caller can substitute its own default. We deliberately do NOT return 1
+    here: the call sites need to distinguish "no marker → use default" from
+    "marker said S1".
+    """
+    if not title:
+        return None
+    try:
+        from module.domain.parser.analyser.bangumi_parser import BangumiParser
+
+        parsed = BangumiParser().parse(title)
+        return parsed.season if parsed and parsed.season != 1 else None
+    except Exception:
+        return None
+
+
 def _extract_mikan_bangumi_id(url: str) -> str | None:
     if not url:
         return None
@@ -255,10 +275,17 @@ class RSSEngine:
                 group_name = head
 
         clean_title = re.sub(r"[/:.\\]", " ", result.official_title)
+        # Mikan page titles often contain S2 / 第二季 / Roman-numeral season
+        # markers; the BangumiParser already knows how to extract them.
+        # Without this we'd silently bind every aggregate-RSS torrent to S01,
+        # then renamer would emit S01E01 for season-2 episodes.
+        season_from_title = _extract_season_from_title(
+            result.official_title
+        ) or _extract_season_from_title(torrent.name) or 1
         return BangumiSchema(
             official_title=clean_title,
             title_raw=torrent.name,
-            season=1,
+            season=season_from_title,
             season_raw=None,
             group_name=group_name,
             dpi=None,

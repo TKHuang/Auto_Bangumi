@@ -5,7 +5,29 @@ using Protocol for structural subtyping.
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
+
+
+class RenameOutcome(str, Enum):
+    """Outcome of a single rename request against the downloader.
+
+    The renamer used to receive a bare ``bool`` here, which forced the PikPak
+    adapter to lie ("name conflict" → ``True``) so the upper layer wouldn't
+    delete the torrent. The DB then marked those files as renamed even though
+    they were still sitting under their raw filenames in PikPak — silent data
+    loss for any media-library scraper.
+
+    A three-state outcome lets:
+      * ``OK``       — renamer marks ``renamed_at`` and bumps the file count.
+      * ``CONFLICT`` — renamer keeps the torrent unrenamed AND records the
+                       collision so a UI can show it. Will not auto-retry.
+      * ``ERROR``    — transient/unknown failure; renamer retries next tick.
+    """
+
+    OK = "ok"
+    CONFLICT = "conflict"
+    ERROR = "error"
 
 
 @dataclass
@@ -94,7 +116,7 @@ class DownloaderProtocol(Protocol):
 
     async def torrents_rename_file(
         self, hash: str, old_path: str, new_path: str
-    ) -> bool:
+    ) -> "RenameOutcome":
         """Rename a file within a torrent.
 
         Args:
@@ -103,7 +125,10 @@ class DownloaderProtocol(Protocol):
             new_path: New file path.
 
         Returns:
-            True if rename was successful, False otherwise.
+            ``RenameOutcome.OK`` on success (or no-op when already named),
+            ``RenameOutcome.CONFLICT`` when ``new_path`` is already taken by
+            another file in the destination folder, or ``RenameOutcome.ERROR``
+            for any other failure.
         """
         ...
 

@@ -28,11 +28,15 @@ class BangumiMergeHistory(Base):
     merged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     merged_by: Mapped[str] = mapped_column(String, nullable=False)
     merge_reason: Mapped[str] = mapped_column(String, nullable=False)
-    winner_bangumi_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("bangumi.id"), nullable=False
+    # NULL when the underlying bangumi was hard-deleted after the merge.
+    # The audit row is the only durable proof the merge happened, so we keep
+    # it (and its loser_snapshot/moved_torrent_ids JSON) and let the FK go
+    # to NULL via ON DELETE SET NULL — see migration 0010.
+    winner_bangumi_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("bangumi.id", ondelete="SET NULL"), nullable=True
     )
-    loser_bangumi_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("bangumi.id"), nullable=False
+    loser_bangumi_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("bangumi.id", ondelete="SET NULL"), nullable=True
     )
     loser_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
     moved_torrent_ids: Mapped[str] = mapped_column(Text, nullable=False)

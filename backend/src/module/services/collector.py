@@ -412,7 +412,11 @@ class SeasonCollectorService:
                                     (hash_list, _existing_title)
                                 )
                     bangumi_ids = [b.id for b in existing_bangumi]
-                    await bangumi_repo.delete_many(bangumi_ids)
+                    # gc_series=False: the immediate next step inserts a new
+                    # bangumi against the same series_id; cleaning the series
+                    # row mid-flight would FK-violate that insert. Series GC
+                    # belongs to user-initiated bangumi DELETE only.
+                    await bangumi_repo.delete_many(bangumi_ids, gc_series=False)
 
             created_bangumi = await bangumi_repo.create({
                 "series_id": _series_id,
@@ -599,7 +603,12 @@ class SeasonCollectorService:
                                 (hash_list, _b_title)
                             )
                 bangumi_ids = [b.id for b in existing_bangumi]
-                deleted_count = await bangumi_repo.delete_many(bangumi_ids)
+                # gc_series=False: same reasoning as subscribe_season — the
+                # follow-up batch insert reuses the same series_ids and would
+                # FK-violate if we GC them now.
+                deleted_count = await bangumi_repo.delete_many(
+                    bangumi_ids, gc_series=False,
+                )
                 logger.info(f"[Collector] Deleted {deleted_count} bangumi for batch recreation")
 
             success_count = 0

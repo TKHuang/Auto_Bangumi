@@ -442,32 +442,88 @@ class TestRefreshRSS:
     @pytest.mark.asyncio
     async def test_refresh_all_rss_success(self, client):
         """Test successful refresh of all RSS feeds."""
-        with patch("module.api.v1.rss.create_downloader") as mock_dl:
-            with patch("module.api.v1.rss.AsyncRSSEngine") as mock_engine:
-                mock_dl.return_value = AsyncMock()
-                mock_engine.refresh_rss = AsyncMock()
+        with (
+            patch(
+                "module.scheduler.jobs.rss_refresh.try_acquire_refresh_lock",
+                new_callable=AsyncMock,
+            ) as mock_acquire,
+            patch(
+                "module.scheduler.jobs.rss_refresh.run_refresh_once",
+                new_callable=AsyncMock,
+            ) as mock_refresh,
+        ):
+            mock_lock = MagicMock()
+            mock_acquire.return_value = mock_lock
+            mock_refresh.return_value = MagicMock(ok=True, error=None)
 
-                response = client.post("/api/v1/rss/refresh/all")
+            response = client.post("/api/v1/rss/refresh/all")
 
-                assert response.status_code == 200
-                data = response.json()
-                assert data["msg_en"] == "Refresh all RSS successfully."
-                assert data["msg_zh"] == "刷新 RSS 成功。"
+            assert response.status_code == 200
+            data = response.json()
+            assert data["msg_en"] == "Refresh all RSS successfully."
+            assert data["msg_zh"] == "刷新 RSS 成功。"
+            mock_refresh.assert_awaited_once_with(rss_id=None)
+            mock_lock.release.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_refresh_single_rss_success(self, client):
         """Test successful refresh of a single RSS feed."""
-        with patch("module.api.v1.rss.create_downloader") as mock_dl:
-            with patch("module.api.v1.rss.AsyncRSSEngine") as mock_engine:
-                mock_dl.return_value = AsyncMock()
-                mock_engine.refresh_rss = AsyncMock()
+        with (
+            patch(
+                "module.scheduler.jobs.rss_refresh.try_acquire_refresh_lock",
+                new_callable=AsyncMock,
+            ) as mock_acquire,
+            patch(
+                "module.scheduler.jobs.rss_refresh.run_refresh_once",
+                new_callable=AsyncMock,
+            ) as mock_refresh,
+        ):
+            mock_lock = MagicMock()
+            mock_acquire.return_value = mock_lock
+            mock_refresh.return_value = MagicMock(ok=True, error=None)
 
-                response = client.post("/api/v1/rss/refresh/1")
+            response = client.post("/api/v1/rss/refresh/1")
 
-                assert response.status_code == 200
-                data = response.json()
-                assert data["msg_en"] == "Refresh RSS successfully."
-                assert data["msg_zh"] == "刷新 RSS 成功。"
+            assert response.status_code == 200
+            data = response.json()
+            assert data["msg_en"] == "Refresh RSS successfully."
+            assert data["msg_zh"] == "刷新 RSS 成功。"
+            mock_refresh.assert_awaited_once_with(rss_id=1)
+            mock_lock.release.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refresh_returns_409_when_locked(self, client):
+        with patch(
+            "module.scheduler.jobs.rss_refresh.try_acquire_refresh_lock",
+            new_callable=AsyncMock,
+        ) as mock_acquire:
+            mock_acquire.return_value = None
+
+            response = client.post("/api/v1/rss/refresh/1")
+
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_refresh_returns_500_when_pipeline_fails(self, client):
+        with (
+            patch(
+                "module.scheduler.jobs.rss_refresh.try_acquire_refresh_lock",
+                new_callable=AsyncMock,
+            ) as mock_acquire,
+            patch(
+                "module.scheduler.jobs.rss_refresh.run_refresh_once",
+                new_callable=AsyncMock,
+            ) as mock_refresh,
+        ):
+            mock_lock = MagicMock()
+            mock_acquire.return_value = mock_lock
+            mock_refresh.return_value = MagicMock(ok=False, error="Config error")
+
+            response = client.post("/api/v1/rss/refresh/1")
+
+        assert response.status_code == 500
+        assert response.json()["error"] == "Config error"
+        mock_lock.release.assert_called_once()
 
 
 class TestGetRSSTorrent:

@@ -249,6 +249,26 @@ class TestListMergeHistory:
         assert item["undone_at"] is None
 
     @pytest.mark.asyncio
+    async def test_list_allows_deleted_participant_ids(self, client):
+        row = _mock_history(
+            id=100,
+            winner_bangumi_id=None,
+            loser_bangumi_id=None,
+            merge_reason="deleted participants",
+        )
+        with patch("module.api.v1.merge.BangumiMergeHistoryRepository") as mock_cls:
+            repo = AsyncMock()
+            mock_cls.return_value = repo
+            repo.list_paginated.return_value = ([row], 1)
+
+            resp = client.get("/api/v1/merge-history/")
+
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["winner_bangumi_id"] is None
+        assert item["loser_bangumi_id"] is None
+
+    @pytest.mark.asyncio
     async def test_list_rejects_invalid_limit(self, client):
         resp = client.get("/api/v1/merge-history/?limit=0")
         assert resp.status_code == 422
@@ -281,6 +301,17 @@ class TestUndoMerge:
         body = resp.json()
         assert body["undone"] is True
         assert body["history_id"] == 5
+
+    @pytest.mark.asyncio
+    async def test_undo_deleted_participant_returns_409(self, client):
+        with patch("module.api.v1.merge.BangumiMergeService") as mock_cls:
+            svc = AsyncMock()
+            mock_cls.return_value = svc
+            svc.undo.side_effect = ValueError("merge participant was deleted")
+
+            resp = client.post("/api/v1/merge-history/5/undo")
+
+        assert resp.status_code == 409
 
     @pytest.mark.asyncio
     async def test_undo_calls_service_with_history_id(self, client):

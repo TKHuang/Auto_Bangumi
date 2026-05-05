@@ -18,6 +18,23 @@ def _is_mikan_season_rss(rss_link: str) -> bool:
     return bool(MIKAN_SEASON_RSS_PATTERN.search(rss_link))
 
 
+def _extract_season_from_title(title: str | None) -> int | None:
+    """Mirror of ``services.rss_engine._extract_season_from_title``.
+
+    Returns parsed season when the input carries an explicit marker, else
+    ``None`` so the caller's "default to 1" branch wins.
+    """
+    if not title:
+        return None
+    try:
+        from module.domain.parser.analyser.bangumi_parser import BangumiParser
+
+        parsed = BangumiParser().parse(title)
+        return parsed.season if parsed and parsed.season != 1 else None
+    except Exception:
+        return None
+
+
 def _needs_season_rss_update(bangumi: Bangumi) -> bool:
     """Check if a bangumi needs its season-specific RSS link updated.
 
@@ -62,10 +79,16 @@ class RSSAnalyser(TitleParser):
             group_name = torrent.name.split("★", 1)[0].strip() or group_name
 
         title = re.sub(r"[/:.\\]", " ", result.official_title)
+        # See services/rss_engine._build_pending_bangumi_from_mikan: parsing
+        # season from the Mikan-derived title prevents S2 shows from being
+        # written as S01.
+        season_from_title = _extract_season_from_title(
+            result.official_title
+        ) or _extract_season_from_title(torrent.name) or 1
         return Bangumi(
             official_title=title,
             title_raw=torrent.name,
-            season=1,
+            season=season_from_title,
             group_name=group_name,
             filter=",".join(settings.rss_parser.filter),
             rss_link=result.season_rss_link or rss.url,

@@ -250,3 +250,31 @@ class TestUpdateConfig:
                 assert "host" in saved_config["downloader"]
                 assert "username" in saved_config["downloader"]
                 assert "password" in saved_config["downloader"]
+
+
+@pytest.mark.anyio
+async def test_reschedule_preserves_stopped_scheduler():
+    """Saving config must keep a stopped program stopped."""
+    with patch("module.api.v1.program.get_scheduler") as get_scheduler:
+        with patch(
+            "module.api.v1.program._has_active_schedules",
+            new_callable=AsyncMock,
+        ) as has_active_schedules:
+            with patch(
+                "module.api.v1.program._remove_all_schedules",
+                new_callable=AsyncMock,
+            ) as remove_all_schedules:
+                with patch(
+                    "module.api.v1.program._add_all_schedules",
+                    new_callable=AsyncMock,
+                ) as add_all_schedules:
+                    get_scheduler.return_value = object()
+                    has_active_schedules.return_value = False
+
+                    from module.api.v1.config import _reschedule_jobs_with_current_config
+
+                    await _reschedule_jobs_with_current_config()
+
+    has_active_schedules.assert_awaited_once()
+    remove_all_schedules.assert_not_awaited()
+    add_all_schedules.assert_not_awaited()

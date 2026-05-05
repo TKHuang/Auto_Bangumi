@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 
-BACKEND_DIR = Path(__file__).parent.parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 def _run_alembic(target: str, env: dict) -> subprocess.CompletedProcess:

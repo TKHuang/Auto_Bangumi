@@ -54,6 +54,43 @@ def test_baseline_migration_exists():
     )
 
 
+@pytest.mark.unit
+def test_domain_models_package_registers_all_tables():
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "python",
+            "-c",
+            (
+                "import module.domain.models; "
+                "from module.domain.models.base import Base; "
+                "print(','.join(sorted(Base.metadata.tables.keys()))); "
+                "from module.domain.models.torrent import Torrent; "
+                "print(','.join(sorted(i.name or '' for i in Torrent.__table__.indexes)))"
+            ),
+        ],
+        cwd=BACKEND_DIR,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    tables = lines[0] if lines else ""
+    torrent_indexes = lines[1] if len(lines) > 1 else ""
+    assert set(tables.split(",")) == {
+        "bangumi",
+        "bangumi_merge_history",
+        "mikan_episode_ref",
+        "pending_torrent_enrichment",
+        "rssitem",
+        "series",
+        "torrent",
+        "user",
+    }
+    assert "uq_torrent_hash_unbound" in set(torrent_indexes.split(","))
+
+
 @pytest.mark.integration
 def test_baseline_upgrade_on_empty_db_matches_metadata(tmp_path):
     """

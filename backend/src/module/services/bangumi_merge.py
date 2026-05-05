@@ -186,6 +186,8 @@ class BangumiMergeService:
             raise ValueError(f"merge history id={history_id} not found")
         if history.undone_at is not None:
             raise ValueError("merge already undone")
+        if history.winner_bangumi_id is None or history.loser_bangumi_id is None:
+            raise ValueError("merge participant was deleted; undo unavailable")
 
         # Cascade guard (spec §11.5): refuse if a newer un-undone merge
         # references either participant — the user must undo the newer

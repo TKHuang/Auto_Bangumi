@@ -141,24 +141,37 @@ async def drain_pending(
     return summary
 
 
+_enrichment_retry_lock = asyncio.Lock()
+
+
 async def enrichment_retry_job() -> None:
     """Scheduled job wrapper for drain_pending.
 
     Registered with scheduler at settings.program.enrichment_retry_time interval (default 300s).
     Errors are logged but don't crash the scheduler.
+
+    A process-wide lock prevents two ticks from racing on the same pending rows
+    (APScheduler v4 cannot enforce ``max_running_jobs=1`` at the schedule
+    level, so we enforce it here).
     """
+    if _enrichment_retry_lock.locked():
+        logger.info("[enrichment_retry] previous tick still running — skipping")
+        return
+
+    async with _enrichment_retry_lock:
+        await _run_enrichment_retry_once()
+
+
+async def _run_enrichment_retry_once() -> None:
     try:
         from module.concurrency.registry import build_mikan_limiter_from_settings
         from module.conf import settings
-        from module.database import get_db_session
+        from module.database.engine import AsyncSessionLocal
         from module.mikan.client import MikanClient
         from module.mikan.resolver import MikanResolver
         from module.repositories.mikan_ref import MikanEpisodeRefRepository
 
-        async_session_gen = get_db_session()
-        session: AsyncSession = await async_session_gen.__anext__()
-
-        try:
+        async with AsyncSessionLocal() as session:
             limiter = build_mikan_limiter_from_settings()
             async with MikanClient(
                 base_url=settings.mikan.base_url,
@@ -172,8 +185,6 @@ async def enrichment_retry_job() -> None:
                 )
                 summary = await drain_pending(session, mikan_resolver=resolver)
             logger.info("[enrichment_retry] job completed: %s", summary)
-        finally:
-            await session.close()
 
     except Exception as exc:
         logger.exception("[enrichment_retry] job error: %s", exc)

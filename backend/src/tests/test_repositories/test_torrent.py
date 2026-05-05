@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import select
 
 from module.domain.models import Torrent, TorrentState
 from module.domain.models.bangumi import Bangumi
@@ -141,6 +142,75 @@ class TestTorrentRepository:
         assert t1.hash is None
         assert t2.hash is None
         assert t1.bangumi_id == t2.bangumi_id
+
+    async def test_create_or_ignore_skips_duplicate_unbound_hash(self, async_session):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            first_inserted = await repo.create_or_ignore({
+                "name": "Unbound Torrent 1",
+                "url": "https://example.com/torrent1",
+                "hash": "ABC123",
+                "bangumi_id": None,
+                "rss_id": 1,
+            })
+            second_inserted = await repo.create_or_ignore({
+                "name": "Unbound Torrent 2",
+                "url": "https://example.com/torrent2",
+                "hash": "abc123",
+                "bangumi_id": None,
+                "rss_id": 1,
+            })
+
+        async with async_session.begin():
+            result = await async_session.execute(
+                select(Torrent).where(
+                    Torrent.hash == "abc123",
+                    Torrent.bangumi_id.is_(None),
+                )
+            )
+            rows = result.scalars().all()
+
+        assert first_inserted is True
+        assert second_inserted is False
+        assert len(rows) == 1
+        assert rows[0].name == "Unbound Torrent 1"
+
+    async def test_add_all_or_ignore_skips_duplicate_unbound_hash(
+        self, async_session
+    ):
+        repo = TorrentRepository(async_session)
+
+        async with async_session.begin():
+            inserted = await repo.add_all_or_ignore([
+                Torrent(
+                    name="Unbound Torrent 1",
+                    url="https://example.com/torrent1",
+                    hash="DEF456",
+                    bangumi_id=None,
+                    rss_id=1,
+                ),
+                Torrent(
+                    name="Unbound Torrent 2",
+                    url="https://example.com/torrent2",
+                    hash="def456",
+                    bangumi_id=None,
+                    rss_id=1,
+                ),
+            ])
+
+        async with async_session.begin():
+            result = await async_session.execute(
+                select(Torrent).where(
+                    Torrent.hash == "def456",
+                    Torrent.bangumi_id.is_(None),
+                )
+            )
+            rows = result.scalars().all()
+
+        assert inserted == 1
+        assert len(rows) == 1
+        assert rows[0].name == "Unbound Torrent 1"
 
     async def test_get_by_bangumi_returns_torrents(self, async_session):
         repo = TorrentRepository(async_session)

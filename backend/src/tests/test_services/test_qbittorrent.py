@@ -14,6 +14,7 @@ from qbittorrentapi.exceptions import (
     Forbidden403Error,
 )
 
+from module.services.downloader.interface import RenameOutcome
 from module.services.downloader.qbittorrent import QBittorrentDownloader
 
 
@@ -198,7 +199,7 @@ class TestQBittorrentTorrents:
             old_path="old_name.mp4",
             new_path="new_name.mp4",
         )
-        assert result is True
+        assert result is RenameOutcome.OK
         mock_qb_client.torrents_rename_file.assert_called_once_with(
             torrent_hash="abc123",
             old_path="old_name.mp4",
@@ -207,14 +208,14 @@ class TestQBittorrentTorrents:
 
     @pytest.mark.asyncio
     async def test_torrents_rename_file_conflict(self, downloader, mock_qb_client):
-        """torrents_rename_file returns False on Conflict409Error."""
+        """torrents_rename_file returns CONFLICT on Conflict409Error."""
         mock_qb_client.torrents_rename_file.side_effect = Conflict409Error("Already exists")
         result = await downloader.torrents_rename_file(
             hash="abc123",
             old_path="old_name.mp4",
             new_path="new_name.mp4",
         )
-        assert result is False
+        assert result is RenameOutcome.CONFLICT
 
     @pytest.mark.asyncio
     async def test_torrents_delete_with_files(self, downloader, mock_qb_client):

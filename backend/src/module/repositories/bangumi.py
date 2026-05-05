@@ -187,9 +187,11 @@ class BangumiRepository:
                 select(Bangumi)
                 .options(selectinload(Bangumi.series))
                 .where(and_(func.instr(Bangumi.rss_link, rss_link) > 0, Bangumi.deleted == False))
+                .order_by(Bangumi.id)
+                .limit(1)
             )
             result = await self.session.execute(stmt)
-            found = result.scalar_one_or_none()
+            found = result.scalars().first()
             if found:
                 return found
         return None
@@ -215,6 +217,10 @@ class BangumiRepository:
         """Return the first active bangumi whose series canonical_title
         appears within torrent_name.  title_raw was dropped in 0008; we fall
         back to matching on the series canonical title as the closest proxy.
+
+        Ties (multiple rules whose canonical_title appears in the name) are
+        broken by descending title length (most specific first) then ascending
+        bangumi id, so the result is deterministic across requests.
         """
         from module.domain.models.series import Series as SeriesModel
         stmt = (
@@ -228,9 +234,11 @@ class BangumiRepository:
                     Bangumi.pending_review == False,
                 )
             )
+            .order_by(func.length(SeriesModel.canonical_title).desc(), Bangumi.id)
+            .limit(1)
         )
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def count_pending_by_rss_id(self, rss_id: int) -> int:
         stmt = select(func.count()).select_from(Bangumi).where(
@@ -271,21 +279,82 @@ class BangumiRepository:
         await self.session.flush()
         return True
 
-    async def delete_one(self, id: int) -> bool:
+    async def delete_one(self, id: int, gc_series: bool = True) -> bool:
+        """Delete a bangumi (and its torrents) by id.
+
+        Args:
+            id: bangumi to remove.
+            gc_series: when True (default — the user-initiated delete path),
+                also drop the linked Series row if no remaining bangumi
+                references it (mirrors RSS cascade GC). Pass False from the
+                recreate-on-resubscribe path because the caller will
+                immediately re-insert a new bangumi pointing at the SAME
+                series — GC'ing the row mid-flight would FK-violate the
+                follow-up insert.
+        """
         from module.domain.models.torrent import Torrent
+        target = await self.session.get(Bangumi, id)
+        series_id = target.series_id if target is not None else None
+
         stmt = delete(Torrent).where(Torrent.bangumi_id == id)
         await self.session.execute(stmt)
         stmt = delete(Bangumi).where(Bangumi.id == id)
         result = await self.session.execute(stmt)
         await self.session.flush()
+
+        if gc_series and result.rowcount > 0 and series_id is not None:
+            await self._gc_orphan_series([series_id])
+
         return result.rowcount > 0
 
-    async def delete_many(self, ids: list[int]) -> int:
+    async def delete_many(self, ids: list[int], gc_series: bool = True) -> int:
+        """Delete multiple bangumi rows; see ``delete_one`` for ``gc_series``."""
         if not ids:
             return 0
         from module.domain.models.torrent import Torrent
+        affected_series = await self.session.execute(
+            select(Bangumi.series_id).where(Bangumi.id.in_(ids))
+        )
+        series_ids = {sid for sid, in affected_series.all() if sid is not None}
+
         await self.session.execute(delete(Torrent).where(Torrent.bangumi_id.in_(ids)))
         result = await self.session.execute(delete(Bangumi).where(Bangumi.id.in_(ids)))
+        await self.session.flush()
+
+        if gc_series and result.rowcount > 0 and series_ids:
+            await self._gc_orphan_series(list(series_ids))
+
+        return result.rowcount
+
+    async def _gc_orphan_series(self, series_ids: list[int]) -> int:
+        """Delete Series rows that no remaining Bangumi references.
+
+        Series rows are created opportunistically during RSS subscription and
+        never receive their own delete endpoint. When the last bangumi
+        pointing at a series is removed (whether via the user's "Delete rule"
+        action or a manual cleanup script), leaving the series row behind
+        means the next subscription with the same Mikan id silently re-binds
+        to a stale row whose ``root_path`` may already be obsolete.
+        """
+        from module.domain.models.series import Series
+
+        if not series_ids:
+            return 0
+
+        # Keep the series alive while ANY bangumi row still references it
+        # (including soft-deleted ones — un-disable would otherwise break).
+        still_referenced = await self.session.execute(
+            select(Bangumi.series_id).where(Bangumi.series_id.in_(series_ids))
+        )
+        keep = {sid for sid, in still_referenced.all() if sid is not None}
+        orphans = [sid for sid in series_ids if sid not in keep]
+
+        if not orphans:
+            return 0
+
+        result = await self.session.execute(
+            delete(Series).where(Series.id.in_(orphans))
+        )
         await self.session.flush()
         return result.rowcount
 

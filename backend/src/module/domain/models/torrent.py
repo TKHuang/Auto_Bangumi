@@ -4,10 +4,37 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from .base import Base, TimestampMixin, VersionMixin
+
+
+def normalize_hash(value: Optional[str]) -> Optional[str]:
+    """Canonical info-hash form for storage and lookup.
+
+    Different sources hand us mixed-case BitTorrent hashes (qBittorrent
+    returns lowercase, some Mikan feeds emit uppercase, manual paste in the
+    UI may be either). The DB UNIQUE ``(hash, bangumi_id)`` constraint and
+    every ``hash == ?`` lookup is case-sensitive in SQLite, so without
+    normalization we end up with two rows for the same torrent.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return stripped
+    return stripped.lower()
 
 
 class TorrentState(str, enum.Enum):
@@ -32,6 +59,31 @@ class TorrentState(str, enum.Enum):
     EXCLUDED = "excluded"
 
 
+class RenameStatus(str, enum.Enum):
+    """Outcome of the latest rename attempt for this torrent.
+
+    Distinct from ``state`` (lifecycle) and ``renamed_at`` (timestamp). The
+    renamer transitions through these:
+
+      * ``PENDING``  — never tried, or just had its rename status cleared
+                       (e.g. when the user changes title/season).
+      * ``DONE``     — rename completed successfully.
+      * ``CONFLICT`` — at least one file collided with an existing name in
+                       the destination folder. ``rename_conflict_target``
+                       holds the contested filename so the UI can show it
+                       and the user can decide what to do (delete one of
+                       the duplicates, rename with a quality suffix, etc.).
+                       The renamer will not auto-retry; the user must act.
+      * ``ERROR``    — transient failure (network, missing file). The
+                       renamer will retry on the next tick.
+    """
+
+    PENDING = "pending"
+    DONE = "done"
+    CONFLICT = "conflict"
+    ERROR = "error"
+
+
 class Torrent(Base, TimestampMixin, VersionMixin):
     """Torrent entity.
 
@@ -45,6 +97,12 @@ class Torrent(Base, TimestampMixin, VersionMixin):
             "hash",
             "bangumi_id",
             name="uq_torrent_hash_bangumi",
+        ),
+        Index(
+            "uq_torrent_hash_unbound",
+            "hash",
+            unique=True,
+            sqlite_where=text("hash IS NOT NULL AND bangumi_id IS NULL"),
         ),
     )
 
@@ -69,7 +127,20 @@ class Torrent(Base, TimestampMixin, VersionMixin):
     downloaded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     renamed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     renamed_file_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rename_status: Mapped[RenameStatus] = mapped_column(
+        Enum(RenameStatus, values_callable=lambda e: [x.value for x in e]),
+        nullable=False,
+        default=RenameStatus.PENDING,
+        server_default=RenameStatus.PENDING.value,
+    )
+    rename_conflict_target: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
     pikpak_cloud_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     pikpak_task_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     mikan_bangumi_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     mikan_subgroup_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    @validates("hash")
+    def _normalize_hash(self, _key: str, value: Optional[str]) -> Optional[str]:
+        return normalize_hash(value)

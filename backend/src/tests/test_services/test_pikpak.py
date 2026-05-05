@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from module.services.downloader.interface import RenameOutcome
 from module.services.downloader.pikpak import PikPakDownloader
 
 
@@ -1080,7 +1081,7 @@ class TestPikPakRenameFile:
             new_name,
         )
 
-        assert result is True
+        assert result is RenameOutcome.OK
         mock_instance.file_rename.assert_awaited_once_with(
             id="file_id",
             new_file_name=new_name,
@@ -1126,7 +1127,7 @@ class TestPikPakRenameFile:
                 new_name,
             )
 
-        assert result is True
+        assert result is RenameOutcome.OK
         assert "Partial path resolution in _find_file_id_by_path" not in caplog.text
         assert "File not found for rename" not in caplog.text
         mock_instance.file_rename.assert_not_awaited()

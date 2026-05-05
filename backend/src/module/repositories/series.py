@@ -75,9 +75,16 @@ class SeriesRepository:
         return list(result.scalars().all())
 
     async def find_by_canonical_title(self, title: str) -> Optional[Series]:
-        """Case-insensitive lookup by canonical_title. Returns first match or None."""
-        stmt = select(Series).where(
-            func.lower(Series.canonical_title) == title.lower()
+        """Case-insensitive lookup by canonical_title. Returns first match or None.
+
+        Ordered by id to make the choice deterministic when duplicates exist
+        (which can happen during identity migrations and is otherwise hard to
+        debug).
+        """
+        stmt = (
+            select(Series)
+            .where(func.lower(Series.canonical_title) == title.lower())
+            .order_by(Series.id)
         )
         result = await self.session.execute(stmt)
         return result.scalars().first()

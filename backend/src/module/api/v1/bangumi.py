@@ -218,7 +218,9 @@ async def update_rule(
             await session.commit()
 
             # Trigger immediate re-rename so renamed_at gets set right away
-            renamer = RenamerService(session)
+            renamer = RenamerService(
+                session, rename_method=settings.bangumi_manage.rename_method
+            )
             renamed_results = await renamer.rename_bangumi(downloader, bangumi_id)
             renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
             logger.info(f"[API] Re-renamed {renamed_count} files for bangumi {bangumi_id}")
@@ -745,7 +747,9 @@ async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_
         )
 
     downloader = create_downloader(settings, session)
-    renamer = RenamerService(session)
+    renamer = RenamerService(
+        session, rename_method=settings.bangumi_manage.rename_method
+    )
     try:
         renamed_results = await renamer.rename_bangumi(downloader, bangumi_id, retrigger=True)
         renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
@@ -758,6 +762,87 @@ async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_
         )
     finally:
         lock.release()
+
+
+@router.get(
+    path="/rename-conflicts",
+    dependencies=[Depends(get_current_user)],
+)
+async def list_rename_conflicts(
+    bangumi_id: Optional[int] = Query(default=None),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """List torrents that the renamer skipped due to a name collision.
+
+    These torrents are stuck on ``rename_status=CONFLICT`` and the auto-renamer
+    will NOT retry them. The user must either delete one of the duplicates
+    (``DELETE /bangumi/torrent/{torrent_id}``), tweak the bangumi rule so the
+    targets no longer collide, or call
+    ``POST /bangumi/rename-conflicts/{torrent_id}/retry`` to ask the renamer
+    to try again on the next tick.
+    """
+    torrent_repo = TorrentRepository(session)
+    bangumi_repo = BangumiRepository(session)
+    rows = await torrent_repo.get_rename_conflicts(bangumi_id)
+
+    bangumi_titles: dict[int, str] = {}
+    for row in rows:
+        if row.bangumi_id is None or row.bangumi_id in bangumi_titles:
+            continue
+        b = await bangumi_repo.get_by_id(row.bangumi_id)
+        if b is not None:
+            bangumi_titles[row.bangumi_id] = _orm_title(b) or ""
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "conflicts": [
+                {
+                    "torrent_id": row.id,
+                    "bangumi_id": row.bangumi_id,
+                    "bangumi_title": bangumi_titles.get(row.bangumi_id or -1, ""),
+                    "torrent_name": row.name,
+                    "torrent_hash": row.hash,
+                    "conflict_target": row.rename_conflict_target,
+                }
+                for row in rows
+            ],
+        },
+    )
+
+
+@router.post(
+    path="/rename-conflicts/{torrent_id}/retry",
+    dependencies=[Depends(get_current_user)],
+)
+async def retry_rename_conflict(
+    torrent_id: int,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Move a CONFLICT row back to PENDING so the renamer retries it.
+
+    Use after the user has manually resolved the collision (e.g. removed the
+    duplicate file in the cloud, or changed the bangumi rule).
+    """
+    torrent_repo = TorrentRepository(session)
+    torrent = await torrent_repo.get_by_id(torrent_id)
+    if torrent is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "msg_en": f"Torrent {torrent_id} not found.",
+                "msg_zh": f"找不到 torrent {torrent_id}。",
+            },
+        )
+    await torrent_repo.clear_rename_conflict(torrent_id)
+    await session.commit()
+    return JSONResponse(
+        status_code=200,
+        content={
+            "msg_en": "Conflict cleared; renamer will retry on next tick.",
+            "msg_zh": "冲突已清除，下一次重命名将重试。",
+        },
+    )
 
 
 @router.post(

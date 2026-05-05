@@ -11,7 +11,11 @@ from module.api.middleware.auth import get_current_user
 from module.database.engine import get_db_session
 from module.repositories.user import UserRepository
 from module.security.jwt import create_access_token
-from module.security.password import hash_password, verify_password
+from module.security.password import (
+    dummy_verify_password,
+    hash_password,
+    verify_password,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -29,7 +33,16 @@ async def login(
     repo = UserRepository(session)
     user = await repo.get_by_username(form_data.username)
 
-    if not user or not verify_password(form_data.password, user.password):
+    if user is None:
+        # Spend the same CPU as a real verify so latency does not reveal
+        # whether the username exists (timing-based account enumeration).
+        dummy_verify_password()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    if not verify_password(form_data.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",

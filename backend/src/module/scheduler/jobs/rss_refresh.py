@@ -18,15 +18,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlalchemy import and_, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[unused-import]  # used in type hints below
 
 from ...conf import settings
 from ...concurrency.registry import build_mikan_limiter_from_settings
 from ...concurrency.rss_lock import RssLockRegistry
-from ...database import get_db_session
+from ...database.engine import AsyncSessionLocal
 from ...domain.models.torrent import Torrent, TorrentState
 from ...domain.models.bangumi import Bangumi
 from ...domain.parser.title_parser import TitleParser
@@ -149,9 +150,16 @@ async def _trigger_downloads(
     """Trigger downloader for all torrent rows that are not yet downloaded.
 
     Uses a 3-phase READ → NETWORK → WRITE approach to minimise lock contention.
+
+    Only enqueues torrents whose owning bangumi is **subscribable now**:
+    ``active=True``, ``deleted=False``, ``pending_review=False``. Without
+    this filter a user disabling/un-subscribing a rule between RSS pipeline
+    write and downloader trigger would still see new episodes pulled into
+    their downloader, then the user would have to manually delete them.
     """
     stmt = (
         select(Torrent)
+        .join(Bangumi, Bangumi.id == Torrent.bangumi_id)
         .where(
             and_(
                 Torrent.downloaded == False,  # noqa: E712
@@ -159,6 +167,9 @@ async def _trigger_downloads(
                 Torrent.bangumi_id.is_not(None),
                 Torrent.url.is_not(None),
                 Torrent.url != "",
+                Bangumi.active == True,  # noqa: E712
+                Bangumi.deleted == False,  # noqa: E712
+                Bangumi.pending_review == False,  # noqa: E712
             )
         )
     )
@@ -284,18 +295,61 @@ async def _run_eps_completion(
             )
 
 
+_rss_refresh_lock = asyncio.Lock()
+
+
+@dataclass(frozen=True)
+class RefreshRunResult:
+    ok: bool
+    error: str | None = None
+
+
+async def try_acquire_refresh_lock() -> asyncio.Lock | None:
+    if _rss_refresh_lock.locked():
+        return None
+    await _rss_refresh_lock.acquire()
+    return _rss_refresh_lock
+
+
 async def rss_refresh_job() -> None:
     """Refresh all enabled RSS feeds.
 
     Registered with scheduler at settings.program.rss_time interval (default 900s).
     Delegates feed processing to RssPipeline for lock + mikan enrichment + create.
     Errors are logged but do not crash the scheduler.
+
+    APScheduler v4 cannot enforce ``max_running_jobs=1`` at the schedule level,
+    so we take a process-wide ``_rss_refresh_lock`` to make sure two ticks of
+    this job never run at the same time.  Per-feed locking (``RssLockRegistry``)
+    still applies for the manual refresh path defined in api/v1/rss.py.
+    """
+    lock = await try_acquire_refresh_lock()
+    if lock is None:
+        logger.info("[rss_refresh] previous tick still running — skipping")
+        return
+
+    try:
+        await run_refresh_once(rss_id=None)
+    finally:
+        lock.release()
+
+
+def is_refresh_in_progress() -> bool:
+    """Whether the scheduler-side refresh tick is currently holding the lock."""
+    return _rss_refresh_lock.locked()
+
+
+async def run_refresh_once(rss_id: int | None = None) -> RefreshRunResult:
+    """Single-pass refresh — used by both the scheduler job and the
+    ``/api/v1/rss/refresh/...`` endpoints so both paths share the same
+    ``RssPipeline`` + per-feed ``RssLockRegistry`` semantics.
+
+    Pass ``rss_id`` to scope the pass to a single feed (manual refresh of
+    one RSS subscription); ``None`` iterates every enabled feed (cron tick
+    or "Refresh all" button).
     """
     try:
-        async_session_gen = get_db_session()
-        session: AsyncSession = await async_session_gen.__anext__()
-
-        try:
+        async with AsyncSessionLocal() as session:
             downloader = create_downloader(settings, session=session)
             limiter = build_mikan_limiter_from_settings()
             lock_registry = _get_rss_lock_registry()
@@ -318,7 +372,11 @@ async def rss_refresh_job() -> None:
                 )
 
                 rss_repo = RSSRepository(session)
-                rss_items = await rss_repo.get_enabled()
+                if rss_id is None:
+                    rss_items = await rss_repo.get_enabled()
+                else:
+                    one = await rss_repo.get_by_id(rss_id)
+                    rss_items = [one] if one else []
 
                 global_filter_pattern = _build_global_filter_pattern()
 
@@ -408,9 +466,8 @@ async def rss_refresh_job() -> None:
                     await session.commit()
 
             logger.info("[rss_refresh] job completed successfully")
-
-        finally:
-            await session.close()
+            return RefreshRunResult(ok=True)
 
     except Exception as exc:
         logger.exception("[rss_refresh] job error: %s", exc)
+        return RefreshRunResult(ok=False, error=str(exc))

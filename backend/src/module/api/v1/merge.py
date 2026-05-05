@@ -23,6 +23,8 @@ def _status_for_merge_error(exc: ValueError) -> int:
     msg = str(exc).lower()
     if "not found" in msg or "missing" in msg:
         return 404
+    if "participant was deleted" in msg or "undo unavailable" in msg:
+        return 409
     return 400
 
 
@@ -47,8 +49,8 @@ class MergeHistoryItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    winner_bangumi_id: int
-    loser_bangumi_id: int
+    winner_bangumi_id: Optional[int]
+    loser_bangumi_id: Optional[int]
     merge_reason: str
     merged_at: Optional[str] = None
     merged_by: str

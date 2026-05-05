@@ -394,9 +394,39 @@ async def update_rss(
     path="/refresh/all",
     dependencies=[Depends(get_current_user)],
 )
-async def refresh_all(session: AsyncSession = Depends(get_db_session)):
-    downloader = create_downloader(settings, session)
-    await AsyncRSSEngine.refresh_rss(session, downloader)
+async def refresh_all():
+    """Refresh every enabled feed via the same pipeline the scheduler uses.
+
+    Returns 409 if the cron tick is currently in progress so two refreshes
+    never share the per-feed RssLockRegistry concurrently.
+    """
+    from module.scheduler.jobs.rss_refresh import (
+        run_refresh_once,
+        try_acquire_refresh_lock,
+    )
+
+    lock = await try_acquire_refresh_lock()
+    if lock is None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "msg_en": "RSS refresh already in progress; try again shortly.",
+                "msg_zh": "RSS 刷新正在进行，请稍后再试。",
+            },
+        )
+    try:
+        result = await run_refresh_once(rss_id=None)
+    finally:
+        lock.release()
+    if not result.ok:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "msg_en": "Refresh all RSS failed.",
+                "msg_zh": "刷新 RSS 失败。",
+                "error": result.error,
+            },
+        )
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Refresh all RSS successfully.", "msg_zh": "刷新 RSS 成功。"},
@@ -407,9 +437,35 @@ async def refresh_all(session: AsyncSession = Depends(get_db_session)):
     path="/refresh/{rss_id}",
     dependencies=[Depends(get_current_user)],
 )
-async def refresh_rss(rss_id: int, session: AsyncSession = Depends(get_db_session)):
-    downloader = create_downloader(settings, session)
-    await AsyncRSSEngine.refresh_rss(session, downloader, rss_id)
+async def refresh_rss(rss_id: int):
+    """Refresh a single feed via the same pipeline the scheduler uses."""
+    from module.scheduler.jobs.rss_refresh import (
+        run_refresh_once,
+        try_acquire_refresh_lock,
+    )
+
+    lock = await try_acquire_refresh_lock()
+    if lock is None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "msg_en": "RSS refresh already in progress; try again shortly.",
+                "msg_zh": "RSS 刷新正在进行，请稍后再试。",
+            },
+        )
+    try:
+        result = await run_refresh_once(rss_id=rss_id)
+    finally:
+        lock.release()
+    if not result.ok:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "msg_en": "Refresh RSS failed.",
+                "msg_zh": "刷新 RSS 失败。",
+                "error": result.error,
+            },
+        )
     return JSONResponse(
         status_code=200,
         content={"msg_en": "Refresh RSS successfully.", "msg_zh": "刷新 RSS 成功。"},

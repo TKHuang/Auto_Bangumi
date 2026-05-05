@@ -16,7 +16,7 @@ from qbittorrentapi.exceptions import (
     Forbidden403Error,
 )
 
-from .interface import TorrentFile, TorrentInfo
+from .interface import RenameOutcome, TorrentFile, TorrentInfo
 
 if TYPE_CHECKING:
     from qbittorrentapi.torrents import TorrentDictionary
@@ -171,8 +171,14 @@ class QBittorrentDownloader:
 
     async def torrents_rename_file(
         self, hash: str, old_path: str, new_path: str
-    ) -> bool:
-        """Rename a file within a torrent."""
+    ) -> RenameOutcome:
+        """Rename a file within a torrent.
+
+        qBittorrent returns ``Conflict409`` when ``new_path`` is already taken
+        by another file in the same torrent or save location. We surface that
+        as ``CONFLICT`` so the renamer can record it instead of silently
+        dropping the file. Any other exception bubbles up as ``ERROR``.
+        """
         try:
             await asyncio.to_thread(
                 self._client.torrents_rename_file,
@@ -180,10 +186,22 @@ class QBittorrentDownloader:
                 old_path=old_path,
                 new_path=new_path,
             )
-            return True
+            return RenameOutcome.OK
         except Conflict409Error:
-            logger.debug(f"Conflict409Error: {old_path} >> {new_path}")
-            return False
+            logger.warning(
+                "[qBittorrent] Rename conflict: '%s' already exists, skipping rename of '%s'",
+                new_path,
+                old_path,
+            )
+            return RenameOutcome.CONFLICT
+        except Exception as exc:  # noqa: BLE001 — adapter boundary
+            logger.error(
+                "[qBittorrent] rename failed: '%s' -> '%s': %s",
+                old_path,
+                new_path,
+                exc,
+            )
+            return RenameOutcome.ERROR
 
     async def torrents_delete(
         self, hashes: list[str], delete_files: bool = True

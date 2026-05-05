@@ -63,8 +63,20 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def create_tables() -> None:
-    from sqlalchemy import MetaData
+    """Create every ORM table on the bound engine.
+
+    The schema authority on startup is Alembic (`module.database.migrate.run_migrations`);
+    this helper exists for tests and one-off scripts that want a metadata-only setup
+    without going through Alembic.
+
+    The previous implementation created an empty ``MetaData()`` and silently
+    produced zero tables, which made callers expecting a real schema get a
+    blank database.  Importing the model packages first registers them on
+    ``Base.metadata`` so ``create_all`` matches the ORM definitions.
+    """
+    # Import for side effects: every model module registers itself on Base.metadata.
+    import module.domain.models  # noqa: F401  pylint: disable=import-outside-toplevel
+    from module.domain.models.base import Base  # noqa: WPS433
 
     async with engine.begin() as conn:
-        metadata = MetaData()
-        await conn.run_sync(metadata.create_all)
+        await conn.run_sync(Base.metadata.create_all)

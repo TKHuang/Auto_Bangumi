@@ -61,9 +61,17 @@ class AsyncScheduler:
         trigger: str | IntervalTrigger = "interval",
         id: str | None = None,
         conflict_policy: str | ConflictPolicy = ConflictPolicy.do_nothing,
-        max_running_jobs: int | None = None,
         **trigger_args: Any,
     ) -> Any:
+        """Schedule ``func`` on a recurring interval.
+
+        Note: APScheduler v4 does NOT accept ``max_running_jobs`` on
+        ``add_schedule`` (only on ``configure_task``). To enforce that a job
+        never runs more than once concurrently, the job body itself must take a
+        process-wide lock — see ``module.concurrency.rss_lock.RssLockRegistry``
+        and ``module.concurrency.rename_lock.try_acquire_rename_lock`` for the
+        existing patterns.
+        """
         if not self._started or self._scheduler is None:
             raise RuntimeError("Scheduler not started")
 

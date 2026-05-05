@@ -19,7 +19,7 @@ from pikpakapi import PikPakApi
 from ...conf import settings
 from ...domain.parser.title_parser import TitleParser
 from ...repositories.torrent import TorrentRepository
-from .interface import TorrentFile, TorrentInfo
+from .interface import RenameOutcome, TorrentFile, TorrentInfo
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -1235,20 +1235,27 @@ class PikPakDownloader:
     @pikpak_retry_async(max_retries=3, initial_delay=5.0)
     async def torrents_rename_file(
         self, hash: str, old_path: str, new_path: str
-    ) -> bool:
+    ) -> RenameOutcome:
         """Rename (and optionally move) a file in PikPak cloud storage.
 
         If old_path and new_path have different parent directories, the file
         will be moved to the target folder before renaming.
 
-        Args:
-            hash: Torrent hash to identify the download.
-            old_path: Current file path relative to torrent folder.
-            new_path: New file path relative to torrent folder.
-
         Returns:
-            True on success or if file already has the correct name,
-            False on conflict or file not found.
+            ``RenameOutcome.OK``       — rename succeeded (or file is already
+                                          named ``new_path`` — idempotent).
+            ``RenameOutcome.CONFLICT`` — PikPak rejected the rename because
+                                          another file at ``new_path`` already
+                                          exists. The source file is unchanged
+                                          and remains at ``old_path``; the
+                                          renamer will record the conflict so
+                                          the user can resolve it manually
+                                          instead of silently mis-marking the
+                                          torrent as renamed.
+            ``RenameOutcome.ERROR``    — transient/unknown failure (network,
+                                          token, file not found, ...). The
+                                          renamer will retry on the next
+                                          rename tick.
         """
         # Ensure token is valid before making API calls
         await self._ensure_valid_token()
@@ -1259,7 +1266,7 @@ class PikPakDownloader:
             logger.warning(
                 f"Cannot rename: torrent path not found for hash {hash}"
             )
-            return False
+            return RenameOutcome.ERROR
 
         # Build full cloud paths
         full_old_path = f"{base_path}/{old_path}".replace("//", "/")
@@ -1289,14 +1296,14 @@ class PikPakDownloader:
                     target_file_id = None
             if target_file_id:
                 logger.debug(f"File already has target name: {full_new_path}")
-                return True
+                return RenameOutcome.OK
             # Re-rename: file was previously renamed, use PikPak task's file_id
             file_id = await self._get_task_file_id(hash)
             if file_id:
                 logger.info(f"Re-rename via task file_id for hash {hash[:16]}...")
             else:
                 logger.warning(f"File not found for rename: {full_old_path}")
-                return False
+                return RenameOutcome.ERROR
 
         old_parent = os.path.dirname(full_old_path)
         new_parent = os.path.dirname(full_new_path)
@@ -1308,7 +1315,7 @@ class PikPakDownloader:
             target_folder_id = await self._get_or_create_folder(new_parent)
             if not target_folder_id:
                 logger.error(f"Failed to get/create target folder: {new_parent}")
-                return False
+                return RenameOutcome.ERROR
 
             try:
                 # Move the file to the target folder
@@ -1323,7 +1330,7 @@ class PikPakDownloader:
                 await self._delete_empty_folder(old_parent)
             except Exception as e:
                 logger.error(f"Failed to move file in PikPak: {e}")
-                return False
+                return RenameOutcome.ERROR
 
         # Now rename the file (it's now in the correct folder)
         try:
@@ -1332,23 +1339,24 @@ class PikPakDownloader:
             )
             logger.debug(f"Rename result: {result}")
             logger.info(f"Successfully renamed file to: {new_filename}")
-            return True
+            return RenameOutcome.OK
         except Exception as e:
             error_msg = str(e).lower()
             if "not changed" in error_msg:
                 logger.info(f"File already has correct name: {new_filename}")
-                return True
-            # "File name cannot be repeated" means a file with target name already exists
-            # This is a naming conflict (e.g., parser generates same name for different files)
-            # Don't trigger deletion - just warn and skip this file
+                return RenameOutcome.OK
+            # "File name cannot be repeated" means a file with target name already exists.
+            # Surface this as CONFLICT so the renamer can record it rather than
+            # marking the torrent renamed (the file actually stays at its raw
+            # name; lying to the upper layer caused silent data loss).
             if "cannot be repeated" in error_msg or "name already exists" in error_msg:
                 logger.warning(
                     f"File name conflict - '{new_filename}' already exists in folder. "
-                    f"Skipping rename for: {os.path.basename(full_old_path)}"
+                    f"Recording conflict for: {os.path.basename(full_old_path)}"
                 )
-                return True  # Return True to prevent torrent deletion
+                return RenameOutcome.CONFLICT
             logger.error(f"Failed to rename file in PikPak: {e}")
-            return False
+            return RenameOutcome.ERROR
 
     async def _find_offline_task_id(self, normalized_hash: str) -> str | None:
         tasks = await self._get_all_tasks_cached()

@@ -1,14 +1,16 @@
 """Tests for renamer service."""
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.series import Series
-from module.domain.models.torrent import Torrent, TorrentState
+from module.domain.models.torrent import RenameStatus, Torrent, TorrentState
 from module.domain.value_objects import EpisodeFile, EpisodeType, SubtitleFile
+from module.services.downloader.interface import RenameOutcome
 from module.services.renamer import RenamerService
 
 # ---------------------------------------------------------------------------
@@ -298,7 +300,7 @@ class TestRenameAll:
                 files=[Mock(name="[Group] Title - 01.mkv")],
             )
         ]
-        downloader.torrents_rename_file = AsyncMock(return_value=True)
+        downloader.torrents_rename_file = AsyncMock(return_value=RenameOutcome.OK)
         return downloader
 
     @pytest.fixture
@@ -397,7 +399,7 @@ class TestRenameAll:
                 files=[Mock(name="[Group] Title - 01.mkv")],
             )
         ]
-        mock_downloader.torrents_rename_file = AsyncMock(return_value=False)
+        mock_downloader.torrents_rename_file = AsyncMock(return_value=RenameOutcome.ERROR)
 
         service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_all(mock_downloader)
@@ -406,6 +408,85 @@ class TestRenameAll:
 
         await db_session.refresh(torrent)
         assert torrent.renamed_at is None
+
+    @pytest.mark.asyncio
+    async def test_rename_all_records_subtitle_conflict(
+        self, db_session
+    ):
+        series = await _add_series(
+            db_session,
+            title="Test Bangumi",
+            root_path="/data/Bangumi/Test Bangumi/Season 1",
+        )
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
+
+        torrent = Torrent(
+            bangumi_id=bangumi.id,
+            name="[Group] Title - 01",
+            url="https://example.com/torrent",
+            hash="abc123",
+            state=TorrentState.COMPLETED,
+            downloaded=True,
+            renamed_at=None,
+        )
+        db_session.add(torrent)
+        await db_session.flush()
+
+        downloader = AsyncMock()
+        downloader.torrents_info.return_value = [
+            Mock(
+                hash="abc123",
+                name="[Group] Title - 01",
+                save_path="/data/Bangumi/Test Bangumi/Season 1",
+                files=[
+                    SimpleNamespace(name="[Group] Title - 01.mkv"),
+                    SimpleNamespace(name="[Group] Title - 01.ass"),
+                ],
+            )
+        ]
+        downloader.torrents_rename_file = AsyncMock(
+            side_effect=[RenameOutcome.OK, RenameOutcome.CONFLICT]
+        )
+
+        def parse_side_effect(**kwargs):
+            if kwargs.get("file_type") == "subtitle":
+                return SubtitleFile(
+                    media_path="[Group] Title - 01.ass",
+                    group=None,
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    language="zh",
+                    suffix=".ass",
+                    is_movie=False,
+                    episode_type=None,
+                )
+            return EpisodeFile(
+                media_path="[Group] Title - 01.mkv",
+                title="Parsed Title",
+                season=1,
+                episode=1,
+                suffix=".mkv",
+                is_movie=False,
+            )
+
+        with patch("module.services.renamer.TitleParser") as MockParser:
+            MockParser.return_value.torrent_parser.side_effect = parse_side_effect
+            service = RenamerService(db_session, rename_method="advance")
+            result = await service.rename_all(downloader)
+
+        assert result == [{
+            "torrent_id": torrent.id,
+            "file_count": 0,
+            "conflict": "Test Bangumi S01E01.zh.ass",
+        }]
+
+        await db_session.refresh(torrent)
+        assert torrent.renamed_at is None
+        assert torrent.rename_status == RenameStatus.CONFLICT
+        assert torrent.rename_conflict_target == "Test Bangumi S01E01.zh.ass"
 
 
 class TestRenameBangumi:
@@ -423,7 +504,7 @@ class TestRenameBangumi:
                 files=[Mock(name="[Group] Title - 01.mkv")],
             )
         ]
-        downloader.torrents_rename_file = AsyncMock(return_value=True)
+        downloader.torrents_rename_file = AsyncMock(return_value=RenameOutcome.OK)
         downloader.move_torrent = AsyncMock(return_value=True)
         return downloader
 
@@ -533,7 +614,7 @@ class TestRenameBangumi:
         db_session.add(torrent)
         await db_session.flush()
 
-        mock_downloader.torrents_rename_file.return_value = False
+        mock_downloader.torrents_rename_file.return_value = RenameOutcome.ERROR
 
         service = RenamerService(db_session, rename_method="advance")
         result = await service.rename_bangumi(
@@ -620,7 +701,7 @@ class TestSubtitleRenameNaming:
         )
 
         downloader = AsyncMock()
-        downloader.torrents_rename_file = AsyncMock(return_value=True)
+        downloader.torrents_rename_file = AsyncMock(return_value=RenameOutcome.OK)
 
         service = RenamerService(db_session, rename_method="advance")
         await service._rename_subtitles(
@@ -650,7 +731,7 @@ class TestRenameAllMediaZero:
                 files=[Mock(name="sub1.ass"), Mock(name="sub2.ass")],
             )
         ]
-        downloader.torrents_rename_file = AsyncMock(return_value=True)
+        downloader.torrents_rename_file = AsyncMock(return_value=RenameOutcome.OK)
         return downloader
 
     @pytest.fixture
@@ -697,7 +778,12 @@ class TestRenameAllMediaZero:
 
         service = RenamerService(db_session, rename_method="advance")
         with patch.object(service, "_classify_files", return_value=([], ["sub1.ass"])):
-            with patch.object(service, "_rename_subtitles", new_callable=AsyncMock):
+            with patch.object(
+                service,
+                "_rename_subtitles",
+                new_callable=AsyncMock,
+                return_value=(RenameOutcome.OK, None),
+            ):
                 result = await service.rename_all(mock_downloader)
 
         assert result == []

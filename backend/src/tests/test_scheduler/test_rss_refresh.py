@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import module.scheduler.jobs.rss_refresh as _rss_refresh_module
 from module.scheduler.jobs.rss_refresh import (
     _build_global_filter_pattern,
     _is_globally_filtered,
@@ -13,6 +14,38 @@ from module.scheduler.jobs.rss_refresh import (
     rss_refresh_job,
 )
 from module.services.pipeline.rss_pipeline import FeedItem, PipelineResult
+
+
+def _mock_async_session_local(session):
+    """Build a callable that mimics ``async with AsyncSessionLocal() as s:``.
+
+    The job code now does:
+
+        async with AsyncSessionLocal() as session:
+            ...
+
+    so the mock has to be a callable returning an async context manager
+    whose ``__aenter__`` yields the given session.
+    """
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=session)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return MagicMock(return_value=cm)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rss_refresh_lock():
+    """Each test gets a fresh process-wide rss_refresh lock.
+
+    The job acquires ``_rss_refresh_lock`` to enforce single-instance
+    execution; if a previous test left it held (e.g. via an exception in a
+    monkeypatch chain), the next test would early-return without running.
+    """
+    if _rss_refresh_module._rss_refresh_lock.locked():
+        _rss_refresh_module._rss_refresh_lock.release()
+    yield
+    if _rss_refresh_module._rss_refresh_lock.locked():
+        _rss_refresh_module._rss_refresh_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +101,6 @@ class TestRssRefreshJob:
     async def test_job_iterates_enabled_rss_items(self):
         """Job should fetch and process each enabled RSS item."""
         mock_session = AsyncMock()
-        mock_session_gen = AsyncMock()
-        mock_session_gen.__anext__.return_value = mock_session
-
         mock_rss_item = MagicMock()
         mock_rss_item.id = 1
         mock_rss_item.name = "Test RSS"
@@ -84,7 +114,7 @@ class TestRssRefreshJob:
         mock_session.commit = AsyncMock()
 
         with (
-            patch("module.scheduler.jobs.rss_refresh.get_db_session") as mock_get_db,
+            patch("module.scheduler.jobs.rss_refresh.AsyncSessionLocal", _mock_async_session_local(mock_session)),
             patch("module.scheduler.jobs.rss_refresh.create_downloader"),
             patch("module.scheduler.jobs.rss_refresh.build_mikan_limiter_from_settings"),
             patch("module.scheduler.jobs.rss_refresh.MikanClient") as mock_mikan_cls,
@@ -95,8 +125,6 @@ class TestRssRefreshJob:
             patch("module.scheduler.jobs.rss_refresh.RSSEngine.parse_rss_feed", return_value=[]),
             patch("module.scheduler.jobs.rss_refresh._build_global_filter_pattern", return_value=None),
         ):
-            mock_get_db.return_value = mock_session_gen
-
             # Set up context manager for MikanClient
             mock_mikan_client = AsyncMock()
             mock_mikan_cls.return_value.__aenter__ = AsyncMock(return_value=mock_mikan_client)
@@ -125,9 +153,6 @@ class TestRssRefreshJob:
         from module.domain.models.torrent import Torrent as OrmTorrent
 
         mock_session = AsyncMock()
-        mock_session_gen = AsyncMock()
-        mock_session_gen.__anext__.return_value = mock_session
-
         mock_rss_item = MagicMock()
         mock_rss_item.id = 1
         mock_rss_item.name = "Test RSS"
@@ -159,7 +184,7 @@ class TestRssRefreshJob:
             return PipelineResult(items_seen=len(items))
 
         with (
-            patch("module.scheduler.jobs.rss_refresh.get_db_session") as mock_get_db,
+            patch("module.scheduler.jobs.rss_refresh.AsyncSessionLocal", _mock_async_session_local(mock_session)),
             patch("module.scheduler.jobs.rss_refresh.create_downloader"),
             patch("module.scheduler.jobs.rss_refresh.build_mikan_limiter_from_settings"),
             patch("module.scheduler.jobs.rss_refresh.MikanClient") as mock_mikan_cls,
@@ -181,8 +206,6 @@ class TestRssRefreshJob:
                 return_value=("Anime", 1, None, None),
             ),
         ):
-            mock_get_db.return_value = mock_session_gen
-
             mock_mikan_client = AsyncMock()
             mock_mikan_cls.return_value.__aenter__ = AsyncMock(return_value=mock_mikan_client)
             mock_mikan_cls.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -210,9 +233,6 @@ class TestRssRefreshJob:
     async def test_fetch_error_is_caught_and_status_updated(self):
         """When RSS fetch fails, error status is set and job continues for other feeds."""
         mock_session = AsyncMock()
-        mock_session_gen = AsyncMock()
-        mock_session_gen.__anext__.return_value = mock_session
-
         mock_rss_item = MagicMock()
         mock_rss_item.id = 42
         mock_rss_item.name = "Failing RSS"
@@ -225,7 +245,7 @@ class TestRssRefreshJob:
         mock_session.commit = AsyncMock()
 
         with (
-            patch("module.scheduler.jobs.rss_refresh.get_db_session") as mock_get_db,
+            patch("module.scheduler.jobs.rss_refresh.AsyncSessionLocal", _mock_async_session_local(mock_session)),
             patch("module.scheduler.jobs.rss_refresh.create_downloader"),
             patch("module.scheduler.jobs.rss_refresh.build_mikan_limiter_from_settings"),
             patch("module.scheduler.jobs.rss_refresh.MikanClient") as mock_mikan_cls,
@@ -242,8 +262,6 @@ class TestRssRefreshJob:
                 return_value=None,
             ),
         ):
-            mock_get_db.return_value = mock_session_gen
-
             mock_mikan_client = AsyncMock()
             mock_mikan_cls.return_value.__aenter__ = AsyncMock(return_value=mock_mikan_client)
             mock_mikan_cls.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -269,9 +287,6 @@ class TestRssRefreshJob:
     async def test_skipped_locked_feed_does_not_report_success(self):
         """A skipped feed must keep its previous status because no work ran."""
         mock_session = AsyncMock()
-        mock_session_gen = AsyncMock()
-        mock_session_gen.__anext__.return_value = mock_session
-
         mock_rss_item = MagicMock()
         mock_rss_item.id = 1
         mock_rss_item.name = "Locked RSS"
@@ -284,7 +299,7 @@ class TestRssRefreshJob:
         mock_session.commit = AsyncMock()
 
         with (
-            patch("module.scheduler.jobs.rss_refresh.get_db_session") as mock_get_db,
+            patch("module.scheduler.jobs.rss_refresh.AsyncSessionLocal", _mock_async_session_local(mock_session)),
             patch("module.scheduler.jobs.rss_refresh.create_downloader"),
             patch("module.scheduler.jobs.rss_refresh.build_mikan_limiter_from_settings"),
             patch("module.scheduler.jobs.rss_refresh.MikanClient") as mock_mikan_cls,
@@ -295,8 +310,6 @@ class TestRssRefreshJob:
             patch("module.scheduler.jobs.rss_refresh.RSSEngine.parse_rss_feed", return_value=[]),
             patch("module.scheduler.jobs.rss_refresh._build_global_filter_pattern", return_value=None),
         ):
-            mock_get_db.return_value = mock_session_gen
-
             mock_mikan_client = AsyncMock()
             mock_mikan_cls.return_value.__aenter__ = AsyncMock(return_value=mock_mikan_client)
             mock_mikan_cls.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -319,30 +332,34 @@ class TestRssRefreshJob:
 
     @pytest.mark.asyncio
     async def test_session_closed_on_error(self):
-        """Session must be closed even when an unexpected error occurs."""
+        """Session is released back to the pool even when an unexpected error occurs.
+
+        After the migration to ``async with AsyncSessionLocal()`` the context
+        manager guarantees ``__aexit__`` runs on every exception path, so we
+        no longer need to assert a manual ``session.close()`` call (the old
+        test asserted on the legacy ``__anext__`` pattern).
+        """
         mock_session = AsyncMock()
-        mock_session_gen = AsyncMock()
-        mock_session_gen.__anext__.return_value = mock_session
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_session)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_session_local = MagicMock(return_value=cm)
 
         with (
-            patch("module.scheduler.jobs.rss_refresh.get_db_session") as mock_get_db,
+            patch("module.scheduler.jobs.rss_refresh.AsyncSessionLocal", mock_session_local),
             patch(
                 "module.scheduler.jobs.rss_refresh.create_downloader",
                 side_effect=RuntimeError("Config error"),
             ),
         ):
-            mock_get_db.return_value = mock_session_gen
             await rss_refresh_job()
 
-        mock_session.close.assert_called_once()
+        cm.__aexit__.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_job_triggers_downloads_per_feed_and_runs_source_backfill(self):
         """Each processed feed should sync downloader promptly and honor source backfill."""
         mock_session = AsyncMock()
-        mock_session_gen = AsyncMock()
-        mock_session_gen.__anext__.return_value = mock_session
-
         mock_rss_item = MagicMock()
         mock_rss_item.id = 1
         mock_rss_item.name = "Test RSS"
@@ -365,7 +382,7 @@ class TestRssRefreshJob:
         mock_session.commit = AsyncMock()
 
         with (
-            patch("module.scheduler.jobs.rss_refresh.get_db_session") as mock_get_db,
+            patch("module.scheduler.jobs.rss_refresh.AsyncSessionLocal", _mock_async_session_local(mock_session)),
             patch("module.scheduler.jobs.rss_refresh.create_downloader") as mock_create_downloader,
             patch("module.scheduler.jobs.rss_refresh.build_mikan_limiter_from_settings"),
             patch("module.scheduler.jobs.rss_refresh.MikanClient") as mock_mikan_cls,
@@ -380,7 +397,6 @@ class TestRssRefreshJob:
             patch("module.scheduler.jobs.rss_refresh._build_global_filter_pattern", return_value=None),
             patch("module.scheduler.jobs.rss_refresh.settings") as mock_settings,
         ):
-            mock_get_db.return_value = mock_session_gen
             mock_create_downloader.return_value = AsyncMock()
 
             mock_settings.rss_parser.filter = []

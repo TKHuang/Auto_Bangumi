@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.domain.models.bangumi import Bangumi
-from module.domain.models.torrent import Torrent
+from module.domain.models.torrent import RenameStatus, Torrent
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import (
     EpisodeFile,
@@ -18,6 +18,7 @@ from module.domain.value_objects import (
 )
 from module.repositories.bangumi import BangumiRepository
 from module.repositories.torrent import TorrentRepository
+from module.services.downloader.interface import RenameOutcome
 
 if TYPE_CHECKING:
     from module.services.downloader.interface import DownloaderProtocol
@@ -220,37 +221,55 @@ class RenamerService:
                     rename_conflicts.append((db_torrent.id, conflict_target))
                     continue
                 if success and subtitle_files:
-                    await self._rename_subtitles(
+                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+                    if subtitle_conflict is not None:
+                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
+                        continue
+                    if subtitle_outcome == RenameOutcome.ERROR:
+                        continue
             elif len(media_files) > 1:
-                success, file_count = await self._rename_collection(
+                success, file_count, conflict_target = await self._rename_collection(
                     torrent_info,
                     media_files,
                     bangumi,
                     downloader,
                 )
+                if conflict_target is not None:
+                    rename_conflicts.append((db_torrent.id, conflict_target))
+                    continue
                 if success and subtitle_files:
-                    await self._rename_subtitles(
+                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+                    if subtitle_conflict is not None:
+                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
+                        continue
+                    if subtitle_outcome == RenameOutcome.ERROR:
+                        continue
             else:
                 logger.warning(
                     f"[Renamer] Torrent {db_torrent.id} has no media files"
                 )
                 if subtitle_files:
-                    await self._rename_subtitles(
+                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+                    if subtitle_conflict is not None:
+                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
+                        continue
+                    if subtitle_outcome == RenameOutcome.ERROR:
+                        continue
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -264,25 +283,32 @@ class RenamerService:
 
         # --- Phase 3: SHORT write transaction (milliseconds) ---
         renamed_results: list[dict[str, Any]] = []
+        unrenamed_by_id = {t.id: t for t in unrenamed_torrents}
         if rename_successes:
-            unrenamed_by_id = {t.id: t for t in unrenamed_torrents}
             for torrent_id, file_count in rename_successes:
                 db_torrent = unrenamed_by_id.get(torrent_id)
                 if db_torrent:
                     db_torrent.downloaded = True
                     db_torrent.renamed_at = datetime.now(timezone.utc)
                     db_torrent.renamed_file_count = file_count
+                    db_torrent.rename_status = RenameStatus.DONE
+                    db_torrent.rename_conflict_target = None
 
                 renamed_results.append(
                     {"torrent_id": torrent_id, "file_count": file_count}
                 )
 
-            await self.session.commit()
-
         for torrent_id, target in rename_conflicts:
+            db_torrent = unrenamed_by_id.get(torrent_id)
+            if db_torrent:
+                db_torrent.rename_status = RenameStatus.CONFLICT
+                db_torrent.rename_conflict_target = target
             renamed_results.append(
                 {"torrent_id": torrent_id, "file_count": 0, "conflict": target}
             )
+
+        if rename_successes or rename_conflicts:
+            await self.session.commit()
 
         logger.debug(
             f"[Renamer] Rename_all process finished. Renamed {len(renamed_results)} torrents."
@@ -312,7 +338,7 @@ class RenamerService:
                 f"[Renamer] Cleared rename status for all torrents of bangumi {bangumi_id}"
             )
 
-        bangumi_torrents = await self.torrent_repo.get_by_bangumi(bangumi_id)
+        bangumi_torrents = await self.torrent_repo.get_visible_by_bangumi(bangumi_id)
         if not bangumi_torrents:
             logger.warning(f"[Renamer] No torrents found for bangumi {bangumi_id}")
             return []
@@ -394,37 +420,55 @@ class RenamerService:
                     rename_conflicts.append((db_torrent.id, conflict_target))
                     continue
                 if (success or retrigger) and subtitle_files:
-                    await self._rename_subtitles(
+                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+                    if subtitle_conflict is not None:
+                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
+                        continue
+                    if subtitle_outcome == RenameOutcome.ERROR:
+                        continue
             elif len(media_files) > 1:
-                success, file_count = await self._rename_collection(
+                success, file_count, conflict_target = await self._rename_collection(
                     torrent_info,
                     media_files,
                     bangumi,
                     downloader,
                 )
+                if conflict_target is not None:
+                    rename_conflicts.append((db_torrent.id, conflict_target))
+                    continue
                 if (success or retrigger) and subtitle_files:
-                    await self._rename_subtitles(
+                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+                    if subtitle_conflict is not None:
+                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
+                        continue
+                    if subtitle_outcome == RenameOutcome.ERROR:
+                        continue
             else:
                 logger.warning(
                     f"[Renamer] Torrent {db_torrent.id} has no media files"
                 )
                 if subtitle_files:
-                    await self._rename_subtitles(
+                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
                         torrent_info,
                         subtitle_files,
                         bangumi,
                         downloader,
                     )
+                    if subtitle_conflict is not None:
+                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
+                        continue
+                    if subtitle_outcome == RenameOutcome.ERROR:
+                        continue
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -435,25 +479,32 @@ class RenamerService:
 
         # --- Phase 3: SHORT write transaction (milliseconds) ---
         renamed_results: list[dict[str, Any]] = []
+        torrents_by_id = {t.id: t for t in bangumi_torrents}
         if rename_successes:
-            torrents_by_id = {t.id: t for t in bangumi_torrents}
             for torrent_id, file_count in rename_successes:
                 db_torrent = torrents_by_id.get(torrent_id)
                 if db_torrent:
                     db_torrent.downloaded = True
                     db_torrent.renamed_at = datetime.now(timezone.utc)
                     db_torrent.renamed_file_count = file_count
+                    db_torrent.rename_status = RenameStatus.DONE
+                    db_torrent.rename_conflict_target = None
 
                 renamed_results.append(
                     {"torrent_id": torrent_id, "file_count": file_count}
                 )
 
-            await self.session.commit()
-
         for torrent_id, target in rename_conflicts:
+            db_torrent = torrents_by_id.get(torrent_id)
+            if db_torrent:
+                db_torrent.rename_status = RenameStatus.CONFLICT
+                db_torrent.rename_conflict_target = target
             renamed_results.append(
                 {"torrent_id": torrent_id, "file_count": 0, "conflict": target}
             )
+
+        if rename_successes or rename_conflicts:
+            await self.session.commit()
 
         logger.info(
             f"[Renamer] Rename_bangumi finished for bangumi {bangumi_id}. "
@@ -488,6 +539,10 @@ class RenamerService:
             )
             return False, 0, None
 
+        ep = self._apply_offset(ep, bangumi.offset or 0)
+        if ep is None:
+            return False, 0, None
+
         new_path = self.generate_rename_path(
             ep, _title, self.rename_method
         )
@@ -509,14 +564,20 @@ class RenamerService:
             )
             return False, 0, new_path
 
-        success = await downloader.torrents_rename_file(
+        outcome = await downloader.torrents_rename_file(
             torrent_info.hash, media_path, new_path
         )
-        if not success:
-            logger.warning(f"[Renamer] rename_torrent_file failed: {media_path}")
-            return False, 0, None
-
-        return True, 1, None
+        if outcome == RenameOutcome.OK:
+            return True, 1, None
+        if outcome == RenameOutcome.CONFLICT:
+            logger.warning(
+                "[Renamer] Downloader-reported name conflict for '%s' -> '%s'",
+                media_path,
+                new_path,
+            )
+            return False, 0, new_path
+        logger.warning(f"[Renamer] rename_torrent_file failed: {media_path}")
+        return False, 0, None
 
     @staticmethod
     def effective_root(bangumi: Bangumi) -> Optional[str]:
@@ -544,6 +605,35 @@ class RenamerService:
         )
 
     @staticmethod
+    def _apply_offset(
+        ep: EpisodeFile | SubtitleFile, offset: int
+    ) -> EpisodeFile | SubtitleFile | None:
+        """Shift the parsed episode number by ``bangumi.offset``.
+
+        Returns the same instance with episode mutated, or ``None`` when the
+        offset would push the episode to a non-positive value (which would
+        produce ``SxxE-1`` style filenames that no library scraper handles).
+
+        Movies / specials (``is_movie=True`` or ``episode is None``) are
+        passed through untouched because offsets only apply to numbered
+        episodes.
+        """
+        if not offset:
+            return ep
+        if ep.is_movie or ep.episode is None:
+            return ep
+        new_ep = ep.episode + offset
+        if new_ep <= 0:
+            logger.warning(
+                "[Renamer] Skipping rename — offset %+d would produce "
+                "non-positive episode %s for '%s'",
+                offset, new_ep, ep.media_path,
+            )
+            return None
+        ep.episode = new_ep
+        return ep
+
+    @staticmethod
     def _target_exists_with_different_hash(
         all_torrent_info: list,
         torrent_hash: str,
@@ -567,9 +657,19 @@ class RenamerService:
         media_files: list[str],
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
-    ) -> tuple[bool, int]:
+    ) -> tuple[bool, int, Optional[str]]:
+        """Returns ``(success, file_count, conflict_target)``.
+
+        For multi-file torrents we still report the *first* file that
+        encounters a name conflict. Other files in the same torrent that
+        happened to rename successfully before the conflict have already
+        been renamed at the downloader — that's acceptable because every
+        file inside one torrent is independently scrapable; the user will
+        see both renamed entries and one stuck-on-conflict entry.
+        """
         _season = bangumi.series.season if bangumi.series is not None else 1
         _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _offset = bangumi.offset or 0
         renamed_count = 0
         for media_path in media_files:
             if not self._is_media_file(media_path):
@@ -583,20 +683,32 @@ class RenamerService:
                 logger.warning(f"[Renamer] Failed to parse: {media_path}")
                 continue
 
+            ep = self._apply_offset(ep, _offset)
+            if ep is None:
+                continue
+
             new_path = self.generate_rename_path(ep, _title, self.rename_method)
             if media_path == new_path:
                 continue
 
-            success = await downloader.torrents_rename_file(
+            outcome = await downloader.torrents_rename_file(
                 torrent_info.hash, media_path, new_path
             )
-            if success:
+            if outcome == RenameOutcome.OK:
                 renamed_count += 1
+            elif outcome == RenameOutcome.CONFLICT:
+                logger.warning(
+                    "[Renamer] Collection rename conflict on '%s' (target '%s') — "
+                    "marking torrent for user resolution",
+                    media_path,
+                    new_path,
+                )
+                return False, 0, new_path
             else:
                 logger.warning(f"[Renamer] {media_path} rename failed")
-                return False, 0
+                return False, 0, None
 
-        return renamed_count > 0, renamed_count
+        return renamed_count > 0, renamed_count, None
 
     async def _rename_subtitles(
         self,
@@ -604,10 +716,12 @@ class RenamerService:
         subtitle_files: list[str],
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
-    ) -> None:
+    ) -> tuple[RenameOutcome, Optional[str]]:
         _season = bangumi.series.season if bangumi.series is not None else 1
         _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _offset = bangumi.offset or 0
         subtitle_method = "subtitle_" + self.rename_method
+        overall = RenameOutcome.OK
         for subtitle_path in subtitle_files:
             sub = self.parser.torrent_parser(
                 torrent_path=subtitle_path,
@@ -616,17 +730,36 @@ class RenamerService:
             )
             if not sub:
                 logger.warning(f"[Renamer] Failed to parse subtitle: {subtitle_path}")
+                overall = RenameOutcome.ERROR
+                continue
+
+            sub = self._apply_offset(sub, _offset)
+            if sub is None:
+                overall = RenameOutcome.ERROR
                 continue
 
             new_path = self.generate_rename_path(sub, _title, subtitle_method)
             if subtitle_path == new_path:
                 continue
 
-            success = await downloader.torrents_rename_file(
+            outcome = await downloader.torrents_rename_file(
                 torrent_info.hash, subtitle_path, new_path
             )
-            if not success:
-                logger.warning(f"[Renamer] {subtitle_path} rename failed")
+            if outcome == RenameOutcome.CONFLICT:
+                logger.warning(
+                    "[Renamer] Subtitle rename conflict for %s -> %s",
+                    subtitle_path,
+                    new_path,
+                )
+                return RenameOutcome.CONFLICT, new_path
+            if outcome != RenameOutcome.OK:
+                logger.warning(
+                    "[Renamer] Subtitle rename %s for %s",
+                    outcome.value,
+                    subtitle_path,
+                )
+                overall = RenameOutcome.ERROR
+        return overall, None
 
     def _classify_files(
         self, files: list[Any]
