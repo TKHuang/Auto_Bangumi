@@ -10,6 +10,7 @@ from module.domain.models.rss import RSSItem
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.pending_enrichment import PendingTorrentEnrichment
 from module.domain.models.torrent import Torrent
+from module.conf import settings
 from module.mikan.parser import MikanRef
 from module.services.pipeline.rss_pipeline import (
     FeedItem,
@@ -486,7 +487,7 @@ async def test_globally_filtered_new_item_creates_pending_review_without_torrent
 
     assert bangumi.pending_review is True
     assert bangumi.global_filter_matches == "简"
-    assert bangumi.filter == "简"
+    assert bangumi.filter == ",".join(settings.rss_parser.filter)
     assert torrent.bangumi_id == bangumi.id
     assert torrent.rss_id == 1
     assert torrent.name == "[G] Show 01"

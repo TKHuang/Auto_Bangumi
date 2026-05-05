@@ -125,6 +125,26 @@ function toggleSelection(id: number) {
   selectedIds.value = new Set(selectedIds.value);
 }
 
+function splitFilterTags(filter?: string | null): string[] {
+  return (filter || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function defaultFilterTags(bangumi: PendingBangumi): string[] {
+  const saved = splitFilterTags(bangumi.filter);
+  return saved.length > 0 ? saved : [...(bangumi.global_filter_matches || [])];
+}
+
+function ensureLocalFilter(id: number) {
+  if (localFilters.value.has(id)) return;
+  const bangumi = pendingBangumi.value.find((b) => b.id === id);
+  if (bangumi) {
+    localFilters.value.set(id, defaultFilterTags(bangumi));
+  }
+}
+
 // Check if a row is expanded
 function isExpanded(id: number): boolean {
   return expandedId.value === id;
@@ -137,15 +157,7 @@ function toggleExpand(id: number) {
     expandedId.value = null;
   } else {
     expandedId.value = id;
-    // Initialize local filter if not already set
-    if (!localFilters.value.has(id)) {
-      const bangumi = pendingBangumi.value.find((b) => b.id === id);
-      if (bangumi) {
-        // Start with the global filter matches as default
-        localFilters.value.set(id, [...(bangumi.global_filter_matches || [])]);
-      }
-    }
-    // Fetch torrent preview when expanding
+    ensureLocalFilter(id);
     fetchTorrentPreview(id);
   }
 }
@@ -179,7 +191,7 @@ function clearFilter(id: number) {
 function resetToGlobal(id: number) {
   const bangumi = pendingBangumi.value.find((b) => b.id === id);
   if (bangumi) {
-    localFilters.value.set(id, [...(bangumi.global_filter_matches || [])]);
+    localFilters.value.set(id, defaultFilterTags(bangumi));
     localFilters.value = new Map(localFilters.value);
     // Trigger debounced torrent preview update
     debouncedFetchTorrentPreview(id);
@@ -215,6 +227,7 @@ async function fetchTorrentPreview(id: number) {
   const bangumi = pendingBangumi.value.find((b) => b.id === id);
   if (!bangumi) return;
 
+  ensureLocalFilter(id);
   const filters = localFilters.value.get(id) || [];
   const filterStr = filters.join(',');
 

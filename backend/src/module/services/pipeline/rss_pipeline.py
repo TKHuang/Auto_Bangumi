@@ -182,9 +182,8 @@ async def finalize_resolved_item(
         mikan_ref.mikan_subgroup_id,
     )
     if bangumi is None:
-        filter_value = ",".join(
-            item.global_filter_matches or tuple(settings.rss_parser.filter)
-        )
+        filter_value = ",".join(settings.rss_parser.filter)
+        matched_filter_value = ",".join(item.global_filter_matches)
         bangumi = await bangumi_repo.create({
             "series_id": resolved.series.id,
             "mikan_subgroup_id": mikan_ref.mikan_subgroup_id,
@@ -194,7 +193,7 @@ async def finalize_resolved_item(
             "filter": filter_value,
             "active": True,
             "pending_review": item.globally_filtered,
-            "global_filter_matches": filter_value if item.globally_filtered else None,
+            "global_filter_matches": matched_filter_value if item.globally_filtered else None,
         })
         if item.globally_filtered:
             await torrent_repo.create_or_ignore({
