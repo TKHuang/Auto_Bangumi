@@ -855,6 +855,20 @@ class TestActivatePendingBangumi:
             assert response.status_code == 400
             assert "msg_en" in response.json()
 
+    @pytest.mark.asyncio
+    async def test_activate_returns_conflict_when_already_running(self, client):
+        with patch(
+            "module.api.v1.bangumi.try_acquire_bangumi_activation_lock",
+            new=AsyncMock(return_value=None),
+        ), patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, patch(
+            "module.api.v1.bangumi.AsyncRSSEngine"
+        ) as mock_engine:
+            response = client.post("/api/v1/bangumi/1/activate")
+
+        assert response.status_code == 409
+        mock_b_cls.assert_not_called()
+        mock_engine.download_bangumi.assert_not_called()
+
 
 class TestRetriggerRename:
 

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module.api.middleware.auth import get_current_user
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
+from module.concurrency.activation_lock import try_acquire_bangumi_activation_lock
 from module.concurrency.rename_lock import try_acquire_rename_lock
 from module.database.engine import get_db_session
 from module.domain.parser.title_parser import TitleParser
@@ -674,6 +675,35 @@ async def activate_pending_bangumi(
     included_hashes: list[str] | None = Body(default=None, embed=True),
     excluded_hashes: list[str] | None = Body(default=None, embed=True),
     session: AsyncSession = Depends(get_db_session),
+):
+    activation_lock = await try_acquire_bangumi_activation_lock(bangumi_id)
+    if activation_lock is None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "msg_en": "Bangumi activation is already running.",
+                "msg_zh": "该番剧正在激活中，请稍后再试。",
+            },
+        )
+
+    try:
+        return await _activate_pending_bangumi_locked(
+            bangumi_id,
+            filter,
+            included_hashes,
+            excluded_hashes,
+            session,
+        )
+    finally:
+        activation_lock.release()
+
+
+async def _activate_pending_bangumi_locked(
+    bangumi_id: int,
+    filter: str | None,
+    included_hashes: list[str] | None,
+    excluded_hashes: list[str] | None,
+    session: AsyncSession,
 ):
     bangumi_repo = BangumiRepository(session)
     torrent_repo = TorrentRepository(session)

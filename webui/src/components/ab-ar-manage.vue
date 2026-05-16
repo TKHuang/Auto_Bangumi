@@ -283,6 +283,8 @@ async function fetchPendingBangumi() {
 
 // Activate selected bangumi
 async function activateSelected() {
+  if (activating.value) return;
+
   if (selectedIds.value.size === 0) {
     message.warning(t('rss.no_bangumi_selected'));
     return;
