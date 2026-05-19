@@ -24,7 +24,10 @@ export interface BangumiRule {
   title_raw: string;
   year: string | null;
   torrent_count: number;
-  completed_count: number;
+  // null = downloader state not yet fetched (UI shows loading). The
+  // /bangumi/get/all endpoint returns null; the slow /completion-status
+  // call patches in real numbers when it resolves.
+  completed_count: number | null;
 }
 
 export interface BangumiAPI extends Omit<BangumiRule, 'filter' | 'rss_link'> {

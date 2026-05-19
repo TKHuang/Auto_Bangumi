@@ -100,7 +100,10 @@ class Bangumi(SQLModel, table=False):
     pending_review: bool = Field(default=False, title="待审核")
     global_filter_matches: Optional[str] = Field(default=None, title="全局过滤匹配")
     torrent_count: int = Field(default=0, title="总种子数")
-    completed_count: int = Field(default=0, title="已完成数")
+    # None = downloader state not yet fetched (UI shows loading); int = real count.
+    # Never default to 0 from a stale DB read — that would silently hide a
+    # downloader outage and make missing/errored torrents look completed.
+    completed_count: Optional[int] = Field(default=None, title="已完成数")
 
     @model_validator(mode="before")
     @classmethod

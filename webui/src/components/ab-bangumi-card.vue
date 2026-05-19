@@ -20,6 +20,10 @@ defineEmits(['click', 'select']);
 
 const countTagType = computed(() => {
   const { completed_count, torrent_count } = props.bangumi;
+  // null = downloader status still loading; the tag is rendered as
+  // inactive with a spinner (see :loading prop below). Never colour-
+  // hint here because we don't know the real state yet.
+  if (completed_count === null) return 'inactive';
   if (completed_count === torrent_count) return 'active';
   if (completed_count > 0) return 'notify';
   return 'inactive';
@@ -103,6 +107,7 @@ const countTagType = computed(() => {
         <div flex="~ wrap col" pc:flex-row gap-5>
           <ab-tag
             v-if="bangumi.torrent_count > 0"
+            :loading="bangumi.completed_count === null"
             :title="`${bangumi.completed_count}/${bangumi.torrent_count}`"
             :type="countTagType"
           />

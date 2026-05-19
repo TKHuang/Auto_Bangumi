@@ -65,17 +65,13 @@ class TestGetAllBangumi:
             _mock_bangumi_obj(id=2, official_title="Test Bangumi 2", season=2),
         ]
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
-             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
-             patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls:
             mock_repo = AsyncMock()
             mock_repo_cls.return_value = mock_repo
             mock_repo.get_active.return_value = mock_list
             mock_torrent = AsyncMock()
             mock_torrent_cls.return_value = mock_torrent
             mock_torrent.get_visible_by_bangumi.return_value = []
-            dl = AsyncMock()
-            mock_dl.return_value = dl
-            dl.get_hash_status_map = AsyncMock(return_value={})
             response = client.get("/api/v1/bangumi/get/all")
             assert response.status_code == 200
             data = response.json()
@@ -85,21 +81,52 @@ class TestGetAllBangumi:
     @pytest.mark.asyncio
     async def test_get_all_empty(self, client):
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
-             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
-             patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls:
             mock_repo = AsyncMock()
             mock_repo_cls.return_value = mock_repo
             mock_repo.get_active.return_value = []
             mock_torrent_cls.return_value = AsyncMock()
-            dl = AsyncMock()
-            mock_dl.return_value = dl
-            dl.get_hash_status_map = AsyncMock(return_value={})
             response = client.get("/api/v1/bangumi/get/all")
             assert response.status_code == 200
             assert response.json() == []
 
     @pytest.mark.asyncio
-    async def test_get_all_excludes_missing_from_completed_count(self, client):
+    async def test_get_all_returns_null_completed_count(self, client):
+        # /get/all must not call the downloader. completed_count is left
+        # null so the UI can render a loading indicator instead of a
+        # potentially-stale DB value.
+        bangumi = _mock_bangumi_obj(id=1, official_title="Test")
+        t1 = MagicMock(downloaded=True, hash="aaa", renamed_at=None)
+        t2 = MagicMock(downloaded=True, hash="bbb", renamed_at=None)
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
+             patch("module.api.v1.bangumi.create_downloader") as mock_dl:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.get_active.return_value = [bangumi]
+            mock_torrent = AsyncMock()
+            mock_torrent_cls.return_value = mock_torrent
+            mock_torrent.get_visible_by_bangumi.return_value = [t1, t2]
+            response = client.get("/api/v1/bangumi/get/all")
+            assert response.status_code == 200
+            data = response.json()
+            assert data[0]["torrent_count"] == 2
+            assert data[0]["completed_count"] is None
+            # Critically: /get/all must never instantiate the downloader.
+            mock_dl.assert_not_called()
+
+
+class TestGetCompletionStatus:
+    """Tests for the /bangumi/completion-status endpoint.
+
+    These previously lived under TestGetAllBangumi when /get/all computed
+    completion counts inline. The completion logic moved to its own
+    endpoint so /get/all can return immediately without waiting on the
+    downloader.
+    """
+
+    @pytest.mark.asyncio
+    async def test_excludes_missing(self, client):
         bangumi = _mock_bangumi_obj(id=1, official_title="Test")
         t1 = MagicMock(downloaded=True, hash="aaa", renamed_at=None)
         t2 = MagicMock(downloaded=True, hash="bbb", renamed_at=None)
@@ -116,14 +143,13 @@ class TestGetAllBangumi:
             dl = AsyncMock()
             mock_dl.return_value = dl
             dl.get_hash_status_map = AsyncMock(return_value={"aaa": "completed"})
-            response = client.get("/api/v1/bangumi/get/all")
+            response = client.get("/api/v1/bangumi/completion-status")
             assert response.status_code == 200
             data = response.json()
-            assert data[0]["torrent_count"] == 3
-            assert data[0]["completed_count"] == 1
+            assert data["1"] == 1
 
     @pytest.mark.asyncio
-    async def test_get_all_excludes_error_from_completed_count(self, client):
+    async def test_excludes_error(self, client):
         """Error-state torrents in downloader must NOT count as completed."""
         bangumi = _mock_bangumi_obj(id=1, official_title="Test")
         t1 = MagicMock(downloaded=True, hash="aaa", renamed_at=None)
@@ -143,14 +169,13 @@ class TestGetAllBangumi:
                 "aaa": "completed",
                 "bbb": "error",
             })
-            response = client.get("/api/v1/bangumi/get/all")
+            response = client.get("/api/v1/bangumi/completion-status")
             assert response.status_code == 200
             data = response.json()
-            assert data[0]["torrent_count"] == 2
-            assert data[0]["completed_count"] == 1
+            assert data["1"] == 1
 
     @pytest.mark.asyncio
-    async def test_get_all_error_overrides_renamed_at(self, client):
+    async def test_error_overrides_renamed_at(self, client):
         """Downloader error takes priority over renamed_at for completed count."""
         from datetime import datetime
         bangumi = _mock_bangumi_obj(id=1, official_title="Test")
@@ -171,14 +196,13 @@ class TestGetAllBangumi:
                 "aaa": "completed",
                 "bbb": "error",
             })
-            response = client.get("/api/v1/bangumi/get/all")
+            response = client.get("/api/v1/bangumi/completion-status")
             assert response.status_code == 200
             data = response.json()
-            assert data[0]["torrent_count"] == 2
-            assert data[0]["completed_count"] == 1
+            assert data["1"] == 1
 
     @pytest.mark.asyncio
-    async def test_get_all_renamed_at_counts_as_completed_without_online_hash(self, client):
+    async def test_renamed_at_counts_as_completed_without_online_hash(self, client):
         from datetime import datetime
         bangumi = _mock_bangumi_obj(id=1, official_title="Test")
         t1 = MagicMock(downloaded=True, hash="aaa", renamed_at=datetime(2025, 1, 1))
@@ -196,34 +220,31 @@ class TestGetAllBangumi:
             dl = AsyncMock()
             mock_dl.return_value = dl
             dl.get_hash_status_map = AsyncMock(return_value={})
-            response = client.get("/api/v1/bangumi/get/all")
+            response = client.get("/api/v1/bangumi/completion-status")
             assert response.status_code == 200
             data = response.json()
-            assert data[0]["torrent_count"] == 3
-            assert data[0]["completed_count"] == 2
+            assert data["1"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_all_fallback_on_downloader_error(self, client):
+    async def test_returns_503_on_downloader_error(self, client):
+        # When the downloader can't be reached we must surface that
+        # explicitly so the UI keeps the loading state visible. Returning
+        # 200 with DB-only counts would mislead the user into thinking
+        # missing/errored torrents are fine.
         bangumi = _mock_bangumi_obj(id=1, official_title="Test")
-        t1 = MagicMock(downloaded=True, hash="aaa")
-        t2 = MagicMock(downloaded=False, hash="bbb")
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_repo_cls, \
              patch("module.api.v1.bangumi.TorrentRepository") as mock_torrent_cls, \
              patch("module.api.v1.bangumi.create_downloader") as mock_dl:
             mock_repo = AsyncMock()
             mock_repo_cls.return_value = mock_repo
             mock_repo.get_active.return_value = [bangumi]
-            mock_torrent = AsyncMock()
-            mock_torrent_cls.return_value = mock_torrent
-            mock_torrent.get_visible_by_bangumi.return_value = [t1, t2]
+            mock_torrent_cls.return_value = AsyncMock()
             mock_dl.side_effect = Exception("downloader unavailable")
-            response = client.get("/api/v1/bangumi/get/all")
-            assert response.status_code == 200
-            data = response.json()
-            assert data[0]["completed_count"] == 1
+            response = client.get("/api/v1/bangumi/completion-status")
+            assert response.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_get_all_rolls_back_session_after_downloader_error(self, client, app):
+    async def test_rolls_back_session_after_downloader_error(self, client, app):
         from module.database.engine import get_db_session
 
         session = AsyncMock()
@@ -253,9 +274,9 @@ class TestGetAllBangumi:
             )
             mock_dl.return_value = downloader
 
-            response = client.get("/api/v1/bangumi/get/all")
+            response = client.get("/api/v1/bangumi/completion-status")
 
-        assert response.status_code == 200
+        assert response.status_code == 503
         session.rollback.assert_awaited_once()
 
 

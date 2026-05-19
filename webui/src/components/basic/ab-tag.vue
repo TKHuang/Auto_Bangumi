@@ -3,22 +3,45 @@ const props = withDefaults(
   defineProps<{
     type: 'primary' | 'warn' | 'inactive' | 'active' | 'notify';
     title: string;
+    loading?: boolean;
   }>(),
   {
     type: 'primary',
     title: 'title',
+    loading: false,
   }
 );
 
-const InnerStyle = computed(() => {
-  return `${props.type}-inner`;
-});
+// When loading, force inactive (gray) styling regardless of the requested
+// type — a colored "X/Y" chip showing fake numbers would lie to the user.
+const effectiveType = computed(() =>
+  props.loading ? 'inactive' : props.type
+);
+const InnerStyle = computed(() => `${effectiveType.value}-inner`);
 </script>
 
 <template>
-  <div p-1 rounded-16 inline-flex w-max :class="type">
-    <div w-full bg-white rounded-12 px-8 text-10 truncate :class="InnerStyle">
-      {{ title }}
+  <div p-1 rounded-16 inline-flex w-max :class="effectiveType">
+    <div
+      w-full
+      bg-white
+      rounded-12
+      px-8
+      text-10
+      truncate
+      flex
+      items-center
+      justify-center
+      :class="InnerStyle"
+    >
+      <div
+        v-if="loading"
+        i-carbon-renew
+        class="animate-spin"
+        text-10
+        aria-label="loading"
+      />
+      <template v-else>{{ title }}</template>
     </div>
   </div>
 </template>

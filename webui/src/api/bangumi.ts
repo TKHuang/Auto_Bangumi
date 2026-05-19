@@ -18,6 +18,17 @@ export const apiBangumi = {
   },
 
   /**
+   * 获取每个 bangumi 当前的 completed_count（依赖 downloader 状态，慢）
+   * 与 getAll 分离，避免 PikPak 等慢速 downloader 阻塞卡片渲染。
+   */
+  async getCompletionStatus() {
+    const { data } = await axios.get<Record<string, number>>(
+      'api/v1/bangumi/completion-status'
+    );
+    return data;
+  },
+
+  /**
    * 获取指定 bangumiId 的规则
    * @param bangumiId  bangumi id
    * @returns 指定 bangumi 的规则

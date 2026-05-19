@@ -88,46 +88,74 @@ async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
     "/get/all", response_model=list[Bangumi], dependencies=[Depends(get_current_user)]
 )
 async def get_all_data(session: AsyncSession = Depends(get_db_session)):
+    # DB-only — never call the downloader here. Clients fetch
+    # /bangumi/completion-status separately to populate completed_count.
+    # This avoids blocking the page render on slow backends like PikPak.
     bangumi_repo = BangumiRepository(session)
     torrent_repo = TorrentRepository(session)
-
-    # States that indicate a torrent is NOT successfully available
-    error_states = {"error", "missing"}
-
-    hash_status_map: dict[str, str] | None = None
-    try:
-        downloader = create_downloader(settings, session)
-        hash_status_map = await downloader.get_hash_status_map()
-    except Exception:
-        await session.rollback()
-        logger.debug("Failed to query downloader for hash status, using DB-only counts")
 
     orm_bangumi_list = await bangumi_repo.get_active()
     schema_bangumi_list = []
 
     for orm_bangumi in orm_bangumi_list:
         schema_bangumi = Bangumi.model_validate(orm_bangumi)
+        # Explicit so the contract is obvious: this endpoint NEVER returns
+        # a real completion count; the frontend must call
+        # /bangumi/completion-status separately.
+        schema_bangumi.completed_count = None
         if orm_bangumi.id:
             torrents = await torrent_repo.get_visible_by_bangumi(orm_bangumi.id)
             schema_bangumi.torrent_count = len(torrents)
-            if hash_status_map is not None:
-                def _is_completed(t) -> bool:
-                    if not t.downloaded:
-                        return False
-                    # Downloader state takes priority when available
-                    if t.hash and t.hash.lower() in hash_status_map:
-                        return hash_status_map[t.hash.lower()] not in error_states
-                    # Not in downloader — count as completed only if renamed
-                    return bool(t.renamed_at)
-
-                schema_bangumi.completed_count = sum(
-                    1 for t in torrents if _is_completed(t)
-                )
-            else:
-                schema_bangumi.completed_count = sum(1 for t in torrents if t.downloaded)
         schema_bangumi_list.append(schema_bangumi)
 
     return schema_bangumi_list
+
+
+@router.get(
+    "/completion-status",
+    response_model=dict[int, int],
+    dependencies=[Depends(get_current_user)],
+)
+async def get_completion_status(session: AsyncSession = Depends(get_db_session)):
+    # Returns {bangumi_id: completed_count} computed against live downloader
+    # state. Split from /get/all so cards can render before this resolves —
+    # PikPak's offline_list call can take seconds on a cold cache.
+    bangumi_repo = BangumiRepository(session)
+    torrent_repo = TorrentRepository(session)
+
+    error_states = {"error", "missing"}
+
+    try:
+        downloader = create_downloader(settings, session)
+        hash_status_map = await downloader.get_hash_status_map()
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to query downloader for completion status")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "msg_en": "Downloader unavailable",
+                "msg_zh": "下载器暂时不可用",
+            },
+        )
+
+    orm_bangumi_list = await bangumi_repo.get_active()
+    result: dict[int, int] = {}
+
+    def _is_completed(t) -> bool:
+        if not t.downloaded:
+            return False
+        if t.hash and t.hash.lower() in hash_status_map:
+            return hash_status_map[t.hash.lower()] not in error_states
+        return bool(t.renamed_at)
+
+    for orm_bangumi in orm_bangumi_list:
+        if not orm_bangumi.id:
+            continue
+        torrents = await torrent_repo.get_visible_by_bangumi(orm_bangumi.id)
+        result[orm_bangumi.id] = sum(1 for t in torrents if _is_completed(t))
+
+    return result
 
 
 @router.get(

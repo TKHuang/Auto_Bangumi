@@ -60,6 +60,24 @@ export const useBangumiStore = defineStore('bangumi', () => {
     const disabled = sort(res.filter((e) => e.deleted));
 
     bangumi.value = [...enabled, ...disabled];
+
+    // Fetch completion counts in the background. The cards above are
+    // already on screen; this patches in real X/Y numbers when the
+    // downloader responds. On failure we keep completed_count = null so
+    // the card shows a loading indicator (never a misleading stale count).
+    apiBangumi
+      .getCompletionStatus()
+      .then((map) => {
+        if (!bangumi.value) return;
+        bangumi.value = bangumi.value.map((b) => ({
+          ...b,
+          completed_count: map[String(b.id)] ?? null,
+        }));
+      })
+      .catch(() => {
+        // Intentional: leave completed_count = null so the UI keeps the
+        // loading indicator instead of pretending we know the answer.
+      });
   }
 
   function refreshData() {
