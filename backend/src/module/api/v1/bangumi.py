@@ -58,13 +58,20 @@ def _poster_needs_refresh(bangumi) -> bool:
     We treat missing local poster cache files as stale even when the DB still
     points to a `posters/*.jpg` path. This is the migration/cache-loss case the
     old UI button failed to recover from.
+
+    A bare Mikan-relative path (e.g. `/images/Bangumi/...`, stored when local
+    caching failed at resolve time) is also stale: the WebUI loads it from its
+    own origin and 404s. Only a present `posters/*` cache file or a full
+    `http(s)://` URL renders, so anything else needs a refresh.
     """
     poster = bangumi.series.poster_url if bangumi.series is not None else None
     if not poster:
         return True
     if isinstance(poster, str) and poster.startswith("posters/"):
         return not (Path("data") / poster).exists()
-    return False
+    if isinstance(poster, str) and poster.startswith(("http://", "https://")):
+        return False
+    return True
 
 
 def _is_mikan_season_rss(rss_link: str) -> bool:

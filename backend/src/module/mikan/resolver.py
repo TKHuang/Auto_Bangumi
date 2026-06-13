@@ -81,14 +81,19 @@ class MikanResolver:
         # (e.g. /images/Bangumi/202604/ad005695.jpg?width=400…). Cache it
         # locally so the WebUI can render it directly without a separate
         # backend proxy and without re-hitting Mikan on every page load.
-        cached_poster = await self._cache_poster(ref.poster_url)
-        if cached_poster is not None:
-            ref = MikanRef(
-                mikan_bangumi_id=ref.mikan_bangumi_id,
-                mikan_subgroup_id=ref.mikan_subgroup_id,
-                canonical_title=ref.canonical_title,
-                poster_url=cached_poster,
-            )
+        #
+        # Only the locally-cached "posters/<hash>.jpg" path is renderable: the
+        # WebUI serves it from the /posters static mount. If caching fails we
+        # store None rather than the raw Mikan-relative path — the browser
+        # would resolve that against the app's own origin (→ 404, blank cover).
+        # A later episode of the same bangumi, or a manual poster refresh,
+        # backfills it (see IdentityResolver Tier 1 self-heal).
+        ref = MikanRef(
+            mikan_bangumi_id=ref.mikan_bangumi_id,
+            mikan_subgroup_id=ref.mikan_subgroup_id,
+            canonical_title=ref.canonical_title,
+            poster_url=await self._cache_poster(ref.poster_url),
+        )
 
         await self._repo.upsert(
             info_hash=info_hash,

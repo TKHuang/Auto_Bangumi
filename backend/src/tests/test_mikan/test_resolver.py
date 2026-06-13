@@ -89,12 +89,14 @@ class TestMikanResolverCacheMiss:
         assert row.canonical_title.startswith("身为悲剧")
         assert row.poster_url == "posters/abc12345.jpg"
 
-    async def test_poster_fetch_failure_keeps_raw_url(
+    async def test_poster_fetch_failure_drops_unrenderable_url(
         self, db_session, fake_limiter, httpx_mock: HTTPXMock
     ):
-        """If the poster image cannot be downloaded, fall back to whatever
-        the parser extracted (still better than dropping the URL entirely).
-        Resolution itself must not fail."""
+        """If the poster image can't be cached locally, store None — never the
+        raw Mikan-relative path. The WebUI can only render a local 'posters/*'
+        path; a bare '/images/...' value 404s against the app's own origin and
+        leaves a blank cover. Resolution itself must still succeed, and a later
+        episode / manual refresh backfills the poster."""
         httpx_mock.add_response(
             url="https://mikanani.me/Home/Episode/posterfail",
             text=_load("episode_page_subscribe_button.html"),
@@ -115,8 +117,11 @@ class TestMikanResolverCacheMiss:
 
         assert ref is not None
         assert ref.mikan_bangumi_id == 3906
-        # Raw poster path preserved on cache failure.
-        assert ref.poster_url and ref.poster_url.startswith("/images/")
+        # Unrenderable raw path dropped, not persisted.
+        assert ref.poster_url is None
+        row = await repo.get("posterfail")
+        assert row.parse_status == "ok"
+        assert row.poster_url is None
 
     async def test_non_mikan_page_persists_as_non_mikan(
         self, db_session, fake_limiter, httpx_mock: HTTPXMock

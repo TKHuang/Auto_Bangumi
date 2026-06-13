@@ -56,6 +56,66 @@ class TestIdentityResolverTier1:
         assert result.newly_created is True
         assert result.series.pending_review is False
 
+    async def test_mikan_match_backfills_missing_poster(self, db_session):
+        """A series whose first episode's poster failed to cache (poster_url
+        None) is healed when a later episode resolves WITH a cached
+        'posters/*' path. This is the '躲在超市后门抽烟的两人' regression: the
+        series was created once with a broken poster and never updated."""
+        series_repo = SeriesRepository(db_session)
+        existing = await series_repo.create({
+            "mikan_bangumi_id": 3970,
+            "canonical_title": "Smokers",
+            "normalized_title": "smokers",
+            "season": 1,
+            "root_path": "/downloads/Smokers",
+            "poster_url": None,
+        })
+        await db_session.commit()
+
+        resolver = IdentityResolver(series_repo=series_repo)
+        result = await resolver.resolve(
+            mikan_ref=MikanRef(mikan_bangumi_id=3970, mikan_subgroup_id=1243,
+                               canonical_title="Smokers",
+                               poster_url="posters/72f0f639.jpg"),
+            normalized_title="smokers",
+            season=1,
+            cour_part=None,
+            raw_title_for_root="Smokers",
+        )
+        await db_session.commit()
+
+        assert result.series.id == existing.id
+        assert result.tier == "mikan"
+        assert result.newly_created is False
+        assert result.series.poster_url == "posters/72f0f639.jpg"
+
+    async def test_mikan_match_does_not_overwrite_good_poster(self, db_session):
+        """Self-heal must not clobber an already-cached poster when a later
+        episode resolves without one (its own image cache failed → None)."""
+        series_repo = SeriesRepository(db_session)
+        await series_repo.create({
+            "mikan_bangumi_id": 3971,
+            "canonical_title": "Keeper",
+            "normalized_title": "keeper",
+            "season": 1,
+            "root_path": "/downloads/Keeper",
+            "poster_url": "posters/good.jpg",
+        })
+        await db_session.commit()
+
+        resolver = IdentityResolver(series_repo=series_repo)
+        result = await resolver.resolve(
+            mikan_ref=MikanRef(mikan_bangumi_id=3971, mikan_subgroup_id=1,
+                               canonical_title="Keeper", poster_url=None),
+            normalized_title="keeper",
+            season=1,
+            cour_part=None,
+            raw_title_for_root="Keeper",
+        )
+        await db_session.commit()
+
+        assert result.series.poster_url == "posters/good.jpg"
+
 
 @pytest.mark.integration
 class TestIdentityResolverTier2:

@@ -74,6 +74,19 @@ class IdentityResolver:
         if mikan_ref is not None:
             hit = await self._repo.get_by_mikan_id(mikan_ref.mikan_bangumi_id)
             if hit is not None:
+                # Self-heal a missing/unrenderable poster. The series row is
+                # created once (from the first resolved episode) and never
+                # revisited; if that episode's poster failed to cache (leaving
+                # poster_url None or a raw Mikan path), backfill it from a later
+                # episode that DID cache a local "posters/*" path. `hit` is
+                # session-managed, so the assignment persists on commit.
+                incoming = mikan_ref.poster_url
+                if (
+                    incoming
+                    and incoming.startswith("posters/")
+                    and not (hit.poster_url or "").startswith("posters/")
+                ):
+                    hit.poster_url = incoming
                 return ResolvedIdentity(series=hit, tier="mikan", newly_created=False)
 
             title = mikan_ref.canonical_title or raw_title_for_root
