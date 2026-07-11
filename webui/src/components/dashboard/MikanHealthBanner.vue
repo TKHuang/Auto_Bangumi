@@ -1,18 +1,18 @@
 <script lang="ts" setup>
+import {
+  mikanHealthBannerClass,
+  shouldShowMikanHealthBanner,
+} from './mikan-health-banner';
+
 const healthStore = useHealthStore();
 
 onMounted(() => healthStore.startPolling(30_000));
 onBeforeUnmount(() => healthStore.stopPolling());
 
-const bannerClass = computed(() => {
-  const s = healthStore.mikan?.status;
-  if (s === 'down') return 'banner banner-down';
-  if (s === 'degraded') return 'banner banner-warn';
-  return '';
-});
+const show = computed(() => shouldShowMikanHealthBanner(healthStore.mikan));
 
-const show = computed(() =>
-  healthStore.mikan && healthStore.mikan.status !== 'ok'
+const bannerClass = computed(() =>
+  mikanHealthBannerClass(healthStore.mikan?.status, show.value)
 );
 </script>
 
@@ -21,9 +21,7 @@ const show = computed(() =>
     <strong v-if="healthStore.mikan?.status === 'down'">
       ⚠️ {{ $t('health.down_title') }}
     </strong>
-    <strong v-else>
-      ⚠️ {{ $t('health.degraded_title') }}
-    </strong>
+    <strong v-else> ⚠️ {{ $t('health.degraded_title') }} </strong>
     <span>
       {{ $t('health.pending_count', { n: healthStore.mikan!.pending_count }) }}
     </span>
