@@ -219,8 +219,8 @@ test.*
 
 # dev
 dev-config
-.serena
 .claude
+.codegraph
 
 # dev config
 config/

@@ -3,7 +3,7 @@ type AnyAsyncFuntion<TData = any> = (...args: any[]) => Promise<TData>;
 interface Options<T = any> {
   showMessage?: boolean;
   onBeforeExecute?: () => void;
-  onSuccess?: (data: T) => void;
+  onSuccess?: (data: T) => void | Promise<void>;
   onError?: (error: any) => void;
   onFinally?: () => void;
 }
@@ -35,7 +35,7 @@ export function useApi<
       const res = await api(...params);
       data.value = res;
 
-      onSuccess?.(res);
+      await onSuccess?.(res);
 
       if (showMessage && 'msg_en' in res) {
         const msg = returnUserLangMsg(res);

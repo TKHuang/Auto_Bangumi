@@ -1,5 +1,5 @@
 <script lang="tsx" setup>
-import { NDataTable, NDropdown, NTooltip, useDialog } from 'naive-ui';
+import { NDataTable, NDropdown, NTooltip } from 'naive-ui';
 import type { DropdownOption } from 'naive-ui';
 import type { RSS } from '#/rss';
 import { rssTemplate } from '#/rss';
@@ -9,15 +9,20 @@ definePage({
 });
 
 const { t } = useMyI18n();
-const { rss, selectedRSS } = storeToRefs(useRSSStore());
-const { getAll, deleteSelected, disableSelected, enableSelected, refreshRSS } =
-  useRSSStore();
+const rssStore = useRSSStore();
+const { rss, selectedRSS, pendingCounts } = storeToRefs(rssStore);
+const {
+  getAll,
+  refreshPendingCounts,
+  deleteSelected,
+  disableSelected,
+  enableSelected,
+  refreshRSS,
+} = rssStore;
 
 const showEdit = ref(false);
 const editRSS = ref<RSS>(rssTemplate);
-
-// Pending review counts per RSS
-const pendingCounts = ref<Record<number, number>>({});
+const refreshPendingCountsAfterReview = () => refreshPendingCounts(true);
 
 // AR Manage Dialog state
 const showManageDialog = ref(false);
@@ -58,7 +63,9 @@ const contextMenuOptions = computed<DropdownOption[]>(() => {
   }
   return [
     {
-      label: rssItem.aggregate ? t('rss.manage_bangumi') : t('rss.review_pending'),
+      label: rssItem.aggregate
+        ? t('rss.manage_bangumi')
+        : t('rss.review_pending'),
       key: 'manage',
     },
   ];
@@ -86,32 +93,12 @@ function handleClickOutside() {
   showContextMenu.value = false;
 }
 
-async function fetchPendingCounts() {
-  // Fetch pending counts for ALL RSS items (both aggregate and non-aggregate)
-  const results = await Promise.all(
-    rss.value.map(async (r) => {
-      try {
-        const res = await apiRSS.getPendingCount(r.id);
-        return { id: r.id, count: res.pending_count };
-      } catch {
-        return { id: r.id, count: 0 };
-      }
-    })
-  );
-  const counts: Record<number, number> = {};
-  results.forEach((r) => {
-    counts[r.id] = r.count;
-  });
-  pendingCounts.value = counts;
-}
-
 function handleEdit(item: RSS) {
   editRSS.value = { ...item };
   showEdit.value = true;
 }
 
 const message = useMessage();
-const dialog = useDialog();
 
 const recreateDialog =
   ref<
@@ -198,7 +185,7 @@ async function executeDelete(deleteFile: boolean) {
       await apiRSS.delete(deleteDialog.target.id, deleteFile);
       message.success(t('rss.delete_success'));
       await getAll();
-      fetchPendingCounts();
+      await refreshPendingCounts(true);
     } catch (e) {
       message.error(t('rss.delete_failed'));
     }
@@ -209,7 +196,7 @@ async function executeDelete(deleteFile: boolean) {
 
 onActivated(async () => {
   await getAll();
-  fetchPendingCounts();
+  await refreshPendingCounts(true);
 });
 
 const RSSTableOptions = computed(() => {
@@ -378,13 +365,16 @@ const RSSTableOptions = computed(() => {
 
     <ab-add-rss v-model:show="showEdit" v-model:rss="editRSS" />
 
-    <ab-rss-recreate ref="recreateDialog" />
+    <ab-rss-recreate
+      ref="recreateDialog"
+      @subscribed="refreshPendingCountsAfterReview"
+    />
 
     <ab-ar-manage
       v-model:show="showManageDialog"
       :rss-id="manageDialogRssId"
       :rss-name="manageDialogRssName"
-      @activated="fetchPendingCounts"
+      @activated="refreshPendingCountsAfterReview"
     />
 
     <NDropdown

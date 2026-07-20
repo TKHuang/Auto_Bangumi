@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {
+  Caution,
   Format,
   Me,
   Pause,
@@ -7,9 +8,15 @@ import {
   Power,
   Refresh,
 } from '@icon-park/vue-next';
+import { NPopover } from 'naive-ui';
+import {
+  type PendingReviewSource,
+  getPendingReviewInteraction,
+} from './pending-review';
 import { ruleTemplate } from '#/bangumi';
 import type { BangumiRule } from '#/bangumi';
 import AbRssRecreate from '@/components/ab-rss-recreate.vue';
+import AbArManage from '@/components/ab-ar-manage.vue';
 
 const { t, changeLocale } = useMyI18n();
 const { running, onUpdate, offUpdate } = useAppInfo();
@@ -17,6 +24,10 @@ const { running, onUpdate, offUpdate } = useAppInfo();
 const showAccount = ref(false);
 const showAddRSS = ref(false);
 const showRecreate = ref(false);
+const showPendingSources = ref(false);
+const showPendingManage = ref(false);
+const pendingManageRssId = ref(0);
+const pendingManageRssName = ref('');
 const searchRule = ref<BangumiRule>();
 
 // Track RSS ID for auto-delete on cancel
@@ -24,10 +35,13 @@ const pendingRssId = ref<number | null>(null);
 
 // Ref for ab-rss-recreate component
 const recreateDialogRef = ref<InstanceType<typeof AbRssRecreate>>();
+const pendingReviewDialogRef = ref<InstanceType<typeof AbRssRecreate>>();
 
 const { start, pause, shutdown, restart, resetRule } = useProgramStore();
 const { refreshPoster } = useBangumiStore();
-const { getAll: getRSS } = useRSSStore();
+const rssStore = useRSSStore();
+const { pendingReviewSources, pendingReviewTotal } = storeToRefs(rssStore);
+const { getAll: getRSS, refreshPendingCounts } = rssStore;
 
 const items = [
   {
@@ -108,12 +122,52 @@ async function handleRecreateCancel(rssId: number) {
 }
 
 // Handle subscribed event from ab-rss-recreate
-function handleRecreateSubscribed() {
+async function handleRecreateSubscribed() {
   console.log('[Topbar] Subscription completed');
   pendingRssId.value = null;
   // Refresh RSS list to show the new entry
-  getRSS();
+  await getRSS();
+  await refreshPendingCounts(true);
 }
+
+async function refreshPendingReviews() {
+  await getRSS();
+  await refreshPendingCounts(true);
+}
+
+const refreshPendingCountsAfterReview = () => refreshPendingCounts(true);
+
+function openPendingReview(source: PendingReviewSource) {
+  showPendingSources.value = false;
+  if (source.rss.aggregate) {
+    pendingManageRssId.value = source.rss.id;
+    pendingManageRssName.value = source.rss.name;
+    showPendingManage.value = true;
+    return;
+  }
+
+  pendingReviewDialogRef.value?.open(source.rss.id);
+}
+
+function handlePendingReviewClick() {
+  const interaction = getPendingReviewInteraction(
+    pendingReviewSources.value.length
+  );
+  if (interaction === 'direct') {
+    openPendingReview(pendingReviewSources.value[0]);
+    return;
+  }
+  if (interaction === 'choose') {
+    showPendingSources.value = !showPendingSources.value;
+  }
+}
+
+watch(
+  () => pendingReviewSources.value.length,
+  (sourceCount) => {
+    if (sourceCount < 2) showPendingSources.value = false;
+  }
+);
 
 watch(showAddRSS, (val) => {
   if (!val) {
@@ -128,8 +182,30 @@ onBeforeMount(() => {
   onUpdate();
 });
 
+let pendingReviewTimer: number | undefined;
+
+function refreshPendingReviewsSafely() {
+  refreshPendingReviews().catch((error) => {
+    console.error('[Topbar] Failed to refresh pending reviews:', error);
+  });
+}
+
+function refreshPendingCountsSafely() {
+  refreshPendingCounts().catch((error) => {
+    console.error('[Topbar] Failed to refresh pending review counts:', error);
+  });
+}
+
+onMounted(() => {
+  pendingReviewTimer = window.setInterval(refreshPendingCountsSafely, 30_000);
+  refreshPendingReviewsSafely();
+});
+
 onUnmounted(() => {
   offUpdate();
+  if (pendingReviewTimer !== undefined) {
+    window.clearInterval(pendingReviewTimer);
+  }
 });
 </script>
 
@@ -157,6 +233,61 @@ onUnmounted(() => {
     </div>
 
     <div ml-auto fx-cer>
+      <NPopover
+        v-if="pendingReviewTotal > 0"
+        :show="showPendingSources"
+        trigger="manual"
+        placement="bottom-end"
+        :show-arrow="false"
+        raw
+        @clickoutside="showPendingSources = false"
+      >
+        <template #trigger>
+          <button
+            type="button"
+            class="pending-review-trigger"
+            :aria-label="
+              $t('rss.pending_review_count', { count: pendingReviewTotal })
+            "
+            :aria-haspopup="
+              pendingReviewSources.length > 1 ? 'menu' : undefined
+            "
+            :aria-expanded="
+              pendingReviewSources.length > 1 ? showPendingSources : undefined
+            "
+            @click="handlePendingReviewClick"
+          >
+            <Caution :size="16" />
+            <span class="pending-review-label">
+              {{ $t('topbar.pending_review', { count: pendingReviewTotal }) }}
+            </span>
+            <span class="pending-review-count">{{ pendingReviewTotal }}</span>
+          </button>
+        </template>
+
+        <div class="pending-review-menu" role="menu">
+          <div class="pending-review-menu-title">
+            {{ $t('topbar.pending_review_title') }}
+          </div>
+          <button
+            v-for="source in pendingReviewSources"
+            :key="source.rss.id"
+            type="button"
+            class="pending-review-source"
+            role="menuitem"
+            @click="openPendingReview(source)"
+          >
+            <span class="pending-review-source-name">{{
+              source.rss.name
+            }}</span>
+            <span class="pending-review-source-count">{{ source.count }}</span>
+            <span aria-hidden="true" class="pending-review-source-arrow"
+              >›</span
+            >
+          </button>
+        </div>
+      </NPopover>
+
       <ab-search-bar mr="pc:16 10" fx-cer @add-bangumi="addSearchResult" />
 
       <ab-status-bar
@@ -174,11 +305,137 @@ onUnmounted(() => {
     v-model:rule="searchRule"
     @rss-created="handleRssCreated"
   ></ab-add-rss>
-  <ab-rss-recreate
+  <AbRssRecreate
     ref="recreateDialogRef"
     v-model:show="showRecreate"
     :auto-delete-on-cancel="true"
     @cancelled="handleRecreateCancel"
     @subscribed="handleRecreateSubscribed"
   />
+  <AbRssRecreate
+    ref="pendingReviewDialogRef"
+    @subscribed="refreshPendingReviews"
+  />
+  <AbArManage
+    v-model:show="showPendingManage"
+    :rss-id="pendingManageRssId"
+    :rss-name="pendingManageRssName"
+    @activated="refreshPendingCountsAfterReview"
+  />
 </template>
+
+<style lang="scss" scoped>
+.pending-review-trigger {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 16px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 211, 107, 0.72);
+  border-radius: 7px;
+  background: rgba(40, 18, 58, 0.22);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+
+  :deep(.i-icon) {
+    color: #ffd36b;
+  }
+
+  &:hover {
+    background: rgba(40, 18, 58, 0.38);
+    border-color: #ffd36b;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+}
+
+.pending-review-count {
+  display: none;
+}
+
+.pending-review-menu {
+  width: 260px;
+  padding: 6px;
+  color: #2a1c52;
+  background: #fff;
+  border: 1px solid #e5e1e8;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(42, 28, 82, 0.14);
+}
+
+.pending-review-menu-title {
+  padding: 7px 9px 8px;
+  color: #706879;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #eeeaf0;
+}
+
+.pending-review-source {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  color: #2a1c52;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+
+  &:hover,
+  &:focus-visible {
+    background: #f3f0f6;
+    outline: none;
+  }
+}
+
+.pending-review-source-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-review-source-count {
+  color: #9a6300;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pending-review-source-arrow {
+  color: #8b8490;
+  font-size: 18px;
+  line-height: 1;
+}
+
+@media (max-width: 767px) {
+  .pending-review-trigger {
+    height: 32px;
+    gap: 4px;
+    margin-right: 10px;
+    padding: 0 8px;
+  }
+
+  .pending-review-label {
+    display: none;
+  }
+
+  .pending-review-count {
+    display: inline;
+  }
+}
+</style>

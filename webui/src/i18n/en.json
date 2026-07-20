@@ -328,19 +328,19 @@
     "series": "Series",
     "title": "Menu"
   },
-   "topbar": {
-     "add": {
-       "aggregate": "Aggregate RSS",
-       "button": "Add",
-       "name": "Name",
-       "next": "Next",
-       "parser": "Parser",
-       "placeholder_link": "Please enter the RSS link",
-       "placeholder_name": "Optional",
-       "rss_link": "RSS Link",
-       "subscribe": "Subscribe",
-       "title": "Add RSS"
-     },
+  "topbar": {
+    "add": {
+      "aggregate": "Aggregate RSS",
+      "button": "Add",
+      "name": "Name",
+      "next": "Next",
+      "parser": "Parser",
+      "placeholder_link": "Please enter the RSS link",
+      "placeholder_name": "Optional",
+      "rss_link": "RSS Link",
+      "subscribe": "Subscribe",
+      "title": "Add RSS"
+    },
     "pause": "Pause",
     "profile": {
       "password": "Password",
@@ -350,6 +350,8 @@
       "username": "Username"
     },
     "refresh_poster": "Refresh Poster",
+    "pending_review": "{count} to review",
+    "pending_review_title": "Pending review",
     "reset_rule": "Reset Rule",
     "restart": "Restart",
     "search": {
