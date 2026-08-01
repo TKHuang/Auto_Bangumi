@@ -1049,11 +1049,51 @@ class PikPakDownloader:
     def _episode_key_for_name(name: str) -> tuple[int, float | int] | None:
         if not name:
             return None
+
+        explicit_season_episode = re.search(
+            r"\bS(\d+)E(\d+(?:\.\d+)?)\b", name, re.IGNORECASE
+        )
+        if explicit_season_episode:
+            episode_value = float(explicit_season_episode.group(2))
+            episode: float | int = (
+                int(episode_value) if episode_value.is_integer() else episode_value
+            )
+            return int(explicit_season_episode.group(1)), episode
+
+        explicit_episode = re.search(
+            r"\bEP(?:ISODE)?[\s._-]*(\d+(?:\.\d+)?)\b",
+            name,
+            re.IGNORECASE,
+        )
+        if explicit_episode:
+            episode_value = float(explicit_episode.group(1))
+            episode = (
+                int(episode_value) if episode_value.is_integer() else episode_value
+            )
+            return 1, episode
+
         parsed = TitleParser.torrent_parser(name, torrent_name=name)
-        if not parsed or parsed.is_movie or parsed.episode is None:
+        if parsed and not parsed.is_movie and parsed.episode is not None:
+            season = parsed.season or 1
+            return int(season), parsed.episode
+
+        # Fansub filenames can use a bare trailing episode number followed by
+        # an edition label, e.g. ``Title 05【TV Ver.】.mp4``. Keep this fallback
+        # deliberately narrow so resolution/year markers are not mistaken for
+        # episodes while recovering files moved to a season root.
+        basename = name.rsplit("/", 1)[-1]
+        stem, _ = os.path.splitext(basename)
+        bare_episode = re.search(
+            r"\s(\d+(?:\.\d+)?)\s*(?:【[^】]+】|\[[^\]]+\])?\s*$",
+            stem,
+        )
+        if not bare_episode:
             return None
-        season = parsed.season or 1
-        return int(season), parsed.episode
+        episode_value = float(bare_episode.group(1))
+        episode: float | int = (
+            int(episode_value) if episode_value.is_integer() else episode_value
+        )
+        return 1, episode
 
     @classmethod
     def _filter_root_files_for_task(
@@ -1304,6 +1344,32 @@ class PikPakDownloader:
             else:
                 logger.warning(f"File not found for rename: {full_old_path}")
                 return RenameOutcome.ERROR
+
+        # A move followed by a failed rename leaves the source file stranded in
+        # the destination folder under its old name. Probe the final path before
+        # moving so a collision is a true no-op.
+        target_file_id = await self._find_file_id_by_path(
+            full_new_path,
+            warn_on_miss=False,
+        )
+        if not target_file_id:
+            target_file_id, target_kind = await self._find_file_or_folder_id_by_name(
+                os.path.dirname(full_new_path),
+                os.path.basename(full_new_path),
+            )
+            if target_kind != "drive#file":
+                target_file_id = None
+        if target_file_id:
+            if target_file_id == file_id:
+                logger.debug(f"File already has target name: {full_new_path}")
+                return RenameOutcome.OK
+            logger.warning(
+                "File name conflict - '%s' already exists in folder. "
+                "Source remains unchanged: %s",
+                os.path.basename(full_new_path),
+                os.path.basename(full_old_path),
+            )
+            return RenameOutcome.CONFLICT
 
         old_parent = os.path.dirname(full_old_path)
         new_parent = os.path.dirname(full_new_path)
@@ -2018,6 +2084,11 @@ class PikPakDownloader:
             # may have been moved to save_path root (parent folder).
             # Scan root for direct files and merge any not already found.
             root_files = await self._list_direct_files_in_folder(save_path)
+            task_episode = self._episode_key_for_name(
+                self._task_display_name(task)
+            )
+            if task_episode is not None:
+                root_files = self._filter_root_files_for_task(task, root_files)
             seen_names = {f.name for f in files}
             for rf in root_files:
                 if rf.name not in seen_names:

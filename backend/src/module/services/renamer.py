@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import posixpath
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -213,6 +215,7 @@ class RenamerService:
                 success, file_count, conflict_target = await self._rename_single_file(
                     torrent_info,
                     media_files[0],
+                    db_torrent.name,
                     bangumi,
                     downloader,
                     all_torrent_info,
@@ -412,6 +415,7 @@ class RenamerService:
                 success, file_count, conflict_target = await self._rename_single_file(
                     torrent_info,
                     media_files[0],
+                    db_torrent.name,
                     bangumi,
                     downloader,
                     all_torrent_info,
@@ -516,6 +520,7 @@ class RenamerService:
         self,
         torrent_info: Any,
         media_path: str,
+        source_torrent_name: str,
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
         all_torrent_info: list,
@@ -532,6 +537,14 @@ class RenamerService:
             torrent_path=media_path,
             season=_season,
         )
+        if ep and not ep.is_movie and ep.episode is None and source_torrent_name:
+            fallback_ep = self.parser.torrent_parser(
+                torrent_name=source_torrent_name,
+                torrent_path=media_path,
+                season=_season,
+            )
+            if fallback_ep and fallback_ep.episode is not None:
+                ep = fallback_ep
         if not ep:
             logger.warning(
                 f"[Renamer] Failed to parse: torrent_name={torrent_info.name}, "
@@ -670,7 +683,7 @@ class RenamerService:
         _season = bangumi.series.season if bangumi.series is not None else 1
         _title = bangumi.series.canonical_title if bangumi.series is not None else ""
         _offset = bangumi.offset or 0
-        renamed_count = 0
+        rename_plan: list[tuple[str, str]] = []
         for media_path in media_files:
             if not self._is_media_file(media_path):
                 continue
@@ -691,6 +704,69 @@ class RenamerService:
             if media_path == new_path:
                 continue
 
+            rename_plan.append((media_path, new_path))
+
+        targets: dict[str, list[int]] = {}
+        for index, (_, target_path) in enumerate(rename_plan):
+            targets.setdefault(target_path, []).append(index)
+
+        for target_path, indexes in targets.items():
+            if len(indexes) < 2:
+                continue
+
+            disambiguated: list[tuple[int, str]] = []
+            for index in indexes:
+                media_path, _ = rename_plan[index]
+                edition_label = self._source_edition_label(media_path)
+                if edition_label is None:
+                    logger.warning(
+                        "[Renamer] Collection target '%s' is ambiguous and '%s' "
+                        "has no distinct source label",
+                        target_path,
+                        media_path,
+                    )
+                    return False, 0, target_path
+
+                torrent_ep = self.parser.torrent_parser(
+                    torrent_name=torrent_info.name,
+                    torrent_path=media_path,
+                    season=_season,
+                )
+                if not torrent_ep:
+                    return False, 0, target_path
+                torrent_ep = self._apply_offset(torrent_ep, _offset)
+                if torrent_ep is None:
+                    return False, 0, target_path
+                episode_target = self.generate_rename_path(
+                    torrent_ep, _title, self.rename_method
+                )
+                stem, suffix = posixpath.splitext(episode_target)
+                disambiguated.append(
+                    (index, f"{stem} - {edition_label}{suffix}")
+                )
+
+            distinct_targets = {target for _, target in disambiguated}
+            if len(distinct_targets) != len(disambiguated):
+                logger.warning(
+                    "[Renamer] Collection target '%s' has duplicate source labels",
+                    target_path,
+                )
+                return False, 0, target_path
+            for index, disambiguated_target in disambiguated:
+                media_path, _ = rename_plan[index]
+                rename_plan[index] = (media_path, disambiguated_target)
+
+        final_targets = [target for _, target in rename_plan]
+        if len(set(final_targets)) != len(final_targets):
+            conflict_target = next(
+                target
+                for target in final_targets
+                if final_targets.count(target) > 1
+            )
+            return False, 0, conflict_target
+
+        renamed_count = 0
+        for media_path, new_path in rename_plan:
             outcome = await downloader.torrents_rename_file(
                 torrent_info.hash, media_path, new_path
             )
@@ -709,6 +785,20 @@ class RenamerService:
                 return False, 0, None
 
         return renamed_count > 0, renamed_count, None
+
+    @staticmethod
+    def _source_edition_label(media_path: str) -> str | None:
+        """Return a source-provided terminal ``【edition】`` label.
+
+        This is only consulted after normal collection naming has produced a
+        collision, so ordinary torrents retain their existing filenames.
+        """
+        stem, _ = posixpath.splitext(posixpath.basename(media_path))
+        match = re.search(r"【([^【】]+)】$", stem)
+        if not match:
+            return None
+        label = sanitize_path_component(match.group(1))
+        return None if label == "_" else label
 
     async def _rename_subtitles(
         self,

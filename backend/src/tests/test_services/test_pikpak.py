@@ -1043,6 +1043,56 @@ class TestPikPakDownloaderHashExtraction:
 
 class TestPikPakRenameFile:
     @pytest.mark.asyncio
+    async def test_rename_conflict_leaves_source_name_and_location_unchanged(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """A destination collision is detected before any cloud mutation."""
+        _, mock_instance = mock_pikpak_api
+        old_path = "EP05 bundle/source.mp4"
+        new_path = "令和的斑小姐 S01E05 - TV Ver.mp4"
+        cloud_state = {"parent": "EP05 bundle", "name": "source.mp4"}
+
+        async def path_to_id_side_effect(path, create=False):
+            parts = [
+                {"id": "downloads_id", "name": "downloads"},
+                {"id": "bangumi_id", "name": "Bangumi"},
+            ]
+            if path == "/downloads/Bangumi":
+                return parts
+            if path == f"/downloads/Bangumi/{old_path}":
+                return parts + [
+                    {"id": "source_parent_id", "name": "EP05 bundle"},
+                    {"id": "source_file_id", "name": "source.mp4"},
+                ]
+            if path == f"/downloads/Bangumi/{new_path}":
+                return parts + [{"id": "target_file_id", "name": new_path}]
+            if path == "/downloads/Bangumi/EP05 bundle":
+                return parts + [
+                    {"id": "source_parent_id", "name": "EP05 bundle"},
+                ]
+            return None
+
+        async def move_side_effect(ids, to_parent_id):
+            cloud_state["parent"] = "Bangumi"
+            return {"ids": ids, "to_parent_id": to_parent_id}
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+        mock_instance.file_list = AsyncMock(return_value={"files": []})
+        mock_instance.file_batch_move = AsyncMock(side_effect=move_side_effect)
+        mock_instance.file_rename = AsyncMock(
+            side_effect=Exception("File name cannot be repeated")
+        )
+
+        result = await pikpak_downloader.torrents_rename_file(
+            "abc123def456abc123def456abc123def456abc1",
+            old_path,
+            new_path,
+        )
+
+        assert result is RenameOutcome.CONFLICT
+        assert cloud_state == {"parent": "EP05 bundle", "name": "source.mp4"}
+
+    @pytest.mark.asyncio
     async def test_rename_file_falls_back_to_parent_exact_name_lookup(
         self, pikpak_downloader, mock_pikpak_api
     ):
@@ -1458,6 +1508,104 @@ class TestCollectionRetriggerRootFiles:
         assert "Re Zero S02E01.mkv" in file_names
         assert "Re Zero S02E02.mkv" in file_names
         assert len(files) == 3
+
+    @pytest.mark.asyncio
+    async def test_single_episode_collection_excludes_other_episode_root_files(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        """A partially moved EP05 task must not absorb EP01-EP04 files."""
+        _, mock_instance = mock_pikpak_api
+        torrent_hash = "58e0ed2ee7005e95391e09c270942d7fbd5ce096"
+        folder_name = (
+            "[TV版&无修版] 令和的斑小姐 - EP05 "
+            "[简／繁] (1080p H.264 AAC SRTx2)"
+        )
+        tv_name = "【7月】令和的斑小姐 05【TV Ver.】.mp4"
+        alternate_name = (
+            "【7月】令和的斑小姐 05"
+            "【在令和时代这样没问题吗！？Ver.】.mp4"
+        )
+        mock_instance.offline_list = AsyncMock(
+            return_value={
+                "tasks": [
+                    {
+                        "id": "task_ep05",
+                        "name": folder_name,
+                        "phase": "PHASE_TYPE_COMPLETE",
+                        "progress": 100,
+                        "file_url": f"magnet:?xt=urn:btih:{torrent_hash}",
+                        "file_name": folder_name,
+                        "file_size": 0,
+                    }
+                ]
+            }
+        )
+
+        async def path_to_id_side_effect(path, create=False):
+            if folder_name in path:
+                return [
+                    {"id": "bangumi_id", "name": "Bangumi"},
+                    {"id": "series_id", "name": "令和的斑小姐"},
+                    {"id": "season_id", "name": "Season 1"},
+                    {"id": "collection_id", "name": folder_name},
+                ]
+            return [
+                {"id": "bangumi_id", "name": "Bangumi"},
+                {"id": "series_id", "name": "令和的斑小姐"},
+                {"id": "season_id", "name": "Season 1"},
+            ]
+
+        mock_instance.path_to_id = AsyncMock(side_effect=path_to_id_side_effect)
+
+        async def file_list_side_effect(parent_id=None):
+            if parent_id == "collection_id":
+                return {
+                    "files": [
+                        {"id": "tv05", "name": tv_name, "kind": "drive#file"},
+                    ]
+                }
+            if parent_id == "season_id":
+                return {
+                    "files": [
+                        {"id": "alt05", "name": alternate_name, "kind": "drive#file"},
+                        {
+                            "id": "ep03",
+                            "name": "【7月】令和的斑小姐 03.mp4",
+                            "kind": "drive#file",
+                        },
+                        {
+                            "id": "ep02",
+                            "name": (
+                                "【7月】令和的斑小姐 02"
+                                "【在令和时代这样没问题吗！？Ver.】.mp4"
+                            ),
+                            "kind": "drive#file",
+                        },
+                        {
+                            "id": "generic",
+                            "name": "令和的斑小姐.mp4",
+                            "kind": "drive#file",
+                        },
+                        {
+                            "id": "folder",
+                            "name": folder_name,
+                            "kind": "drive#folder",
+                        },
+                    ]
+                }
+            return {"files": []}
+
+        mock_instance.file_list = AsyncMock(side_effect=file_list_side_effect)
+
+        result = await pikpak_downloader.torrents_info(
+            status_filter="completed",
+            cloud_paths={torrent_hash: "Bangumi/令和的斑小姐/Season 1"},
+        )
+
+        assert [file.name for file in result[0].files] == [
+            f"{folder_name}/{tv_name}",
+            alternate_name,
+        ]
 
     @pytest.mark.asyncio
     async def test_root_files_excluded_by_collection_prefix_match(
