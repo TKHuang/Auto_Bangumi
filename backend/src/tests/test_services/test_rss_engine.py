@@ -133,6 +133,191 @@ class TestParseRSSFeed:
             assert len(torrents) == 0
 
 
+class TestCollectPendingCandidatesFromSource:
+    """Test pending-review torrent collection from a source RSS."""
+
+    @pytest.mark.asyncio
+    async def test_mikan_identity_feed_keeps_source_title_aliases(
+        self, async_session
+    ):
+        """One Mikan bangumi/subgroup feed keeps every release title alias."""
+        from module.repositories import (
+            BangumiRepository,
+            RSSRepository,
+            TorrentRepository,
+        )
+
+        source_url = (
+            "https://mikanani.me/RSS/Bangumi?bangumiId=4003&subgroupid=202"
+        )
+        expected_hashes = {
+            "9feaaa14189495fd55cb38f6c4fffc21a7b3239c",
+            "dc0492333d459197efaff3a5d68939313cc300bd",
+            "fe5b3207710966052e1e2a73c33e8af103f92414",
+            "4fcca833aafa0e7d006ed9f76d3f5f2c676c3d41",
+            "58e0ed2ee7005e95391e09c270942d7fbd5ce096",
+        }
+        source_torrents = [
+            Torrent(
+                name=(
+                    "[TV版&无修版] 令和的斑小姐 - EP05 "
+                    "[简／繁] (1080p H.264 AAC SRTx2)"
+                ),
+                url=(
+                    "https://mikanani.me/Download/20260730/"
+                    "58e0ed2ee7005e95391e09c270942d7fbd5ce096.torrent"
+                ),
+                hash="58e0ed2ee7005e95391e09c270942d7fbd5ce096",
+            ),
+            Torrent(
+                name=(
+                    "[TV版&无修版] 令和的斑小姐 - EP04 "
+                    "[简／繁] (1080p H.264 AAC SRTx2)"
+                ),
+                url=(
+                    "https://mikanani.me/Download/20260723/"
+                    "4fcca833aafa0e7d006ed9f76d3f5f2c676c3d41.torrent"
+                ),
+                hash="4fcca833aafa0e7d006ed9f76d3f5f2c676c3d41",
+            ),
+            Torrent(
+                name=(
+                    "令和的斑小姐 - EP03 "
+                    "[简／繁] (1080p H.264 AAC SRTx2)"
+                ),
+                url=(
+                    "https://mikanani.me/Download/20260716/"
+                    "fe5b3207710966052e1e2a73c33e8af103f92414.torrent"
+                ),
+                hash="fe5b3207710966052e1e2a73c33e8af103f92414",
+            ),
+            Torrent(
+                name=(
+                    "[TV版&无修版] 令和的斑小姐 - EP02 "
+                    "[简／繁] (1080p H.264 AAC SRTx2)"
+                ),
+                url=(
+                    "https://mikanani.me/Download/20260709/"
+                    "dc0492333d459197efaff3a5d68939313cc300bd.torrent"
+                ),
+                hash="dc0492333d459197efaff3a5d68939313cc300bd",
+            ),
+            Torrent(
+                name=(
+                    "[TV版&无修版] 令和妖神斑小姐 - EP01 "
+                    "[简／繁] (1080p H.264 AAC SRTx2)"
+                ),
+                url=(
+                    "https://mikanani.me/Download/20260703/"
+                    "9feaaa14189495fd55cb38f6c4fffc21a7b3239c.torrent"
+                ),
+                hash="9feaaa14189495fd55cb38f6c4fffc21a7b3239c",
+            ),
+        ]
+
+        rss_repo = RSSRepository(async_session)
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+        rss = await rss_repo.create({
+            "name": "My Bangumi",
+            "url": "https://example.com/aggregate.rss",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        series = await _add_series(async_session, "令和的斑小姐")
+        bangumi = await bangumi_repo.create({
+            "series_id": series.id,
+            "rss_id": rss.id,
+            "rss_link": source_url,
+            "group_name": "TV版&无修版",
+            "filter": "简",
+            "pending_review": True,
+            "added": False,
+        })
+        await async_session.commit()
+
+        with patch("module.services.rss_engine.RequestContent") as mock_request:
+            mock_request.return_value.__enter__.return_value.get_torrents.return_value = (
+                source_torrents
+            )
+
+            inserted = await RSSEngine.collect_pending_candidates_from_source(
+                async_session, bangumi.id
+            )
+
+        torrents = await torrent_repo.get_by_rss(rss.id)
+        assert inserted == 5
+        assert {torrent.hash for torrent in torrents} == expected_hashes
+        assert {torrent.mikan_bangumi_id for torrent in torrents} == {4003}
+        assert {torrent.mikan_subgroup_id for torrent in torrents} == {202}
+
+    @pytest.mark.parametrize(
+        "source_url",
+        [
+            "https://example.com/source.rss",
+            "https://mikanani.me/RSS/Bangumi?bangumiId=4003",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_unscoped_feed_keeps_legacy_title_filter(
+        self, async_session, source_url
+    ):
+        """Feeds without complete Mikan identity keep title-based scoping."""
+        from module.repositories import (
+            BangumiRepository,
+            RSSRepository,
+            TorrentRepository,
+        )
+
+        rss_repo = RSSRepository(async_session)
+        bangumi_repo = BangumiRepository(async_session)
+        torrent_repo = TorrentRepository(async_session)
+        rss = await rss_repo.create({
+            "name": "My Bangumi",
+            "url": "https://example.com/aggregate.rss",
+            "aggregate": True,
+            "parser": "mikan",
+            "enabled": True,
+        })
+        series = await _add_series(async_session, "Canonical Show")
+        bangumi = await bangumi_repo.create({
+            "series_id": series.id,
+            "rss_id": rss.id,
+            "rss_link": source_url,
+            "group_name": "Group",
+            "filter": "简",
+            "pending_review": True,
+            "added": False,
+        })
+        await async_session.commit()
+
+        source_torrents = [
+            Torrent(
+                name="[Group] Canonical Show - 01 [简]",
+                url="https://example.com/matching.torrent",
+                hash="matching_hash",
+            ),
+            Torrent(
+                name="[Group] Unrelated Show - 01 [简]",
+                url="https://example.com/unrelated.torrent",
+                hash="unrelated_hash",
+            ),
+        ]
+        with patch("module.services.rss_engine.RequestContent") as mock_request:
+            mock_request.return_value.__enter__.return_value.get_torrents.return_value = (
+                source_torrents
+            )
+
+            inserted = await RSSEngine.collect_pending_candidates_from_source(
+                async_session, bangumi.id
+            )
+
+        torrents = await torrent_repo.get_by_rss(rss.id)
+        assert inserted == 1
+        assert [torrent.hash for torrent in torrents] == ["matching_hash"]
+
+
 class TestMatchTorrentToBangumi:
     """Test match_torrent_to_bangumi function."""
 

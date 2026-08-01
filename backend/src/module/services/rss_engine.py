@@ -149,15 +149,23 @@ class RSSEngine:
             )
             return 0
 
-        _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-        title_matched = [
-            torrent for torrent in all_torrents
-            if _canonical and _canonical in torrent.name
-        ]
-        candidates = title_matched or all_torrents
         mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(
             bangumi.rss_link
         )
+        if mikan_bangumi_id is not None and mikan_subgroup_id is not None:
+            candidates = all_torrents
+        else:
+            _canonical = (
+                bangumi.series.canonical_title
+                if bangumi.series is not None
+                else ""
+            )
+            title_matched = [
+                torrent
+                for torrent in all_torrents
+                if _canonical and _canonical in torrent.name
+            ]
+            candidates = title_matched or all_torrents
 
         inserted = 0
         for torrent in candidates:
