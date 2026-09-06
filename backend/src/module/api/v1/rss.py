@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
@@ -808,7 +807,6 @@ async def get_pending_torrent_preview(
         )
 
     filter_value = bangumi.filter if _filter is None else _filter
-    pattern = filter_value.replace(",", "|") if filter_value else ""
 
     if (
         settings.bangumi_manage.eps_complete
@@ -826,8 +824,8 @@ async def get_pending_torrent_preview(
             "name": torrent.name,
             "url": torrent.url,
             "homepage": torrent.homepage,
-            "filter": bool(
-                pattern and re.search(pattern, torrent.name, re.IGNORECASE)
+            "filter": AsyncRSSEngine.torrent_excluded_by_filter(
+                torrent.name, filter_value
             ),
             "hash": torrent.hash,
         }

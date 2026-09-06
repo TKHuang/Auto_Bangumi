@@ -70,6 +70,16 @@ PHASE_STATE_MAP = {
 }
 
 
+_TASK_STATE_PRIORITY = {
+    "completed": 0,
+    "downloading": 1,
+    "stalledDL": 2,
+    "unknown": 3,
+    "missing": 4,
+    "error": 5,
+}
+
+
 def pikpak_retry_async(max_retries: int = 3, initial_delay: float = 5.0):
     """Async retry decorator for PikPak API calls with exponential backoff.
 
@@ -591,6 +601,28 @@ class PikPakDownloader:
         self._invalidate_task_cache()
         return True
 
+    async def _get_cloud_paths(self, torrent_hashes: list[str]) -> dict[str, str]:
+        """Load tracked paths once, retaining the existing per-hash fallback."""
+        if not self.session or not torrent_hashes:
+            return {}
+
+        repo = TorrentRepository(self.session)
+        paths: dict[str, str] = {}
+        if hasattr(repo, "get_by_hashes"):
+            torrent_rows = await repo.get_by_hashes(torrent_hashes)
+            if isinstance(torrent_rows, dict):
+                paths = {
+                    torrent_hash: row.pikpak_cloud_path
+                    for torrent_hash, row in torrent_rows.items()
+                    if row.pikpak_cloud_path
+                }
+        if not paths:
+            for torrent_hash in torrent_hashes:
+                torrent_record = await repo.get_by_hash(torrent_hash)
+                if torrent_record and torrent_record.pikpak_cloud_path:
+                    paths[torrent_hash] = torrent_record.pikpak_cloud_path
+        return paths
+
     @pikpak_retry_async(max_retries=3, initial_delay=5.0)
     async def torrents_info(
         self,
@@ -638,22 +670,7 @@ class PikPakDownloader:
                 if torrent_hash:
                     task_hashes.append(torrent_hash.lower())
 
-            if task_hashes:
-                repo = TorrentRepository(self.session)
-                if hasattr(repo, "get_by_hashes"):
-                    torrent_rows = await repo.get_by_hashes(task_hashes)
-                    if isinstance(torrent_rows, dict):
-                        save_paths_by_hash = {
-                            torrent_hash: row.pikpak_cloud_path
-                            for torrent_hash, row in torrent_rows.items()
-                            if row.pikpak_cloud_path
-                        }
-
-                if not save_paths_by_hash:
-                    for torrent_hash in task_hashes:
-                        torrent_record = await repo.get_by_hash(torrent_hash)
-                        if torrent_record and torrent_record.pikpak_cloud_path:
-                            save_paths_by_hash[torrent_hash] = torrent_record.pikpak_cloud_path
+            save_paths_by_hash = await self._get_cloud_paths(task_hashes)
 
         skipped_untracked: list[str] = []
 
@@ -715,11 +732,10 @@ class PikPakDownloader:
         # Deduplicate by hash: when multiple PikPak tasks share the same hash
         # (e.g. a completed task + an error retry), prefer the best state.
         # Priority: completed > downloading/stalledDL > unknown > error/missing
-        _state_priority = {"completed": 0, "downloading": 1, "stalledDL": 2, "unknown": 3, "missing": 4, "error": 5}
         deduped: dict[str, TorrentInfo] = {}
         for ti in torrents:
             key = ti.hash.lower()
-            if key not in deduped or _state_priority.get(ti.state, 99) < _state_priority.get(deduped[key].state, 99):
+            if key not in deduped or _TASK_STATE_PRIORITY.get(ti.state, 99) < _TASK_STATE_PRIORITY.get(deduped[key].state, 99):
                 deduped[key] = ti
         torrents = list(deduped.values())
 
@@ -1938,22 +1954,7 @@ class PikPakDownloader:
                 if torrent_hash:
                     task_by_hash[torrent_hash.lower()] = task
 
-            cloud_paths_by_hash: dict[str, str] = {}
-            if self.session and task_by_hash:
-                repo = TorrentRepository(self.session)
-                if hasattr(repo, "get_by_hashes"):
-                    torrent_rows = await repo.get_by_hashes(list(task_by_hash.keys()))
-                    if isinstance(torrent_rows, dict):
-                        cloud_paths_by_hash = {
-                            torrent_hash: row.pikpak_cloud_path
-                            for torrent_hash, row in torrent_rows.items()
-                            if row.pikpak_cloud_path
-                        }
-                if not cloud_paths_by_hash:
-                    for torrent_hash in task_by_hash.keys():
-                        torrent_record = await repo.get_by_hash(torrent_hash)
-                        if torrent_record and torrent_record.pikpak_cloud_path:
-                            cloud_paths_by_hash[torrent_hash] = torrent_record.pikpak_cloud_path
+            cloud_paths_by_hash = await self._get_cloud_paths(list(task_by_hash))
 
             for task in tasks:
                 file_url = task.get("file_url", "") or task.get("params", {}).get(
@@ -1971,8 +1972,7 @@ class PikPakDownloader:
                     key = torrent_hash.lower()
                     # Same hash may appear in multiple tasks (error + completed).
                     # Keep the best state (completed > error).
-                    _pri = {"completed": 0, "downloading": 1, "stalledDL": 2, "unknown": 3, "missing": 4, "error": 5}
-                    if key not in result or _pri.get(state, 99) < _pri.get(result[key], 99):
+                    if key not in result or _TASK_STATE_PRIORITY.get(state, 99) < _TASK_STATE_PRIORITY.get(result[key], 99):
                         result[key] = state
 
             logger.debug(f"Found {len(result)} hash-status entries in PikPak")

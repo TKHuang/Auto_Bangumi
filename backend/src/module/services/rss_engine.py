@@ -74,10 +74,7 @@ def _match_torrent_in_list(
         _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
         if _canonical and _canonical in torrent.name:
             torrent.bangumi_id = bangumi.id
-            if not bangumi.filter:
-                return bangumi
-            _filter = bangumi.filter.replace(",", "|")
-            if re.search(_filter, torrent.name, re.IGNORECASE):
+            if RSSEngine.torrent_excluded_by_filter(torrent.name, bangumi.filter):
                 return None
             return bangumi
     return None
@@ -224,11 +221,7 @@ class RSSEngine:
             if _canonical and _canonical in torrent.name:
                 torrent.bangumi_id = bangumi.id
 
-                if bangumi.filter == "":
-                    return bangumi
-
-                _filter = bangumi.filter.replace(",", "|")
-                if re.search(_filter, torrent.name, re.IGNORECASE):
+                if RSSEngine.torrent_excluded_by_filter(torrent.name, bangumi.filter):
                     logger.debug(
                         f"[Engine] Torrent {torrent.name} excluded by filter: {bangumi.filter}"
                     )
@@ -239,7 +232,8 @@ class RSSEngine:
         return None
 
     @staticmethod
-    def _torrent_excluded_by_filter(torrent_name: str, bangumi_filter: str) -> bool:
+    def torrent_excluded_by_filter(torrent_name: str, bangumi_filter: str) -> bool:
+        """Shared exclusion rule for matching, pending preview and download."""
         if not bangumi_filter:
             return False
         pattern = bangumi_filter.replace(",", "|")
@@ -376,7 +370,7 @@ class RSSEngine:
         if canonical_url:
             short = await bangumi_repo.get_by_mikan_bangumi_url(canonical_url)
             if short is not None:
-                if RSSEngine._torrent_excluded_by_filter(
+                if RSSEngine.torrent_excluded_by_filter(
                     torrent.name, short.filter
                 ):
                     if short.pending_review:
@@ -456,7 +450,7 @@ class RSSEngine:
                 )
             )
             if existing:
-                if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
+                if RSSEngine.torrent_excluded_by_filter(torrent.name, existing.filter):
                     if existing.pending_review:
                         await RSSEngine._record_pending_candidate(
                             session,
@@ -496,7 +490,7 @@ class RSSEngine:
         )
         if existing:
             auto_created_keys.add(composite_key)
-            if RSSEngine._torrent_excluded_by_filter(torrent.name, existing.filter):
+            if RSSEngine.torrent_excluded_by_filter(torrent.name, existing.filter):
                 if existing.pending_review:
                     await RSSEngine._record_pending_candidate(
                         session,
@@ -513,7 +507,7 @@ class RSSEngine:
             return existing
 
         bangumi_filter = bangumi_data.filter or ""
-        excluded_by_filter = RSSEngine._torrent_excluded_by_filter(
+        excluded_by_filter = RSSEngine.torrent_excluded_by_filter(
             torrent.name, bangumi_filter
         )
 
@@ -578,7 +572,7 @@ class RSSEngine:
                     resolved.series.id, rss_item.id
                 )
             )
-            if found and RSSEngine._torrent_excluded_by_filter(torrent.name, found.filter):
+            if found and RSSEngine.torrent_excluded_by_filter(torrent.name, found.filter):
                 return None
             return found
 
@@ -1036,17 +1030,12 @@ class RSSEngine:
             h.lower() for h in (included_hashes or []) if h
         }
 
-        filtered_torrents = []
-        if bangumi.filter:
-            _filter = bangumi.filter.replace(",", "|")
-            for torrent in title_matched:
-                torrent_hash = torrent.hash.lower() if torrent.hash else None
-                if torrent_hash and torrent_hash in included_hash_set:
-                    filtered_torrents.append(torrent)
-                elif not re.search(_filter, torrent.name, re.IGNORECASE):
-                    filtered_torrents.append(torrent)
-        else:
-            filtered_torrents = title_matched
+        filtered_torrents = [
+            torrent
+            for torrent in title_matched
+            if (torrent.hash and torrent.hash.lower() in included_hash_set)
+            or not RSSEngine.torrent_excluded_by_filter(torrent.name, bangumi.filter)
+        ]
 
         if not filtered_torrents:
             return {

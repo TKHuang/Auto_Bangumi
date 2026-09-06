@@ -768,6 +768,80 @@ class TestPikPakDownloaderTorrents:
         assert result[target_hash] == "error"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("view, attempts, expected", [
+        ("torrents_info", 2, []),
+        ("get_hash_status_map", 1, {}),
+    ])
+    async def test_task_views_keep_their_fetch_retry_scope(
+        self, pikpak_downloader, view, attempts, expected
+    ):
+        """Only the torrent list retries transient fetch failures."""
+        with patch.object(pikpak_downloader, "_get_all_tasks_cached", AsyncMock(
+            side_effect=[RuntimeError("connection reset"), []]
+        )) as fetch, patch("module.services.downloader.pikpak.asyncio.sleep", AsyncMock()):
+            assert await getattr(pikpak_downloader, view)() == expected
+        assert fetch.await_count == attempts
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("batch_lookup", [True, False])
+    async def test_task_views_preserve_untracked_states_and_filter_before_dedup(
+        self, pikpak_downloader, mock_database, batch_lookup
+    ):
+        """Shared path lookup must retain each public view's selection rules."""
+        from module.services.downloader.interface import TorrentFile
+
+        _, repo = mock_database
+        tracked, untracked = "a" * 40, "b" * 40
+        row = MagicMock(pikpak_cloud_path="/downloads/Bangumi")
+        repo.get_by_hashes.return_value = {tracked: row} if batch_lookup else {}
+        repo.get_by_hash.side_effect = lambda h: row if h == tracked else None
+        tasks = [
+            {"id": "error", "file_url": f"magnet:?xt=urn:btih:{tracked}", "phase": "PHASE_TYPE_ERROR"},
+            {"id": "first", "name": "First", "params": {"url": f"magnet:?xt=urn:btih:{tracked.upper()}"}, "phase": "PHASE_TYPE_COMPLETE"},
+            {"id": "second", "name": "Second", "file_url": f"magnet:?xt=urn:btih:{tracked}", "phase": "PHASE_TYPE_COMPLETE"},
+            {"id": "untracked", "file_url": f"magnet:?xt=urn:btih:{untracked}", "phase": "PHASE_TYPE_PENDING"},
+            {"id": "no-magnet", "phase": "PHASE_TYPE_RUNNING"},
+        ]
+        with patch.object(pikpak_downloader, "_get_all_tasks_cached", AsyncMock(return_value=tasks)), \
+             patch.object(pikpak_downloader, "_resolve_task_files", AsyncMock(return_value=[
+                 TorrentFile(name="Episode.mkv", size=1, path="Episode.mkv")
+             ])):
+            infos = await pikpak_downloader.torrents_info()
+            states = await pikpak_downloader.get_hash_status_map()
+            errors = await pikpak_downloader.torrents_info(status_filter="error")
+
+        assert [(info.hash, info.name, info.state) for info in infos] == [
+            (tracked, "First", "completed"),
+        ]
+        assert states == {tracked: "completed", untracked: "stalledDL"}
+        assert [(info.hash, info.state) for info in errors] == [(tracked, "error")]
+        if batch_lookup:
+            repo.get_by_hash.assert_not_awaited()
+        else:
+            assert repo.get_by_hash.await_count > 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cloud_paths", [{}, {"A" * 40: "/caller", "legacy-task": "/legacy"}])
+    async def test_supplied_cloud_paths_bypass_database_even_when_empty(
+        self, pikpak_downloader, mock_database, cloud_paths
+    ):
+        """Caller paths are authoritative, including an explicitly empty map."""
+        _, repo = mock_database
+        tasks = [
+            {"id": "tracked", "file_url": f"magnet:?xt=urn:btih:{'a' * 40}", "phase": "PHASE_TYPE_PENDING"},
+            {"id": "legacy-task", "phase": "PHASE_TYPE_PENDING"},
+        ]
+        with patch.object(pikpak_downloader, "_get_all_tasks_cached", AsyncMock(return_value=tasks)), \
+             patch.object(pikpak_downloader, "_resolve_task_files", AsyncMock(return_value=[])):
+            infos = await pikpak_downloader.torrents_info(cloud_paths=cloud_paths)
+
+        assert {info.hash: info.save_path for info in infos} == {
+            key.lower(): path for key, path in cloud_paths.items()
+        }
+        repo.get_by_hashes.assert_not_awaited()
+        repo.get_by_hash.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_torrents_info_summarizes_untracked_tasks_without_warning_spam(
         self, pikpak_downloader, mock_pikpak_api, mock_database, caplog
     ):
