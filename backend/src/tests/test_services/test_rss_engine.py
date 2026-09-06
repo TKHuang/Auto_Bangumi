@@ -1369,6 +1369,71 @@ class TestDownloadBangumi:
         mock_downloader.add_torrents.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_review_selection_keeps_new_items_and_exclusions(
+        self, async_session, mock_downloader
+    ):
+        """Preview choices override filters, not exclusions or future RSS items."""
+        from module.api.v1.bangumi import activate_pending_bangumi
+        from module.api.v1.rss import get_pending_torrent_preview
+        from module.conf import settings
+        from module.repositories import BangumiRepository, TorrentRepository
+
+        rss = RSSItem(name="Aggregate", url="https://example.com/aggregate", aggregate=True)
+        async_session.add(rss)
+        series = await _add_series(async_session)
+        bangumi = await BangumiRepository(async_session).create({
+            "series_id": series.id,
+            "rss_id": rss.id,
+            "rss_link": "https://example.com/source",
+            "filter": "720P,合集",
+            "pending_review": True,
+        })
+        feed = [
+            {"name": "Test Anime - 01 [720p]", "url": "https://example.com/keep", "hash": "keep"},
+            {"name": "Test Anime - 02 [1080p]", "url": "https://example.com/drop", "hash": "drop"},
+        ]
+        with patch.object(settings.bangumi_manage, "eps_complete", True), \
+             patch.object(settings.bangumi_manage, "eps_complete_from_source", True), \
+             patch("module.services.rss_engine.RequestContent") as request, \
+             patch("module.api.v1.bangumi.create_downloader", return_value=mock_downloader):
+            request.return_value.__enter__.return_value.get_torrents.side_effect = (
+                lambda *args, **kwargs: [Torrent(**item) for item in feed]
+            )
+            preview = await get_pending_torrent_preview(
+                rss.id, bangumi.id, _filter=None, session=async_session
+            )
+            assert {item["hash"]: item["filter"] for item in preview} == {
+                "keep": True, "drop": False,
+            }
+            feed.extend([
+                {"name": "Test Anime - 03 [1080p]", "url": "https://example.com/new", "hash": "new"},
+                {"name": "Test Anime 合集", "url": "https://example.com/filtered", "hash": "filtered"},
+            ])
+            response = await activate_pending_bangumi(
+                bangumi.id,
+                filter=None,
+                included_hashes=["KEEP", "drop"],
+                excluded_hashes=["drop"],
+                session=async_session,
+            )
+            assert response.status_code == 200
+            assert mock_downloader.add_torrents.call_args.kwargs["urls"] == [
+                "https://example.com/keep", "https://example.com/new",
+            ]
+            repeated = await RSSEngine.download_bangumi(
+                async_session, mock_downloader, bangumi.id, included_hashes=["keep", "drop"]
+            )
+            assert repeated["status"] is True
+            assert repeated["count"] == 0
+            mock_downloader.add_torrents.assert_awaited_once()
+
+        rows = await TorrentRepository(async_session).get_by_bangumi(bangumi.id)
+        assert {row.hash for row in rows} == {"keep", "drop", "new"}
+        assert all(row.downloaded for row in rows)
+        assert next(row for row in rows if row.hash == "drop").state == TorrentState.EXCLUDED
+        assert (await BangumiRepository(async_session).get_by_id(bangumi.id)).pending_review is False
+
+    @pytest.mark.asyncio
     async def test_download_bangumi_mikan_feed_does_not_require_canonical_title(
         self, async_session, mock_downloader
     ):
