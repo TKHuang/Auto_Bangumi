@@ -1,26 +1,16 @@
 # STATUS
 
 Project: Auto_Bangumi
-
 Notebook: .agentflow/devlog.md — root.
-
-Current commit: initialization pending.
-
-Tests/scenarios: none.
-
-Configuration: ag.json — schema v7; validated for codex this round.
-
-Proven: the host template was initialized.
-
-Open: none.
-
-Next: await the first request.
-
-Artifacts: none.
-
+Current commit: d476ce1806c8c46b8a08f7415c576e19c730c13a — design.
+Tests/scenarios: tracker-contract PASS; git diff --check PASS; application tests not run.
+Configuration: ag.json — existing uncommitted initialization, unchanged this round.
+Proven: both behavior-preserving designs recorded; source and tests untouched.
+Open: Design Go required; Reply completion check includes prior initialization changes.
+Next: owner reviews design.md and supplies Design Go: d476ce18.
+Artifacts: .agentflow/artifacts/A-001-architecture/design.md; .agentflow/artifacts/A-001-architecture/tracker.md.
 Archived eras: none.
-
-Streams: none.
+Streams: none; existing branch refactor/backendv2.
 
 ---
 
@@ -52,3 +42,20 @@ ok
 - Proof: tracker-contract 驗證 PASS；git diff --check PASS。應用測試未執行，因為尚未修改程式。
 - Expected paths: 本次僅 notebook、design.md、tracker.md。既有 .gitignore 與 ag.json 初始變動不納入設計 commit；無 source/tests/config 新修改。
 - Gate: 準備保存設計 commit，取得 Design Go 前不得開始 source 工作。
+
+## [RUN-003] Event (during round A-001)
+* _2026-09-06 23:11:13 (GPT-6)_
+- Design commit: d476ce1806c8c46b8a08f7415c576e19c730c13a；主代理已检查 staged diff，僅三個 Agentflow 紀錄檔。
+- Host design check: PASS；不代表實作或執行期驗收。tracker 已完成本輪設計三項任務。
+- Git: 已 fetch origin refactor/backendv2；HEAD..origin/refactor/backendv2 為空，可正常 push。
+- Limit: 應用測試未執行。pre-commit hook 因未有 executable 權限而由 Git 忽略；不把 hook 當成驗證成功。
+- Gate: 等待 Design Go: d476ce18；未開始 source 工作。
+
+## [RUN-004] Event (during round A-001)
+* _2026-09-06 23:13:17 (GPT-6)_
+- Record check: tracker 完成狀態已補上 Evidence status: complete，驗證 PASS。
+- Protocol limit: append-reply 的標準輸入禁止包含下一個 Ask heading；移除後由工具產生 scaffold，但 completion check 仍拒絕：cross_check: completed cross-check round is missing its external review report path。
+- Cause: completion-context 將先前 init 的未提交 .gitignore、ag.json 也列入目前 changed paths；本輪設計 commit 只含 Agentflow 紀錄。未偽造 review、未跳過 checker、未更改初始化設定來通過。
+- Design ready: .agentflow/artifacts/A-001-architecture/design.md，commit d476ce1806c8c46b8a08f7415c576e19c730c13a。第一項只集中選擇規則，保留交易；第二項集中 PikPak 內部 lookup，保留輸出差異。
+- Owner gate: 請使用者提供 Design Go: d476ce18。來源：/Users/tk/.agents/skills/agentflow/SKILL.md，Source work starts only after a later Design Go: <commit>。
+- State: 設計工作完成，尚未實作；本 Ask 保持開啟，沒有宣稱成功關閉 Reply。需在後續 Agentflow 回合處理初始設定審查歸屬問題；不重跑未修改的實作審查。

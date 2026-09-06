@@ -10,19 +10,19 @@
 
 - **Last update:** 2026-09-06 23:04:26 Asia/Taipei.
 
-- **Evidence commit:** uncommitted.
+- **Evidence commit:** d476ce1806c8c46b8a08f7415c576e19c730c13a.
 
 ## Overall state
 
-- **State:** active.
+- **State:** complete.
 
-- **Reason:** Work remains.
+- **Reason:** 兩項設計已完成；實作仍待獨立 Design Go。
 
 - **Total:** 3.
 
-- **Completed:** 2.
+- **Completed:** 3.
 
-- **Remaining:** 1.
+- **Remaining:** 0.
 
 ## Accepted task checklist
 
@@ -30,7 +30,7 @@
 
 - [x] **T-2:** PikPak 設計：集中既有 adapter 內部 lookup 與 task 解讀；不改 DownloaderProtocol、無路徑任務篩選、狀態去重或錯誤行為；以 pikpak.py 的兩個入口逐項對照證明。 Source: A-001. Proof: backend/src/module/services/downloader/pikpak.py:615-738,1921-2015（本輪主代理已讀）。
 
-- [ ] **T-3:** 主代理檢查 design.md、驗證 tracker 與 Git diff，建立僅含工作紀錄的設計 commit；記錄未執行應用測試與仍待 Design Go，不修改 source/tests/config。 Source: A-001.
+- [x] **T-3:** 主代理檢查 design.md、驗證 tracker 與 Git diff，建立僅含工作紀錄的設計 commit；記錄未執行應用測試與仍待 Design Go，不修改 source/tests/config。 Source: A-001. Proof: git show d476ce18 --stat；僅 notebook/design/tracker，git diff --cached --check 與 tracker-contract PASS。
 
 ## Accepted scope changes
 
@@ -38,29 +38,29 @@
 
 ## Current recovery
 
-- **Current item:** T-3.
+- **Current item:** none.
 
-- **Last proven result:** design.md 已記錄兩項設計及行為限制。
+- **Last proven result:** 設計 commit d476ce18 已建立，尚未實作。
 
 - **Active blocker or running process:** None.
 
-- **Next safe action:** 檢查設計 diff 並建立設計 commit.
+- **Next safe action:** none.
 
 - **Expected changed files:** .agentflow/devlog.md, .agentflow/artifacts/A-001-architecture/design.md, .agentflow/artifacts/A-001-architecture/tracker.md.
 
 ## Completion proof
 
-- **All accepted tasks checked:** no.
+- **All accepted tasks checked:** yes.
 
 - **Blocking accepted decision:** none.
 
 - **Operation running:** no.
 
-- **Next action remaining:** T-3.
+- **Next action remaining:** none.
 
-- **Evidence status:** current.
+- **Evidence status:** complete.
 
-- **Judgment:** active.
+- **Judgment:** complete.
 
 ## Update meaning
 
