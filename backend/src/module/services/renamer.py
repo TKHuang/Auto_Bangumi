@@ -209,72 +209,22 @@ class RenamerService:
                 f"files={len(torrent_info.files)}, media={len(media_files)}"
             )
 
-            success = False
-            file_count = 0
-            conflict_target: Optional[str] = None
-
-            if len(media_files) == 1:
-                success, file_count, conflict_target = await self._rename_single_file(
-                    torrent_info,
-                    media_files[0],
-                    db_torrent.name,
-                    bangumi,
-                    downloader,
-                    all_torrent_info,
-                )
-                if conflict_target is not None:
-                    rename_conflicts.append((db_torrent.id, conflict_target))
-                    continue
-                if success and subtitle_files:
-                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
-                        torrent_info,
-                        subtitle_files,
-                        bangumi,
-                        downloader,
-                    )
-                    if subtitle_conflict is not None:
-                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
-                        continue
-                    if subtitle_outcome == RenameOutcome.ERROR:
-                        continue
-            elif len(media_files) > 1:
-                success, file_count, conflict_target = await self._rename_collection(
-                    torrent_info,
-                    media_files,
-                    bangumi,
-                    downloader,
-                )
-                if conflict_target is not None:
-                    rename_conflicts.append((db_torrent.id, conflict_target))
-                    continue
-                if success and subtitle_files:
-                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
-                        torrent_info,
-                        subtitle_files,
-                        bangumi,
-                        downloader,
-                    )
-                    if subtitle_conflict is not None:
-                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
-                        continue
-                    if subtitle_outcome == RenameOutcome.ERROR:
-                        continue
-            else:
-                logger.warning(
-                    f"[Renamer] Torrent {db_torrent.id} has no media files"
-                )
-                if subtitle_files:
-                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
-                        torrent_info,
-                        subtitle_files,
-                        bangumi,
-                        downloader,
-                    )
-                    if subtitle_conflict is not None:
-                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
-                        continue
-                    if subtitle_outcome == RenameOutcome.ERROR:
-                        continue
+            outcome = await self._rename_torrent_files(
+                torrent_info,
+                db_torrent,
+                bangumi,
+                downloader,
+                all_torrent_info,
+                media_files,
+                subtitle_files,
+                retry_subtitles=False,
+            )
+            if outcome is None:
+                continue
+            success, file_count, conflict_target = outcome
+            if conflict_target is not None:
+                rename_conflicts.append((db_torrent.id, conflict_target))
+                continue
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -409,72 +359,22 @@ class RenamerService:
 
             media_files, subtitle_files = self._classify_files(torrent_info.files)
 
-            success = False
-            file_count = 0
-            conflict_target: Optional[str] = None
-
-            if len(media_files) == 1:
-                success, file_count, conflict_target = await self._rename_single_file(
-                    torrent_info,
-                    media_files[0],
-                    db_torrent.name,
-                    bangumi,
-                    downloader,
-                    all_torrent_info,
-                )
-                if conflict_target is not None:
-                    rename_conflicts.append((db_torrent.id, conflict_target))
-                    continue
-                if (success or retrigger) and subtitle_files:
-                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
-                        torrent_info,
-                        subtitle_files,
-                        bangumi,
-                        downloader,
-                    )
-                    if subtitle_conflict is not None:
-                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
-                        continue
-                    if subtitle_outcome == RenameOutcome.ERROR:
-                        continue
-            elif len(media_files) > 1:
-                success, file_count, conflict_target = await self._rename_collection(
-                    torrent_info,
-                    media_files,
-                    bangumi,
-                    downloader,
-                )
-                if conflict_target is not None:
-                    rename_conflicts.append((db_torrent.id, conflict_target))
-                    continue
-                if (success or retrigger) and subtitle_files:
-                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
-                        torrent_info,
-                        subtitle_files,
-                        bangumi,
-                        downloader,
-                    )
-                    if subtitle_conflict is not None:
-                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
-                        continue
-                    if subtitle_outcome == RenameOutcome.ERROR:
-                        continue
-            else:
-                logger.warning(
-                    f"[Renamer] Torrent {db_torrent.id} has no media files"
-                )
-                if subtitle_files:
-                    subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
-                        torrent_info,
-                        subtitle_files,
-                        bangumi,
-                        downloader,
-                    )
-                    if subtitle_conflict is not None:
-                        rename_conflicts.append((db_torrent.id, subtitle_conflict))
-                        continue
-                    if subtitle_outcome == RenameOutcome.ERROR:
-                        continue
+            outcome = await self._rename_torrent_files(
+                torrent_info,
+                db_torrent,
+                bangumi,
+                downloader,
+                all_torrent_info,
+                media_files,
+                subtitle_files,
+                retry_subtitles=retrigger,
+            )
+            if outcome is None:
+                continue
+            success, file_count, conflict_target = outcome
+            if conflict_target is not None:
+                rename_conflicts.append((db_torrent.id, conflict_target))
+                continue
 
             if success:
                 rename_successes.append((db_torrent.id, file_count))
@@ -517,6 +417,63 @@ class RenamerService:
             f"Renamed {len(renamed_results)} torrents."
         )
         return renamed_results
+
+    async def _rename_torrent_files(
+        self,
+        torrent_info: Any,
+        db_torrent: Torrent,
+        bangumi: Bangumi,
+        downloader: DownloaderProtocol,
+        all_torrent_info: list,
+        media_files: list[str],
+        subtitle_files: list[str],
+        *,
+        retry_subtitles: bool,
+    ) -> Optional[tuple[bool, int, Optional[str]]]:
+        """Rename one torrent's media files, then its subtitles.
+
+        Returns ``(success, file_count, conflict_target)``, or ``None`` when a
+        subtitle rename errors: the torrent is then left for the next run.
+        ``retry_subtitles`` renames subtitles even when the media rename failed.
+        """
+        success = False
+        file_count = 0
+        if len(media_files) == 1:
+            success, file_count, conflict_target = await self._rename_single_file(
+                torrent_info,
+                media_files[0],
+                db_torrent.name,
+                bangumi,
+                downloader,
+                all_torrent_info,
+            )
+        elif len(media_files) > 1:
+            success, file_count, conflict_target = await self._rename_collection(
+                torrent_info,
+                media_files,
+                bangumi,
+                downloader,
+            )
+        else:
+            logger.warning(
+                f"[Renamer] Torrent {db_torrent.id} has no media files"
+            )
+            conflict_target = None
+        if conflict_target is not None:
+            return success, file_count, conflict_target
+
+        if subtitle_files and (success or retry_subtitles or not media_files):
+            subtitle_outcome, subtitle_conflict = await self._rename_subtitles(
+                torrent_info,
+                subtitle_files,
+                bangumi,
+                downloader,
+            )
+            if subtitle_conflict is not None:
+                return success, file_count, subtitle_conflict
+            if subtitle_outcome == RenameOutcome.ERROR:
+                return None
+        return success, file_count, None
 
     async def _rename_single_file(
         self,

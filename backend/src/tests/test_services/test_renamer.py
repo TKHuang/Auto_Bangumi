@@ -878,6 +878,80 @@ class TestRenameAll:
         assert torrent.rename_status == RenameStatus.CONFLICT
         assert torrent.rename_conflict_target == "Test Bangumi S01E01.zh.ass"
 
+    @pytest.mark.asyncio
+    async def test_rename_all_subtitle_error_leaves_torrent_for_next_run(
+        self, db_session
+    ):
+        """Media rename OK + subtitle rename ERROR: not done, not a conflict."""
+        series = await _add_series(
+            db_session,
+            title="Test Bangumi",
+            root_path="/data/Bangumi/Test Bangumi/Season 1",
+        )
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
+
+        torrent = Torrent(
+            bangumi_id=bangumi.id,
+            name="[Group] Title - 01",
+            url="https://example.com/torrent",
+            hash="abc123",
+            state=TorrentState.COMPLETED,
+            downloaded=True,
+            renamed_at=None,
+        )
+        db_session.add(torrent)
+        await db_session.flush()
+
+        downloader = AsyncMock()
+        downloader.torrents_info.return_value = [
+            Mock(
+                hash="abc123",
+                name="[Group] Title - 01",
+                save_path="/data/Bangumi/Test Bangumi/Season 1",
+                files=[
+                    SimpleNamespace(name="[Group] Title - 01.mkv"),
+                    SimpleNamespace(name="[Group] Title - 01.ass"),
+                ],
+            )
+        ]
+        downloader.torrents_rename_file = AsyncMock(
+            side_effect=[RenameOutcome.OK, RenameOutcome.ERROR]
+        )
+
+        def parse_side_effect(**kwargs):
+            if kwargs.get("file_type") == "subtitle":
+                return SubtitleFile(
+                    media_path="[Group] Title - 01.ass",
+                    group=None,
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    language="zh",
+                    suffix=".ass",
+                    is_movie=False,
+                    episode_type=None,
+                )
+            return EpisodeFile(
+                media_path="[Group] Title - 01.mkv",
+                title="Parsed Title",
+                season=1,
+                episode=1,
+                suffix=".mkv",
+                is_movie=False,
+            )
+
+        with patch("module.services.renamer.TitleParser") as MockParser:
+            MockParser.return_value.torrent_parser.side_effect = parse_side_effect
+            service = RenamerService(db_session, rename_method="advance")
+            result = await service.rename_all(downloader)
+
+        assert result == []
+        await db_session.refresh(torrent)
+        assert torrent.renamed_at is None
+        assert torrent.rename_status != RenameStatus.CONFLICT
+
 
 class TestRenameBangumi:
     """Test rename_bangumi method with retrigger logic."""
