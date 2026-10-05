@@ -18,6 +18,7 @@ from pikpakapi import PikPakApi
 
 from ...conf import settings
 from ...domain.parser.title_parser import TitleParser
+from ...domain.value_objects import MEDIA_EXTENSIONS, SUBTITLE_EXTENSIONS
 from ...repositories.torrent import TorrentRepository
 from .interface import RenameOutcome, TorrentFile, TorrentInfo
 
@@ -40,18 +41,6 @@ MAX_FOLDER_DEPTH = 20
 
 TASK_CACHE_TTL = 60
 
-MEDIA_EXTENSIONS = (
-    ".mkv",
-    ".mp4",
-    ".avi",
-    ".wmv",
-    ".webm",
-    ".flv",
-    ".mov",
-    ".ts",
-    ".m2ts",
-)
-SUBTITLE_EXTENSIONS = (".ass", ".ssa", ".srt", ".sub", ".vtt")
 DOWNLOAD_FILE_EXTENSIONS = MEDIA_EXTENSIONS + SUBTITLE_EXTENSIONS
 
 ALL_PHASES = [

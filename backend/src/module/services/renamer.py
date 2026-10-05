@@ -14,6 +14,8 @@ from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import RenameStatus, Torrent
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import (
+    MEDIA_EXTENSIONS,
+    SUBTITLE_EXTENSIONS,
     EpisodeFile,
     SubtitleFile,
     sanitize_path_component,
@@ -866,10 +868,8 @@ class RenamerService:
 
     @staticmethod
     def _is_media_file(path: str) -> bool:
-        media_exts = (".mkv", ".mp4", ".avi", ".wmv", ".webm", ".flv", ".mov", ".ts", ".m2ts")
-        return path.lower().endswith(media_exts)
+        return path.lower().endswith(MEDIA_EXTENSIONS)
 
     @staticmethod
     def _is_subtitle_file(path: str) -> bool:
-        subtitle_exts = (".ass", ".ssa", ".srt", ".sub", ".vtt")
-        return path.lower().endswith(subtitle_exts)
+        return path.lower().endswith(SUBTITLE_EXTENSIONS)
