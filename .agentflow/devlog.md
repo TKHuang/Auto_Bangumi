@@ -4,19 +4,19 @@ Project: Auto_Bangumi
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: A-003 design commit on refactor/backendv2, pushed.
+Current commit: A-004 implementation 4de0c377 on refactor/backendv2, pushed.
 
-Tests/scenarios: G1 baseline 88 passed on old code; no implementation tests yet.
+Tests/scenarios: full backend suite 1834 passed, 2 skipped, 4 xfailed at 608a8abf; repository tests 161 passed at 4de0c377.
 
 Configuration: ag.json — schema v8; validated for claude this round.
 
-Proven: design for C1-C11 written and reviewed by separate agents.
+Proven: C1-C11 implemented; external independent review PASS on 4de0c377.
 
-Open: Design Go and 18 owner decisions in A-003 design.md.
+Open: parked follow-ups OD-C2-4, OD-C8-1, OD-C6-2, subscribe_batch dedup (not authorized).
 
-Next: owner Design Go, then implement C1-C11 in the design order.
+Next: await the owner.
 
-Artifacts: .agentflow/artifacts/A-003-architecture-deepening/{design,tracker}.md.
+Artifacts: .agentflow/artifacts/A-003-architecture-deepening/{design,tracker}.md; .agentflow/artifacts/A-004-architecture-deepening/cross-check-{brief,report}*.md.
 
 Archived eras: none.
 
@@ -304,5 +304,187 @@ Host gate: PASS
 ---
 
 # → Ask / A-004 (TKHuang)
+
++ design go accept all defaults away: gates
+
++ <task-notification>
+  <task-id>b960bx49h</task-id>
+  <tool-use-id>toolu_01NPc6X6VPYBvpZq6NdB1Lhh</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/b960bx49h.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Run external codex reviewer in disposable clone" completed (exit code 0)</summary>
+  </task-notification>
+
++ <task-notification>
+  <task-id>bnwbqzux6</task-id>
+  <tool-use-id>toolu_01Pa2hvSMaXvt1AHE3u4qdw9</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/bnwbqzux6.output</output-file>
+  <status>completed</status>
+  <summary>Monitor "external review runner completion" stream ended</summary>
+  <event>{"status":"completed","exit":0,"clone":"/private/var/folders/gs/2hhn8bln4ll0z028xf6n_sm00000gn/T/agentflow-external-runner-BKfbKt/clone","changed":true,"remotes":[],"report_bytes":16986}
+  [exited with code 0]</event>
+  If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+  </task-notification>
+
++ <task-notification>
+  <task-id>btis7u95f</task-id>
+  <tool-use-id>toolu_01EvuX2bY6a1fDanbQujAsT9</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/btis7u95f.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Wait for reviewer to finish" completed (exit code 0)</summary>
+  </task-notification>
+
++ <task-notification>
+  <task-id>bz90yosfj</task-id>
+  <tool-use-id>toolu_01RypQZdLeiMQcw2PyqgQonu</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/bz90yosfj.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Run external review attempt 2" completed (exit code 0)</summary>
+  </task-notification>
+
++ <task-notification>
+  <task-id>b8hn46ru3</task-id>
+  <tool-use-id>toolu_01FPHoHtapVaaMsSsuwnBCzL</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/b8hn46ru3.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Wait for review attempt 2" completed (exit code 0)</summary>
+  </task-notification>
+
++ <task-notification>
+  <task-id>bgrd0ocwq</task-id>
+  <tool-use-id>toolu_01PqmREKZ83tiw4x9cixwuot</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/bgrd0ocwq.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Run external review attempt 3" completed (exit code 0)</summary>
+  </task-notification>
+
++ <task-notification>
+  <task-id>byjwsduca</task-id>
+  <tool-use-id>toolu_01RqKDi7DKsK9UxgUzuktoQm</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/byjwsduca.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Wait for review attempt 3" completed (exit code 0)</summary>
+  </task-notification>
+
++ <task-notification>
+  <task-id>bfsh12mrs</task-id>
+  <tool-use-id>toolu_018MQnp9w4FfXVSKXAtZRrHJ</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/bfsh12mrs.output</output-file>
+  <status>completed</status>
+  <summary>Background command "Run external review attempt 4" completed (exit code 0)</summary>
+  </task-notification>
+
+---
+
+## [RUN-001] Event — 2026-10-05 12:40:59 +0800 (A-004)
+
+- Design Go: resolves to design commit 99757943999ef9d81f2b2f08d4d1b55ae3b606ea (A-003 design.md).
+- Owner decisions: "accept all defaults" approves the suggested default of all 18 OD-* items in design.md.
+- Gates: "away: gates" supplies Result Go after evidence passes. A stop instruction and owner-only choices still bind.
+- Executor: host. Reason: ag.json allowed-worker is ["external","host"], so native subagents (internal) are not permitted for implementation. The session ultracode mode prefers workflows; the project setting wins for this Ask.
+- Deviation, recorded: the A-003 scan and design workflows used native read-only subagents (internal). They changed no file. Their output is advisory only; the host re-checks each fact while it implements.
+- Review: require-independent. Final cross-check goes to an external worker (cross-check tier better).
+
+## [RUN-002] Event — 2026-10-05 12:55:59 +0800 (A-004)
+
+- Done and committed (not pushed yet): C1 9074e251, C8 cf7c6b92, C3 f33189dc, C9 d8b48916, C7 3185e114, C4 07cc5eb9.
+- Each step ran its focused tests green. C3 and C7 baselines were checked on the old code too.
+- C7 deviation: added parse_mikan_title_and_poster to mikan/parser.py, so title and poster still come back from a page without ids (the old scraper did that). parse_mikan_page uses the same helper.
+- C7 fixture comparison, old vs new: poster identical on all 4 fixtures; title now filled on 3 (was empty); anchor-only page now gets a season RSS link (was none). Matches accepted OD-C7-2 and OD-C7-3.
+- C8 deviation: no new extension test. The tuples moved byte-for-byte, and a 14-file rename_all fixture with a mocked parser would test the mock, not the rule. The existing renamer and PikPak suites cover the classifiers.
+- C9: the scheduler rename job still calls try_acquire_rename_lock directly (unchanged, as designed).
+- Host error, fixed before push: an amend pulled .gitignore and the devlog into the C3 commit; the host redid the commit with only the two renamer files.
+- Remaining: C2, C11, C5, C10, C6, then the full suite and the external review.
+
+## [RUN-003] Event — 2026-10-05 13:11:39 +0800 (A-004)
+
+- Done and committed: C2+C11 b18923b3, C5 15834997, C10 47194cfa, C6 7b4ee880.
+- C5: new test_rss_analyser.py passed on the old code before the move.
+- C10: new _trigger_downloads EXCLUDED test passed on the old code. The download_torrent contract tests mock TorrentRepository, so they now stub is_excluded (4 lines).
+- C6 deviation 1: the shared rule returns None unless the link has both bangumiId and subgroupid. This keeps subscribe_season exact (it only checks subgroup when the link has one). add_rss keeps the title match for a link without subgroupid.
+- C6 deviation 2: add_rss now stores mikan_subgroup_id on the bangumi it creates, as subscribe_season does. Without it, the shared rule cannot see add_rss rows, and the accepted host-alias 409 (OD-C6-1 d) cannot happen.
+- C6: second-season e2e test (AC-C6-3) not added: the e2e fixture has no second bangumiId with the same title; it is the same code path as the second-subgroup test. The unit tests cover the rule directly. The eager-load test fails without the selectinload line (checked).
+- Full suite: 1621 passed, 2 skipped, 3 xfailed (main dirs) + 206 passed, 1 xfailed (other dirs).
+- Next: push, then the external independent review.
+
+## [RUN-004] Event — 2026-10-05 13:36:42 +0800 (A-004)
+
+- Cross-check attempt 1 (codex-default, gpt-6.1-sol/high, external clone, exit 0, report only): BLOCKING on 7b4ee880. Report: artifacts/A-003-architecture-deepening/cross-check-report-1.md.
+- Findings accepted (each is an approved design obligation): (1) old add_rss rows have no mikan_subgroup_id, so the host-alias 409 (OD-C6-1 d) failed and a no-override duplicate became 200; (2) AC-C6-3 test missing; (3) AC-C8-1 test missing.
+- Fix a7065b57: the rule reads the subgroup from the stored link when the column is empty; list_by_series eager-loads .series (the e2e 409 path got a lazy-load 500 without it). Tests added for all three; the two pre-upgrade e2e tests fail on 7b4ee880 and pass now.
+- Side effect, recorded: subscribe_season uses the same rule, so it now also rejects a same-show, same-group subscription from another RSS when the existing row is pre-upgrade. That is the C6 rule itself, not a new rule.
+- AC-C8-1 limit: a pre-C8 baseline run was not possible in a temp worktree (the venv's editable install points to the main tree). The old tuples are byte-identical to the shared ones.
+- Note: two background-task notifications were saved into A-003 and A-004 as "+" input by the prompt hook. They are not owner input.
+- Full suite at a7065b57: 1832 passed, 2 skipped, 4 xfailed.
+
+## [RUN-005] Event — 2026-10-05 13:55:58 +0800 (A-004)
+
+- Cross-check attempt 2 (same profile): BLOCKING on a7065b57. Report: artifacts/A-003-architecture-deepening/cross-check-report-2.md. Attempt-1 findings confirmed fixed.
+- New finding accepted: with two rows for the same show and group (one of them pre-upgrade), a row of the current RSS could hide the other RSS's conflict. The reviewer's smaller form (one list_by_series pass, skip the current RSS first) also fixes Minimality.
+- Fix 608a8abf: one pass; 2 new regressions fail on a7065b57 and pass now. Full suite: 1834 passed, 2 skipped, 4 xfailed.
+- Next: cross-check attempt 3 (last allowed start) on 608a8abfad9375bd59adb68f640cc663af55f88c.
+
+## [RUN-006] Event — 2026-10-05 14:08:03 +0800 (A-004)
+
+- Cross-check attempt 3 (same profile) on 608a8abf: Outcome PASS, Minimality PASS, Conformance BLOCKING. Report: artifacts/A-003-architecture-deepening/cross-check-report-3.md. Fix 2 verified; no runtime failure found (148 subscription cases, 432 rename comparisons).
+- Only gap: the AC-C6-8 repository test was missing. Added in 4de0c377 (test-only): passes with the selectinload, fails without it; repository tests 161 passed. Pushed.
+- Review limit: 3 of 3 starts used. review-policy is require-independent, so acceptance stays pending. A 4th start, or another acceptance route, is an owner decision.
+
+## [RUN-007] Event — 2026-10-05 14:28:27 +0800 (A-004)
+
+- Owner decision (AskUserQuestion answer): "再審 1 次 (Recommended)" — one more external review start (attempt 4) on 4de0c3770baf4f8c389c817f6a0ef7dec4cd8c7c.
+
+## [RUN-008] Event — 2026-10-05 14:36:23 +0800 (A-004)
+
+- Cross-check attempt 4 (owner-approved extra start; codex-default, external clone, exit 0): PASS on 4de0c377 for Outcome, Minimality and Conformance. The report stamp says GPT-6/high; dispatch was gpt-6.1-sol/high (one warning, no retry).
+
+## [RUN-009] Event — 2026-10-05 14:36:23 +0800 (A-004)
+
+- Host inspection of report 4: every earlier blocker is marked resolved with file:line evidence; the reviewer's deletion check confirms the legacy link fallback is needed; run facts: stdin closed, independent clone, no remotes, no nested worker. Tracker T-1..T-13 complete.
+
+## [RUN-010] Event — 2026-10-05 14:36:23 +0800 (A-004)
+
+- Record move: the 4 briefs and 4 reports moved from artifacts/A-003-architecture-deepening/ to artifacts/A-004-architecture-deepening/ (the current Ask work key). Earlier RUN lines name the old folder; the bytes are unchanged.
+
+# ← Reply / A-004
+
+* _2026-10-05 14:36:23 +0800 (claude/unknown)_
+
+## [SUMMARY]
+
+- All 11 architecture candidates (C1–C11) are fixed, tested, pushed to origin/refactor/backendv2 (last commit 4de0c377), and passed the independent external review.
+- I implemented the approved design with all owner-decision defaults. Review rounds 1–3 found 4 gaps (one pre-upgrade data bug and 3 missing tests). I fixed all of them, and round 4 gave PASS. Follow-up work that you did not authorize is parked in the tracker.
+
+## [FINAL REPORT]
+
+1. "全部都修正 交給你了"
+
+   - Succeeded: C1–C11 are implemented in 10 commits (9074e251 … 47194cfa, 7b4ee880), plus 3 review-fix commits (a7065b57, 608a8abf, 4de0c377). 38 backend files changed: about 1,250 lines added and 2,700 lines deleted.
+   - Main results: the dead RSSEngine ingest path is deleted (C1). One display view module (C2, C11) and one per-torrent rename path (C3) replace the copies. PosterService now owns poster refresh (C4). RequestContent is transport-only (C5). One read-only already-subscribed rule serves add_rss and subscribe_season (C6). There is one Mikan page parser (C7), one extension list (C8), and one rename-lock guard (C9). EXCLUDED checks go through TorrentRepository (C10).
+   - Accepted behavior changes (owner defaults): add_rss now allows a second fansub group or a second season with the same title. It rejects the same Mikan ids under a host alias (OD-C6-1). Mikan page titles are now filled, and anchor-only pages get a season RSS link (OD-C7-2/3).
+   - Deviations I recorded: add_rss now stores mikan_subgroup_id. The shared rule reads the subgroup from the stored RSS link when an old row has no subgroup value. Thus, rows from before the upgrade still count as duplicates. subscribe_season uses the same rule.
+   - Tests: the full suite at 608a8abf gave 1834 passed, 2 skipped, 4 xfailed. 4de0c377 adds only one repository test (161 passed). New tests for each fix fail on the old code and pass now.
+   - Limit: I could not run the AC-C8-1 extension test on the old code in a temporary worktree, because the venv's editable install points to the main tree. The old extension lists are byte-identical to the shared ones.
+   - Parked (not done): the display copies in rss_engine.py and repositories/bangumi.py (OD-C2-4), the Pydantic suffix regexes (OD-C8-1), the add_rss 409 error_type field (OD-C6-2), and subscribe_batch dedup.
+
+2. "design go accept all defaults away: gates"
+
+   - Succeeded: the Design Go resolved to design commit 99757943, and all 18 OD-* defaults applied. Result Go was supplied under away: gates after independent review PASS.
+   - Review history: rounds 1–3 were BLOCKING (pre-upgrade add_rss rows, a self-match that hid another RSS's conflict, and missing AC-C6-3, AC-C8-1 and AC-C6-8 tests). Each gap was fixed. After the 3-start limit, you approved one more start, and round 4 gave PASS on all three verdicts.
+   - Key Records — read these first
+
+     [cross-check-report-4.md](artifacts/A-004-architecture-deepening/cross-check-report-4.md) — the final independent review with per-candidate evidence and the PASS verdict.
+
+     [tracker.md](artifacts/A-003-architecture-deepening/tracker.md) — the task list with commits and the parked follow-ups.
+
+     [cross-check-report-2.md](artifacts/A-004-architecture-deepening/cross-check-report-2.md) — explains the pre-upgrade conflict cases that changed the C6 rule.
+
+## Questions (batched — each with a suggested default)
+
+- None.
+
+---
+
+# → Ask / A-005 (TKHuang)
 
 +
