@@ -12,7 +12,7 @@ from module.api.middleware.auth import get_current_user
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.concurrency.activation_lock import try_acquire_bangumi_activation_lock
-from module.concurrency.rename_lock import try_acquire_rename_lock
+from module.concurrency.rename_lock import rename_lock_guard
 from module.database.engine import get_db_session
 from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import gen_save_path
@@ -200,17 +200,16 @@ async def update_rule(
             content={"msg_en": f"Can't find data with {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id} 的数据"},
         )
 
-    lock = await try_acquire_rename_lock()
-    if lock is None:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "msg_en": "Rename is already in progress. Please try Apply again shortly.",
-                "msg_zh": "当前正在执行重命名，请稍后再试。",
-            },
-        )
+    async with rename_lock_guard() as lock:
+        if lock is None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "msg_en": "Rename is already in progress. Please try Apply again shortly.",
+                    "msg_zh": "当前正在执行重命名，请稍后再试。",
+                },
+            )
 
-    try:
         _old_season = old_data.series.season if old_data.series is not None else 1
         _old_title = old_data.series.canonical_title if old_data.series is not None else ""
         rename_fields_changed = (
@@ -273,8 +272,6 @@ async def update_rule(
                 "msg_zh": f"更新 {_title} 规則{msg_suffix_zh}",
             },
         )
-    finally:
-        lock.release()
 
 
 @router.delete(
@@ -801,21 +798,20 @@ async def _activate_pending_bangumi_locked(
     dependencies=[Depends(get_current_user)],
 )
 async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):
-    lock = await try_acquire_rename_lock()
-    if lock is None:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "msg_en": "Rename is already in progress. Please try again shortly.",
-                "msg_zh": "当前正在执行重命名，请稍后再试。",
-            },
-        )
+    async with rename_lock_guard() as lock:
+        if lock is None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "msg_en": "Rename is already in progress. Please try again shortly.",
+                    "msg_zh": "当前正在执行重命名，请稍后再试。",
+                },
+            )
 
-    downloader = create_downloader(settings, session)
-    renamer = RenamerService(
-        session, rename_method=settings.bangumi_manage.rename_method
-    )
-    try:
+        downloader = create_downloader(settings, session)
+        renamer = RenamerService(
+            session, rename_method=settings.bangumi_manage.rename_method
+        )
         renamed_results = await renamer.rename_bangumi(downloader, bangumi_id, retrigger=True)
         renamed_count = sum(r.get("file_count", 0) for r in renamed_results)
         return JSONResponse(
@@ -825,8 +821,6 @@ async def retrigger_rename(bangumi_id: int, session: AsyncSession = Depends(get_
                 "msg_zh": f"重新重命名完成，重命名了 {renamed_count} 个文件",
             },
         )
-    finally:
-        lock.release()
 
 
 @router.get(
