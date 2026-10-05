@@ -105,6 +105,39 @@ class TestAddRSS:
         )
         assert resp2.status_code == 409
 
+    def test_add_same_mikan_show_different_subgroup_allowed(self, authed_client):
+        client, mock_dl, token = authed_client
+
+        assert add_non_aggregate_rss(client).status_code == 200
+
+        # Same Mikan show, other fansub group: the same rule as subscribe_season.
+        other_group = WILD_BOSS_RSS_URL.replace("subgroupid=583", "subgroupid=999")
+        resp = add_non_aggregate_rss(client, name="Wild Boss Other Group", url=other_group)
+        assert resp.status_code == 200
+
+    def test_add_mikan_conflict_across_host_alias_rejected(self, authed_client):
+        client, mock_dl, token = authed_client
+
+        def _add(url, title):
+            return client.post(
+                "/api/v1/rss/add",
+                params={"official_title": title},
+                json={
+                    "url": url, "name": title, "aggregate": False,
+                    "parser": "mikan", "enabled": True,
+                },
+            )
+
+        assert _add(WILD_BOSS_RSS_URL, "Title X").status_code == 200
+
+        # Same (bangumiId, subgroupid), other host text: no URL substring overlap.
+        alias = WILD_BOSS_RSS_URL.replace("mikanani.me", "mikanime.tv")
+        resp = _add(alias, "Title Y")
+        assert resp.status_code == 409
+        body = resp.json()
+        assert "Title X" in body["msg_en"]
+        assert "Title X" in body["msg_zh"]
+
     def test_add_parse_error_returns_422(self, authed_client, fixture_request_content):
         client, mock_dl, token = authed_client
 

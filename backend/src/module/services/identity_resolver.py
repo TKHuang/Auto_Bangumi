@@ -22,9 +22,12 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from module.domain.models.bangumi import Bangumi
 
 from module.conf import settings
 from module.domain.models.series import Series
@@ -129,6 +132,36 @@ class IdentityResolver:
             newly_created=True,
             merge_candidates=[c.id for c in candidates],
         )
+
+
+async def find_conflicting_mikan_subscription(
+    session: AsyncSession,
+    *,
+    rss_link: Optional[str],
+    exclude_rss_id: Optional[int],
+) -> Optional["Bangumi"]:
+    """Return the bangumi that already subscribes this Mikan show + fansub group.
+
+    The "already subscribed" rule for Mikan RSS links: same Series (by
+    mikan_bangumi_id) and same mikan_subgroup_id, from an RSS other than
+    ``exclude_rss_id``. Read-only: never creates a Series row, so a rejected
+    request leaves no trace. Returns None when the link carries no
+    (bangumiId, subgroupid) pair.
+    """
+    from module.repositories.bangumi import BangumiRepository
+
+    mikan_bangumi_id, mikan_subgroup_id = extract_mikan_ids_from_rss(rss_link)
+    if mikan_bangumi_id is None or mikan_subgroup_id is None:
+        return None
+    series = await SeriesRepository(session).get_by_mikan_id(mikan_bangumi_id)
+    if series is None:
+        return None
+    existing = await BangumiRepository(session).get_by_series_and_subgroup(
+        series.id, mikan_subgroup_id
+    )
+    if existing is not None and existing.rss_id != exclude_rss_id:
+        return existing
+    return None
 
 
 async def resolve_series_for_rss(

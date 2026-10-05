@@ -202,3 +202,64 @@ class TestIdentityResolverTier3:
         # Mikan row must NOT have been mutated
         refreshed = await repo.get_by_id(mikan_row.id)
         assert refreshed.pending_review is False
+
+
+@pytest.mark.integration
+class TestFindConflictingMikanSubscription:
+    LINK = "https://mikanani.me/RSS/Bangumi?bangumiId=100&subgroupid=1"
+
+    async def _seed(self, db_session, rss_id=7):
+        from module.repositories.bangumi import BangumiRepository
+
+        series = await SeriesRepository(db_session).create({
+            "mikan_bangumi_id": 100, "canonical_title": "Show A",
+            "normalized_title": "show a", "season": 1, "root_path": "/downloads/Show A",
+        })
+        await BangumiRepository(db_session).create({
+            "series_id": series.id, "group_name": "G", "rss_link": self.LINK,
+            "rss_id": rss_id, "mikan_subgroup_id": 1,
+        })
+        await db_session.commit()
+
+    async def test_non_mikan_link_returns_none(self, db_session):
+        from module.services.identity_resolver import find_conflicting_mikan_subscription
+
+        assert await find_conflicting_mikan_subscription(
+            db_session, rss_link="https://example.com/rss", exclude_rss_id=None
+        ) is None
+
+    async def test_unknown_show_returns_none_and_creates_no_series(self, db_session):
+        from module.services.identity_resolver import find_conflicting_mikan_subscription
+
+        repo = SeriesRepository(db_session)
+        _, before = await repo.list_paginated(limit=1000, offset=0)
+        assert await find_conflicting_mikan_subscription(
+            db_session, rss_link=self.LINK, exclude_rss_id=None
+        ) is None
+        _, after = await repo.list_paginated(limit=1000, offset=0)
+        assert after == before
+
+    async def test_same_show_and_group_from_other_rss_is_conflict(self, db_session):
+        from module.services.identity_resolver import find_conflicting_mikan_subscription
+
+        await self._seed(db_session, rss_id=7)
+        db_session.expire_all()
+        hit = await find_conflicting_mikan_subscription(
+            db_session, rss_link=self.LINK.replace("mikanani.me", "mikanime.tv"),
+            exclude_rss_id=8,
+        )
+        assert hit is not None
+        # .series is eager-loaded: a plain attribute read, no lazy load.
+        assert hit.series.canonical_title == "Show A"
+
+    async def test_same_rss_or_other_group_is_not_conflict(self, db_session):
+        from module.services.identity_resolver import find_conflicting_mikan_subscription
+
+        await self._seed(db_session, rss_id=7)
+        assert await find_conflicting_mikan_subscription(
+            db_session, rss_link=self.LINK, exclude_rss_id=7
+        ) is None
+        assert await find_conflicting_mikan_subscription(
+            db_session, rss_link=self.LINK.replace("subgroupid=1", "subgroupid=2"),
+            exclude_rss_id=None,
+        ) is None
