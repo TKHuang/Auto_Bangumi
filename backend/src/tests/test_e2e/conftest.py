@@ -300,8 +300,8 @@ def e2e_client(mock_downloader, fixture_request_content):
         patch("module.network.RequestContent", mock_rc_class),
         patch("module.services.rss_engine.RequestContent", mock_rc_class),
         patch("module.rss.analyser.RequestContent", mock_rc_class),
-        patch("module.domain.parser.analyser.mikan_parser.RequestContent", mock_rc_class),
-        patch("module.domain.parser.analyser.mikan_parser.save_image", side_effect=_fake_save_image),
+        patch("module.domain.parser.title_parser.RequestContent", mock_rc_class),
+        patch("module.domain.parser.title_parser.save_image", side_effect=_fake_save_image),
         patch("module.utils.save_image", side_effect=_fake_save_image),
         # Patch scheduler stop to prevent APScheduler cancel-scope hang
         patch("module.scheduler.engine.AsyncScheduler.stop", _safe_stop),
