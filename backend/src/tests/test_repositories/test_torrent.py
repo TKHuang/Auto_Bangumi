@@ -956,3 +956,27 @@ async def test_backfill_mikan_ids_persists_both(db_session):
     await db_session.refresh(t)
     assert t.mikan_bangumi_id == 3906
     assert t.mikan_subgroup_id == 370
+
+
+@pytest.mark.anyio
+class TestGetDownloadable:
+    async def test_excludes_excluded_state_torrent(self, db_session):
+        bangumi_id = await _create_series_and_bangumi(db_session)
+        db_session.add_all([
+            Torrent(bangumi_id=bangumi_id, name="a", url="u-a", hash="a"),
+            Torrent(
+                bangumi_id=bangumi_id, name="", url="u-b", hash="b",
+                state=TorrentState.EXCLUDED,
+            ),
+        ])
+        await db_session.flush()
+
+        rows = await TorrentRepository(db_session).get_downloadable()
+
+        assert [t.hash for t in rows] == ["a"]
+
+
+class TestIsExcluded:
+    def test_true_for_excluded_false_for_pending(self):
+        assert TorrentRepository.is_excluded(Torrent(state=TorrentState.EXCLUDED))
+        assert not TorrentRepository.is_excluded(Torrent(state=TorrentState.PENDING))

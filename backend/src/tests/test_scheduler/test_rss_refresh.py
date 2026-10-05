@@ -500,3 +500,43 @@ class TestTriggerDownloads:
         by_hash = {torrent.hash: torrent for torrent in torrents}
         assert by_hash["trad"].downloaded is True
         assert by_hash["simp"].downloaded is False
+
+    @pytest.mark.integration
+    async def test_skips_excluded_state_torrent(self, db_session):
+        """EXCLUDED sentinel rows must never reach the downloader."""
+        from module.domain.models.bangumi import Bangumi
+        from module.domain.models.series import Series
+        from module.domain.models.torrent import Torrent, TorrentState
+
+        series = Series(
+            canonical_title="Test", normalized_title="test", season=1,
+            root_path="/downloads/Test", pending_review=False,
+        )
+        db_session.add(series)
+        await db_session.flush()
+        bangumi = Bangumi(series_id=series.id, group_name="G", rss_link="", active=True)
+        db_session.add(bangumi)
+        await db_session.flush()
+
+        db_session.add_all([
+            Torrent(
+                bangumi_id=bangumi.id, name="keep",
+                url="https://example.com/keep.torrent", hash="keep", downloaded=False,
+            ),
+            Torrent(
+                bangumi_id=bangumi.id, name="sentinel",
+                url="https://example.com/sentinel.torrent", hash="sentinel",
+                downloaded=False, state=TorrentState.EXCLUDED,
+            ),
+        ])
+        await db_session.commit()
+
+        downloader = AsyncMock()
+        downloader.add_torrents = AsyncMock(return_value=True)
+
+        await _trigger_downloads(db_session, downloader)
+
+        downloader.add_torrents.assert_awaited_once()
+        assert downloader.add_torrents.await_args.kwargs["urls"] == [
+            "https://example.com/keep.torrent"
+        ]

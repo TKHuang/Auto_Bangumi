@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf import settings
 from module.domain.models.bangumi import Bangumi
-from module.domain.models.torrent import Torrent, TorrentState
+from module.domain.models.torrent import Torrent
 from module.domain.value_objects import gen_save_path
 from module.mikan.parser import (
     extract_mikan_ids_from_rss,
@@ -260,7 +260,7 @@ class RSSEngine:
             if torrent.hash:
                 existing = existing_by_hash.get(torrent.hash)
                 if existing and (
-                    existing.downloaded or existing.state == TorrentState.EXCLUDED
+                    existing.downloaded or torrent_repo.is_excluded(existing)
                 ):
                     continue
                 new_torrents.append(torrent)

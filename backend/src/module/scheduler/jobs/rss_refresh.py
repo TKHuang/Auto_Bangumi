@@ -21,14 +21,14 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[unused-import]  # used in type hints below
 
 from ...conf import settings
 from ...concurrency.registry import build_mikan_limiter_from_settings
 from ...concurrency.rss_lock import RssLockRegistry
 from ...database.engine import AsyncSessionLocal
-from ...domain.models.torrent import Torrent, TorrentState
+from ...domain.models.torrent import Torrent
 from ...domain.models.bangumi import Bangumi
 from ...domain.parser.title_parser import TitleParser
 from ...domain.value_objects import BangumiParsingError, gen_save_path
@@ -157,24 +157,7 @@ async def _trigger_downloads(
     write and downloader trigger would still see new episodes pulled into
     their downloader, then the user would have to manually delete them.
     """
-    stmt = (
-        select(Torrent)
-        .join(Bangumi, Bangumi.id == Torrent.bangumi_id)
-        .where(
-            and_(
-                Torrent.downloaded == False,  # noqa: E712
-                Torrent.state != TorrentState.EXCLUDED,
-                Torrent.bangumi_id.is_not(None),
-                Torrent.url.is_not(None),
-                Torrent.url != "",
-                Bangumi.active == True,  # noqa: E712
-                Bangumi.deleted == False,  # noqa: E712
-                Bangumi.pending_review == False,  # noqa: E712
-            )
-        )
-    )
-    result = await session.execute(stmt)
-    pending_torrents = list(result.scalars().all())
+    pending_torrents = await TorrentRepository(session).get_downloadable()
 
     if not pending_torrents:
         return

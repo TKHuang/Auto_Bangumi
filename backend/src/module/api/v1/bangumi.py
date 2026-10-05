@@ -22,7 +22,6 @@ from module.domain.bangumi_view import (
 from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
 from module.repositories.bangumi import BangumiRepository
-from module.domain.models.torrent import TorrentState
 from module.repositories.torrent import TorrentRepository
 from module.services.downloader.factory import create_downloader
 from module.services.poster import PosterService
@@ -563,7 +562,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
             content={"msg_en": "Torrent not found in database.", "msg_zh": "数据库中未找到该种子。"},
         )
 
-    if torrent.state == TorrentState.EXCLUDED:
+    if torrent_repo.is_excluded(torrent):
         return JSONResponse(
             status_code=400,
             content={

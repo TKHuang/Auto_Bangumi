@@ -678,6 +678,7 @@ class TestDownloadTorrent:
                 with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
                     mock_t = AsyncMock()
                     mock_t_cls.return_value = mock_t
+                    mock_t.is_excluded = MagicMock(return_value=False)
                     torrent = MagicMock()
                     torrent.id = 123
                     torrent.name = "Test Torrent"
@@ -706,6 +707,7 @@ class TestDownloadTorrent:
                 with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
                     mock_t = AsyncMock()
                     mock_t_cls.return_value = mock_t
+                    mock_t.is_excluded = MagicMock(return_value=False)
                     torrent = MagicMock()
                     torrent.id = 1
                     torrent.name = "Test"
@@ -734,6 +736,7 @@ class TestDownloadTorrent:
                 with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
                     mock_t = AsyncMock()
                     mock_t_cls.return_value = mock_t
+                    mock_t.is_excluded = MagicMock(return_value=False)
                     torrent = MagicMock()
                     torrent.id = 1
                     torrent.name = "Test"
@@ -761,6 +764,7 @@ class TestDownloadTorrent:
                 with patch("module.api.v1.bangumi.create_downloader") as mock_dl:
                     mock_t = AsyncMock()
                     mock_t_cls.return_value = mock_t
+                    mock_t.is_excluded = MagicMock(return_value=False)
                     torrent = MagicMock()
                     torrent.id = 1
                     torrent.name = "Test"
