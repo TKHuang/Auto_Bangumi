@@ -24,8 +24,8 @@ from tests.test_e2e.conftest import (
 class TestIssue1And2And15_YearMissing:
     """Issues 1, 2, 15: Auto-created bangumi from aggregate RSS have year=None.
 
-    _auto_create_bangumi (rss_engine.py) never includes "year" in the create
-    dict, and gen_save_path is called without year. This causes save_path to
+    The live RSS pipeline (services/pipeline/rss_pipeline.py) never sets
+    "year" on auto-created bangumi, and gen_save_path is called without year. This causes save_path to
     lack the year suffix that manual adds include.
 
     See: dataflow-sync-issues.md Issues 1, 2, 15
@@ -42,7 +42,7 @@ class TestIssue1And2And15_YearMissing:
         rss_resp = get_all_rss(client)
         rss_id = rss_resp.json()[0]["id"]
 
-        # Refresh to trigger auto-creation via _auto_create_bangumi
+        # Refresh to trigger auto-creation via the live RSS pipeline
         client.post(f"/api/v1/rss/refresh/{rss_id}")
 
         bangumi_resp = get_all_bangumi(client)
@@ -93,7 +93,7 @@ class TestIssue1And2And15_YearMissing:
 class TestIssue4_UndownloadedNeverRetried:
     """Issue 4: Existing un-downloaded torrents never retried during refresh.
 
-    In rss_engine.py refresh_rss, the download loop only runs when
+    Found in the removed RSSEngine.refresh_rss: the download loop only ran when
     inserted_count > 0. If all torrents already exist in DB (inserted_count=0),
     the download loop is skipped entirely, including torrents with
     downloaded=False.
