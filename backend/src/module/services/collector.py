@@ -8,6 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf import settings
 from module.conf.const import MIKAN_SEASON_RSS_PATTERN
+from module.domain.bangumi_view import (
+    effective_poster,
+    effective_save_path,
+    effective_season,
+    effective_title,
+)
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import Torrent
 from module.domain.value_objects import ResponseModel, gen_save_path
@@ -20,31 +26,6 @@ from module.services.identity_resolver import resolve_series_for_rss
 from module.services.rss_engine import RSSEngine
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_title(data) -> str:
-    """Extract canonical title from an ORM Bangumi or a Pydantic Bangumi DTO."""
-    series = getattr(data, "series", None)
-    if series is not None:
-        return series.canonical_title or ""
-    # Pydantic DTO path: has official_title directly
-    return getattr(data, "official_title", "") or ""
-
-
-def _resolve_season(data) -> int:
-    """Extract season from an ORM Bangumi or a Pydantic Bangumi DTO."""
-    series = getattr(data, "series", None)
-    if series is not None:
-        return series.season if series.season is not None else 1
-    return getattr(data, "season", 1) or 1
-
-
-def _resolve_poster(data) -> str | None:
-    """Extract poster URL from an ORM Bangumi or a Pydantic Bangumi DTO."""
-    series = getattr(data, "series", None)
-    if series is not None:
-        return series.poster_url
-    return getattr(data, "poster_link", None)
 
 
 def _is_mikan_season_rss(rss_link: str) -> bool:
@@ -85,8 +66,8 @@ class SeasonCollectorService:
         Returns:
             ResponseModel with collection status
         """
-        _title = _resolve_title(bangumi)
-        _season = _resolve_season(bangumi)
+        _title = effective_title(bangumi)
+        _season = effective_season(bangumi)
         logger.info(f"Start collecting {_title} Season {_season}...")
 
         bangumi_repo = BangumiRepository(session)
@@ -183,18 +164,7 @@ class SeasonCollectorService:
         all_torrents_to_add = new_torrents + already_in_qb_torrents
         await torrent_repo.add_all_or_ignore(all_torrents_to_add)
 
-        from pathlib import PurePosixPath
-        _b_series = getattr(bangumi, "series", None)
-        _series_root = _b_series.root_path if _b_series is not None else None
-        _path_override = getattr(bangumi, "path_override", None)
-        # Fall back to Pydantic save_path if no ORM series
-        _pydantic_save_path = getattr(bangumi, "save_path", None) if _b_series is None else None
-        _full_save_path = (
-            _path_override
-            or (str(PurePosixPath(_series_root) / f"Season {_season}") if _series_root else None)
-            or _pydantic_save_path
-        )
-        save_path = _full_save_path or gen_save_path(
+        save_path = effective_save_path(bangumi) or gen_save_path(
             settings.downloader.path, _title, _season,
         )
 
@@ -293,9 +263,9 @@ class SeasonCollectorService:
         rss_repo = RSSRepository(session)
 
         # Resolve series-level display fields (works for both ORM and Pydantic DTO).
-        _data_title = _resolve_title(data)
-        _data_season = _resolve_season(data)
-        _data_poster = _resolve_poster(data)
+        _data_title = effective_title(data)
+        _data_season = effective_season(data)
+        _data_poster = effective_poster(data)
 
         successfully_added_hashes: list[str] = []
 
@@ -407,7 +377,7 @@ class SeasonCollectorService:
                         if db_torrents:
                             hash_list = [t.hash for t in db_torrents if t.hash]
                             if hash_list:
-                                _existing_title = bangumi.series.canonical_title if bangumi.series is not None else ""
+                                _existing_title = effective_title(bangumi)
                                 hashes_to_delete_from_downloader.append(
                                     (hash_list, _existing_title)
                                 )
@@ -598,7 +568,7 @@ class SeasonCollectorService:
                     if db_torrents:
                         hash_list = [t.hash for t in db_torrents if t.hash]
                         if hash_list:
-                            _b_title = bangumi.series.canonical_title if bangumi.series is not None else ""
+                            _b_title = effective_title(bangumi)
                             hashes_to_delete_from_downloader.append(
                                 (hash_list, _b_title)
                             )
@@ -622,9 +592,9 @@ class SeasonCollectorService:
             seen_identities: set[tuple[int, int | None]] = set()
 
             for index, data in enumerate(bangumi_list):
-                _d_title = _resolve_title(data)
-                _d_season = _resolve_season(data)
-                _d_poster = _resolve_poster(data)
+                _d_title = effective_title(data)
+                _d_season = effective_season(data)
+                _d_poster = effective_poster(data)
                 selection = (
                     torrent_selections[index]
                     if torrent_selections and index < len(torrent_selections)

@@ -13,6 +13,12 @@ from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.concurrency.activation_lock import try_acquire_bangumi_activation_lock
 from module.concurrency.rename_lock import rename_lock_guard
 from module.database.engine import get_db_session
+from module.domain.bangumi_view import (
+    effective_poster,
+    effective_save_path,
+    effective_season,
+    effective_title,
+)
 from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
 from module.repositories.bangumi import BangumiRepository
@@ -32,24 +38,6 @@ def _gen_save_path(data) -> str:
     return gen_save_path(settings.downloader.path, data.official_title, data.season, getattr(data, "year", None))
 
 
-def _orm_title(bangumi) -> str:
-    """Extract display title from an ORM Bangumi (reads through series relationship)."""
-    _series = getattr(bangumi, "series", None)
-    if _series is not None:
-        return _series.canonical_title or ""
-    return ""
-
-
-def _bangumi_save_path(bangumi) -> Optional[str]:
-    """Compute full per-season save path from ORM Bangumi."""
-    if bangumi.path_override:
-        return bangumi.path_override
-    if bangumi.series is None:
-        return None
-    from pathlib import PurePosixPath
-    return str(PurePosixPath(bangumi.series.root_path) / f"Season {bangumi.series.season}")
-
-
 def _poster_needs_refresh(bangumi) -> bool:
     """Return True when a bangumi poster should be refreshed.
 
@@ -62,7 +50,7 @@ def _poster_needs_refresh(bangumi) -> bool:
     own origin and 404s. Only a present `posters/*` cache file or a full
     `http(s)://` URL renders, so anything else needs a refresh.
     """
-    poster = bangumi.series.poster_url if bangumi.series is not None else None
+    poster = effective_poster(bangumi)
     if not poster:
         return True
     if isinstance(poster, str) and poster.startswith("posters/"):
@@ -80,7 +68,7 @@ def _is_mikan_season_rss(rss_link: str) -> bool:
 
 
 async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
-    _sp = _bangumi_save_path(bangumi)
+    _sp = effective_save_path(bangumi)
     torrents = await downloader.torrents_info(status_filter=None)
     matched = [t.hash for t in torrents if t.save_path == _sp]
     if not matched and bangumi.id:
@@ -208,8 +196,8 @@ async def update_rule(
                 },
             )
 
-        _old_season = old_data.series.season if old_data.series is not None else 1
-        _old_title = old_data.series.canonical_title if old_data.series is not None else ""
+        _old_season = effective_season(old_data)
+        _old_title = effective_title(old_data)
         rename_fields_changed = (
             _old_season != data.season or _old_title != data.official_title
         )
@@ -262,7 +250,7 @@ async def update_rule(
 
         msg_suffix_en = f" (renamed {renamed_count} files)" if renamed_count else ""
         msg_suffix_zh = f"（重命名了 {renamed_count} 个文件）" if renamed_count else ""
-        _title = _orm_title(old_data)
+        _title = effective_title(old_data)
         return JSONResponse(
             status_code=200,
             content={
@@ -287,7 +275,7 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
-    _title = _orm_title(data)
+    _title = effective_title(data)
     torrent_msg_en = ""
     torrent_msg_zh = ""
     if file:
@@ -360,7 +348,7 @@ async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSessio
     await bangumi_repo.update_simple(bangumi_id, {"deleted": True})
     await session.commit()
 
-    _title = _orm_title(data)
+    _title = effective_title(data)
     if file:
         downloader = create_downloader(settings, session)
         hash_list = await _match_torrents_list(downloader, torrent_repo, data)
@@ -428,7 +416,7 @@ async def enable_rule(bangumi_id: int, session: AsyncSession = Depends(get_db_se
     await bangumi_repo.update_simple(bangumi_id, {"deleted": False})
     await session.commit()
 
-    _title = _orm_title(data)
+    _title = effective_title(data)
     return JSONResponse(
         status_code=200,
         content={"msg_en": f"Enable rule for {_title}", "msg_zh": f"启用 {_title} 规则"},
@@ -605,7 +593,7 @@ async def download_torrent(torrent_id: int = Query(...), session: AsyncSession =
         )
 
     downloader = create_downloader(settings, session)
-    _redl_sp = _bangumi_save_path(bangumi)
+    _redl_sp = effective_save_path(bangumi)
     save_path_before = _redl_sp
 
     if torrent.hash:
@@ -800,7 +788,7 @@ async def list_rename_conflicts(
             continue
         b = await bangumi_repo.get_by_id(row.bangumi_id)
         if b is not None:
-            bangumi_titles[row.bangumi_id] = _orm_title(b) or ""
+            bangumi_titles[row.bangumi_id] = effective_title(b) or ""
 
     return JSONResponse(
         status_code=200,
@@ -883,7 +871,7 @@ async def backfill_source(bangumi_id: int, session: AsyncSession = Depends(get_d
     result = await AsyncRSSEngine.download_bangumi(session, downloader, bangumi_id)
     count = result.get("count", 0) if isinstance(result, dict) else 0
     message = result.get("message", "") if isinstance(result, dict) else str(result)
-    title = _orm_title(bangumi)
+    title = effective_title(bangumi)
 
     if isinstance(result, dict) and result.get("status"):
         return JSONResponse(

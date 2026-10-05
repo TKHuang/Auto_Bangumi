@@ -22,6 +22,11 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from module.domain.bangumi_view import (
+    effective_save_path,
+    effective_season,
+    effective_title,
+)
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.merge_history import BangumiMergeHistory
 from module.domain.models.torrent import Torrent, TorrentState
@@ -31,15 +36,9 @@ from module.repositories.torrent import TorrentRepository
 
 
 def _serialize_bangumi(b: Bangumi) -> dict:
-    from pathlib import PurePosixPath
-    _series = b.series
-    _title = _series.canonical_title if _series is not None else None
-    _season = _series.season if _series is not None else 1
-    _root = _series.root_path if _series is not None else None
-    _save_path = (
-        b.path_override
-        or (str(PurePosixPath(_root) / f"Season {_season}") if _root else None)
-    )
+    _title = effective_title(b, default=None)
+    _season = effective_season(b)
+    _save_path = effective_save_path(b)
     return {
         "id": b.id,
         "rss_id": b.rss_id,

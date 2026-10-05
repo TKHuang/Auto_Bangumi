@@ -1,4 +1,5 @@
 """API contract tests for RSS endpoints."""
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -811,6 +812,47 @@ class TestGetAggregatePending:
                 assert "pending_count" in data
                 assert "active_count" in data
                 assert "bangumi" in data
+
+    @pytest.mark.asyncio
+    async def test_get_aggregate_pending_fields_use_series(self, client):
+        """Display fields come from the series; no series gives None/1."""
+        mock_rss = _mock_rss_obj(id=1, aggregate=True)
+        columns = dict(
+            rss_id=1, pending_review=True, global_filter_matches="1080p, WEB",
+            group_name="Group", dpi="1080p", source="WEB", subtitle="CHT",
+            filter="", rss_link="https://example.com/rss",
+        )
+        with_series = SimpleNamespace(
+            id=1,
+            series=SimpleNamespace(
+                canonical_title="Frieren", year=2023, season=2,
+                poster_url="posters/f.jpg",
+            ),
+            **columns,
+        )
+        without_series = SimpleNamespace(id=2, series=None, **columns)
+
+        with patch("module.api.v1.rss.RSSRepository") as mock_r_cls, \
+             patch("module.api.v1.rss.BangumiRepository") as mock_b_cls:
+            mock_r = AsyncMock()
+            mock_r_cls.return_value = mock_r
+            mock_r.get_by_id.return_value = mock_rss
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_pending_review.return_value = [with_series, without_series]
+            mock_b.count_active_by_rss_id.return_value = 0
+
+            response = client.get("/api/v1/rss/aggregate/pending/1")
+
+        assert response.status_code == 200
+        first, second = response.json()["bangumi"]
+        assert (first["official_title"], first["year"], first["season"], first["poster_link"]) == (
+            "Frieren", 2023, 2, "posters/f.jpg"
+        )
+        assert first["global_filter_matches"] == ["1080p", "WEB"]
+        assert (second["official_title"], second["year"], second["season"], second["poster_link"]) == (
+            None, None, 1, None
+        )
 
     @pytest.mark.asyncio
     async def test_get_aggregate_pending_not_aggregate(self, client):
