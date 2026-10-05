@@ -269,6 +269,36 @@ class TorrentRepository:
         result = await self.session.execute(self._unrenamed_base_stmt())
         return list(result.scalars().all())
 
+    async def get_downloadable(self) -> list[Torrent]:
+        """Torrents to send to the downloader now.
+
+        Not downloaded, not EXCLUDED, with a URL, and owned by an active,
+        non-deleted, non-pending-review bangumi.
+        """
+        from module.domain.models.bangumi import Bangumi
+        stmt = (
+            select(Torrent)
+            .join(Bangumi, Bangumi.id == Torrent.bangumi_id)
+            .where(
+                and_(
+                    Torrent.downloaded == False,  # noqa: E712
+                    Torrent.state != TorrentState.EXCLUDED,
+                    Torrent.bangumi_id.is_not(None),
+                    Torrent.url.is_not(None),
+                    Torrent.url != "",
+                    Bangumi.active == True,  # noqa: E712
+                    Bangumi.deleted == False,  # noqa: E712
+                    Bangumi.pending_review == False,  # noqa: E712
+                )
+            )
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    def is_excluded(torrent: Torrent) -> bool:
+        return torrent.state == TorrentState.EXCLUDED
+
     async def mark_renamed(
         self, id: int, file_count: int, cloud_path: Optional[str] = None
     ) -> Torrent:
