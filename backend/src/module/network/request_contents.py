@@ -71,7 +71,6 @@ class RequestContent(RequestURL):
         self,
         _url: str,
         _filter: str = None,
-        title_raw: str = None,
         retry: int = 3,
     ) -> list[dict]:
         """Get torrents from RSS with optional filtering.
@@ -79,7 +78,6 @@ class RequestContent(RequestURL):
         Args:
             _url: RSS URL to fetch torrents from
             _filter: Regex pattern to exclude torrents (mark as filtered=True)
-            title_raw: If provided, only include torrents that parse to this title_raw
             retry: Number of retries for network requests
         """
         soup = self.get_xml(_url, retry)
@@ -89,35 +87,9 @@ class RequestContent(RequestURL):
             
             _filter = self._get_filter(_filter)
             
-            # Lazy import to avoid circular dependency
-            raw_parser = None
-            BangumiParsingError = None
-            if title_raw:
-                from module.domain.value_objects import BangumiParsingError
-                from module.domain.parser.title_parser import TitleParser
-                raw_parser = TitleParser()
-
             for _title, torrent_url, homepage in zip(
                 torrent_titles, torrent_urls, torrent_homepage
             ):
-                # If title_raw is specified, filter to only matching torrents
-                if title_raw and raw_parser:
-                    try:
-                        parsed = raw_parser.raw_parser(_title)
-                        if not parsed:
-                            continue
-                        # Use substring matching instead of strict equality
-                        # Different subgroups format titles differently, e.g.:
-                        #   "Modaete yo, Adam-kun (BDRip 1080p HEVC FLAC)" vs "Modaete yo, Adam-kun"
-                        # If either title contains the other, consider it a match
-                        _parsed_title_raw = parsed.title_raw or ""
-                        if title_raw not in _parsed_title_raw and _parsed_title_raw not in title_raw:
-                            continue
-                    except BangumiParsingError:
-                        # Unparseable torrents cannot be filtered by title_raw - skip them
-                        # This follows the established pattern in test_rss_parsing_integration.py
-                        continue
-                
                 filtered = False
                 if _filter and re.search(_filter, _title, re.IGNORECASE):
                     filtered = True
