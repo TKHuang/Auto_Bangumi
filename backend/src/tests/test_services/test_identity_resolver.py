@@ -289,3 +289,30 @@ class TestFindConflictingMikanSubscription:
             db_session, rss_link=alias.replace("subgroupid=1", "subgroupid=2"),
             exclude_rss_id=None,
         ) is None
+
+    @pytest.mark.parametrize("rss1_column", [None, 1])
+    async def test_self_match_does_not_hide_other_rss_conflict(self, db_session, rss1_column):
+        """RSS 1 (column or pre-upgrade row) and pre-upgrade RSS 2 share show + group."""
+        from module.repositories.bangumi import BangumiRepository
+        from module.services.identity_resolver import find_conflicting_mikan_subscription
+
+        series = await SeriesRepository(db_session).create({
+            "mikan_bangumi_id": 100, "canonical_title": "Show A",
+            "normalized_title": "show a", "season": 1, "root_path": "/downloads/Show A",
+        })
+        repo = BangumiRepository(db_session)
+        await repo.create({
+            "series_id": series.id, "group_name": "G", "rss_link": self.LINK,
+            "rss_id": 1, "mikan_subgroup_id": rss1_column,
+        })
+        await repo.create({
+            "series_id": series.id, "group_name": "G",
+            "rss_link": self.LINK.replace("mikanani.me", "mikanime.tv"), "rss_id": 2,
+        })
+        await db_session.commit()
+        db_session.expire_all()
+
+        hit = await find_conflicting_mikan_subscription(
+            db_session, rss_link=self.LINK, exclude_rss_id=1
+        )
+        assert hit is not None and hit.rss_id == 2
