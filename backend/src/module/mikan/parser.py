@@ -79,6 +79,19 @@ def _find_ids(html: str) -> Optional[tuple[int, int]]:
     return None
 
 
+def parse_mikan_title_and_poster(html: str) -> tuple[Optional[str], Optional[str]]:
+    """Return (title, raw poster URL) from a Mikan page, even without ids."""
+    title_match = _TITLE.search(html or "")
+    title = (
+        html_module.unescape(title_match.group(1)).strip()
+        if title_match
+        else None
+    )
+    poster_match = _POSTER.search(html or "")
+    poster = poster_match.group(1) if poster_match else None
+    return title, poster
+
+
 def parse_mikan_page(html: str) -> Optional[MikanRef]:
     """Parse a Mikan episode page. Returns None if no (bangumi_id, subgroup_id)
     can be extracted via any of the three tiers."""
@@ -90,16 +103,7 @@ def parse_mikan_page(html: str) -> Optional[MikanRef]:
         return None
     bid, sid = ids
 
-    title_match = _TITLE.search(html)
-    title = (
-        html_module.unescape(title_match.group(1)).strip()
-        if title_match
-        else None
-    )
-
-    poster_match = _POSTER.search(html)
-    poster = poster_match.group(1) if poster_match else None
-
+    title, poster = parse_mikan_title_and_poster(html)
     return MikanRef(
         mikan_bangumi_id=bid,
         mikan_subgroup_id=sid,

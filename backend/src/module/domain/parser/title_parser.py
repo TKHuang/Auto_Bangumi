@@ -1,19 +1,36 @@
 import logging
+from dataclasses import dataclass
+from typing import Optional
+
+from urllib3.util import parse_url
 
 from module.conf import settings
+from module.mikan.parser import (
+    build_season_rss_url,
+    parse_mikan_page,
+    parse_mikan_title_and_poster,
+)
 from module.models import Bangumi
+from module.network import RequestContent
+from module.utils import save_image
 from module.domain.value_objects import BangumiParsingError, Episode
 from module.domain.parser.analyser import (
-    MikanParserResult,
     OpenAIParser,
-    mikan_parser,
-    mikan_parser_with_rss,
     raw_parser,
     tmdb_parser,
     torrent_parser,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MikanParserResult:
+    """Result from parsing a Mikan episode page."""
+
+    poster_link: str
+    official_title: str
+    season_rss_link: Optional[str] = None
 
 
 class TitleParser:
@@ -111,25 +128,34 @@ class TitleParser:
             return None
 
     @staticmethod
-    def mikan_parser(homepage: str) -> tuple[str, str]:
-        """Parse Mikan episode page for poster and title.
-
-        Args:
-            homepage: URL of the Mikan episode page.
-
-        Returns:
-            Tuple of (poster_link, official_title).
-        """
-        return mikan_parser(homepage)
-
-    @staticmethod
     def mikan_parser_with_rss(homepage: str) -> MikanParserResult:
-        """Parse Mikan episode page for poster, title, and season RSS link.
+        """Fetch a Mikan episode page; return poster, title and season RSS link.
 
-        Args:
-            homepage: URL of the Mikan episode page.
-
-        Returns:
-            MikanParserResult containing poster_link, official_title, and season_rss_link.
+        The poster is downloaded and cached; ``poster_link`` is its local path.
+        Never raises on an unknown page: missing parts come back empty.
         """
-        return mikan_parser_with_rss(homepage)
+        parsed_url = parse_url(homepage)
+        base_url = f"{parsed_url.scheme or 'https'}://{parsed_url.host}"
+
+        with RequestContent() as req:
+            html = req.get_html(homepage)
+            title, poster_path = parse_mikan_title_and_poster(html)
+
+            poster_link = ""
+            if poster_path:
+                poster_path = poster_path.split("?")[0]
+                img = req.get_content(f"{base_url}{poster_path}")
+                poster_link = save_image(img, poster_path.split(".")[-1])
+
+        season_rss_link = None
+        ref = parse_mikan_page(html)
+        if ref and ref.mikan_bangumi_id > 0 and ref.mikan_subgroup_id > 0:
+            season_rss_link = build_season_rss_url(
+                ref.mikan_bangumi_id, ref.mikan_subgroup_id, base_url=base_url
+            )
+
+        return MikanParserResult(
+            poster_link=poster_link,
+            official_title=title or "",
+            season_rss_link=season_rss_link,
+        )

@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from module.domain.value_objects import BangumiParsingError
-from module.domain.parser.analyser.mikan_parser import MikanParserResult
+from module.domain.parser.title_parser import MikanParserResult
 from module.models import Bangumi, RSSItem, Torrent
 from module.rss.analyser import RSSAnalyser
 
