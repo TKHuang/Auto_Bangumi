@@ -122,6 +122,20 @@ class ParsedBangumi:
 # ==================== Torrent File Models ====================
 
 
+MEDIA_EXTENSIONS: tuple[str, ...] = (
+    ".mkv",
+    ".mp4",
+    ".avi",
+    ".wmv",
+    ".webm",
+    ".flv",
+    ".mov",
+    ".ts",
+    ".m2ts",
+)
+SUBTITLE_EXTENSIONS: tuple[str, ...] = (".ass", ".ssa", ".srt", ".sub", ".vtt")
+
+
 class EpisodeFile(BaseModel):
     media_path: str = Field(...)
     group: str | None = Field(None)
