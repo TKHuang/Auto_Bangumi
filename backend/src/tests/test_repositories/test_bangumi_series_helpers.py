@@ -50,6 +50,20 @@ async def test_get_by_series_and_subgroup_finds_match(db_session):
 
 
 @pytest.mark.integration
+async def test_get_by_series_and_subgroup_eager_loads_series(db_session):
+    repo = BangumiRepository(db_session)
+    s = await _seed_series(db_session, mikan_bangumi_id=3, canonical_title="Eager")
+    series_id = s.id
+    await _seed_bangumi(db_session, series_id=series_id, mikan_subgroup_id=5)
+    await db_session.commit()
+    db_session.expire_all()
+
+    hit = await repo.get_by_series_and_subgroup(series_id, 5)
+    # Plain attribute read: no lazy load under AsyncSession.
+    assert hit.series.canonical_title == "Eager"
+
+
+@pytest.mark.integration
 async def test_get_by_series_and_subgroup_excludes_deleted(db_session):
     repo = BangumiRepository(db_session)
     s = await _seed_series(db_session, mikan_bangumi_id=2)
