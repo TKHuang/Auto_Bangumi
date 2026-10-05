@@ -22,7 +22,10 @@ from module.repositories.bangumi import BangumiRepository
 from module.repositories.rss import RSSRepository
 from module.repositories.torrent import TorrentRepository
 from module.services.downloader.interface import DownloaderProtocol
-from module.services.identity_resolver import resolve_series_for_rss
+from module.services.identity_resolver import (
+    find_conflicting_mikan_subscription,
+    resolve_series_for_rss,
+)
 from module.services.rss_engine import RSSEngine
 
 logger = logging.getLogger(__name__)
@@ -334,8 +337,8 @@ class SeasonCollectorService:
             _, _mikan_subgroup_id = extract_mikan_ids_from_rss(data.rss_link)
             existing_active: Optional[Bangumi] = None
             if _mikan_subgroup_id is not None:
-                existing_active = await bangumi_repo.get_by_series_and_subgroup(
-                    _series_id, _mikan_subgroup_id
+                existing_active = await find_conflicting_mikan_subscription(
+                    session, rss_link=data.rss_link, exclude_rss_id=data.rss_id
                 )
             else:
                 existing_active = await bangumi_repo.get_by_series_and_rss(

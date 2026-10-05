@@ -395,7 +395,7 @@ class BangumiRepository:
         self, series_id: int, mikan_subgroup_id: int
     ) -> Optional[Bangumi]:
         """Identity lookup for Mikan-sourced bangumi (spec §6.2 partial UNIQUE)."""
-        stmt = select(Bangumi).where(
+        stmt = select(Bangumi).options(selectinload(Bangumi.series)).where(
             and_(
                 Bangumi.series_id == series_id,
                 Bangumi.mikan_subgroup_id == mikan_subgroup_id,

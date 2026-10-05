@@ -362,6 +362,44 @@ class TestSubscribeSeason:
         assert isinstance(result, ResponseModel)
 
     @pytest.mark.asyncio
+    async def test_subscribe_season_rejects_mikan_conflict_from_different_rss(
+        self, async_session, mock_downloader
+    ):
+        """Same Mikan show + fansub group already subscribed from another RSS → reject."""
+        from module.repositories.bangumi import BangumiRepository
+        from module.repositories.rss import RSSRepository
+
+        mikan_link = "https://mikanani.me/RSS/Bangumi?bangumiId=100&subgroupid=1"
+        series = await _add_series(async_session, "Mikan Anime")
+        series.mikan_bangumi_id = 100
+        rss_repo = RSSRepository(async_session)
+        rss1 = await rss_repo.create({
+            "name": "RSS 1", "url": mikan_link, "aggregate": False,
+            "parser": "mikan", "enabled": True,
+        })
+        rss2 = await rss_repo.create({
+            "name": "RSS 2", "url": mikan_link + "&x=2", "aggregate": False,
+            "parser": "mikan", "enabled": True,
+        })
+        await BangumiRepository(async_session).create({
+            "group_name": "G", "series_id": series.id, "rss_link": mikan_link,
+            "rss_id": rss1.id, "mikan_subgroup_id": 1, "filter": "",
+            "eps_collect": False, "offset": 0, "added": True,
+            "deleted": False, "pending_review": False,
+        })
+        await async_session.commit()
+
+        new_bangumi = Bangumi(
+            group_name="G", rss_link=mikan_link, rss_id=rss2.id, filter="", offset=0,
+        )
+        new_bangumi.series = series
+
+        with pytest.raises(ValueError, match="already subscribed"):
+            await SeasonCollectorService.subscribe_season(
+                async_session, mock_downloader, new_bangumi, parser="mikan"
+            )
+
+    @pytest.mark.asyncio
     async def test_subscribe_season_recreate_same_rss(
         self, async_session, mock_downloader
     ):

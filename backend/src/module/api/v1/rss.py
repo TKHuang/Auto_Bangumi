@@ -27,7 +27,11 @@ from module.repositories.series import SeriesRepository
 from module.repositories.torrent import TorrentRepository
 from module.services.collector import SeasonCollectorService
 from module.services.downloader.factory import create_downloader
-from module.services.identity_resolver import resolve_series_for_rss
+from module.mikan.parser import extract_mikan_ids_from_rss
+from module.services.identity_resolver import (
+    find_conflicting_mikan_subscription,
+    resolve_series_for_rss,
+)
 from module.network.request_contents import RequestContent
 from module.services.rss_engine import RSSEngine as AsyncRSSEngine
 from module.services.search_adapter import AsyncRSSAnalyserAdapter
@@ -93,7 +97,24 @@ async def add_rss(
             if isinstance(data, ResponseModel) and not data.status:
                 return u_response(data)
 
-            if isinstance(data, Bangumi) and not official_title:
+            _, _mikan_subgroup_id = extract_mikan_ids_from_rss(
+                data.rss_link if isinstance(data, Bangumi) else None
+            )
+
+            if _mikan_subgroup_id is not None:
+                # Same rule as subscribe_season: same show + fansub group.
+                conflict = await find_conflicting_mikan_subscription(
+                    session, rss_link=data.rss_link, exclude_rss_id=None
+                )
+                if conflict is not None:
+                    _conflict_title = effective_title(conflict)
+                    return u_response(ResponseModel(
+                        status=False,
+                        status_code=409,
+                        msg_en=f"This RSS link is already subscribed in bangumi '{_conflict_title}'.",
+                        msg_zh=f"此 RSS 链接已在番剧「{_conflict_title}」中訂閱。",
+                    ))
+            elif isinstance(data, Bangumi) and not official_title:
                 existing_series = await SeriesRepository(session).find_by_canonical_title(
                     data.official_title
                 )
@@ -151,6 +172,7 @@ async def add_rss(
                     "subtitle": data.subtitle,
                     "rss_link": data.rss_link,
                     "rss_id": new_rss.id,
+                    "mikan_subgroup_id": _mikan_subgroup_id,
                     "filter": data.filter or "",
                     "eps_collect": False,
                     "offset": data.offset,
