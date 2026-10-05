@@ -263,3 +263,29 @@ class TestFindConflictingMikanSubscription:
             db_session, rss_link=self.LINK.replace("subgroupid=1", "subgroupid=2"),
             exclude_rss_id=None,
         ) is None
+
+    async def test_old_row_without_subgroup_column_is_conflict(self, db_session):
+        """add_rss before A-004 stored no mikan_subgroup_id; the link still has it."""
+        from module.repositories.bangumi import BangumiRepository
+        from module.services.identity_resolver import find_conflicting_mikan_subscription
+
+        series = await SeriesRepository(db_session).create({
+            "mikan_bangumi_id": 100, "canonical_title": "Show A",
+            "normalized_title": "show a", "season": 1, "root_path": "/downloads/Show A",
+        })
+        await BangumiRepository(db_session).create({
+            "series_id": series.id, "group_name": "G", "rss_link": self.LINK, "rss_id": 7,
+        })
+        await db_session.commit()
+        db_session.expire_all()
+
+        alias = self.LINK.replace("mikanani.me", "mikanime.tv")
+        hit = await find_conflicting_mikan_subscription(
+            db_session, rss_link=alias, exclude_rss_id=None
+        )
+        assert hit is not None
+        assert hit.series.canonical_title == "Show A"
+        assert await find_conflicting_mikan_subscription(
+            db_session, rss_link=alias.replace("subgroupid=1", "subgroupid=2"),
+            exclude_rss_id=None,
+        ) is None

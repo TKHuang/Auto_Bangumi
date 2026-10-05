@@ -709,6 +709,70 @@ class TestRenameAll:
         assert torrent.renamed_file_count == 2
 
     @pytest.mark.asyncio
+    async def test_rename_all_handles_all_known_extensions(self, db_session):
+        """Every media and subtitle extension is classified and renamed."""
+        from module.domain.value_objects import MEDIA_EXTENSIONS, SUBTITLE_EXTENSIONS
+
+        torrent_hash = "e" * 40
+        root = "[Group] Show"
+        media = {
+            f"{root}/[Group] Show - {i:02d} [1080p]{ext}": 100 + i
+            for i, ext in enumerate(MEDIA_EXTENSIONS, start=1)
+        }
+        subtitles = {
+            f"{root}/[Group] Show - {i:02d} [1080p].chs{ext}": 10
+            for i, ext in enumerate(SUBTITLE_EXTENSIONS, start=1)
+        }
+        other = {f"{root}/readme.txt": 1}
+
+        series = await _add_series(db_session, title="Show", root_path="Bangumi/Show")
+        bangumi = Bangumi(series_id=series.id, group_name="Group")
+        db_session.add(bangumi)
+        await db_session.flush()
+        torrent = Torrent(
+            bangumi_id=bangumi.id, name=root, url="https://example.com/all.torrent",
+            hash=torrent_hash, state=TorrentState.COMPLETED, downloaded=True,
+            renamed_at=None,
+        )
+        db_session.add(torrent)
+        await db_session.flush()
+
+        class FakeDownloader:
+            def __init__(self):
+                self.files = {**media, **subtitles, **other}
+
+            async def torrents_info(self, **_kwargs):
+                return [
+                    TorrentInfo(
+                        hash=torrent_hash, name=root, state="completed", progress=1.0,
+                        save_path="Bangumi/Show/Season 1",
+                        size=sum(self.files.values()),
+                        files=[
+                            TorrentFile(name=path, size=size, path=path)
+                            for path, size in self.files.items()
+                        ],
+                    )
+                ]
+
+            async def torrents_rename_file(self, _hash, old_path, new_path):
+                if old_path not in self.files or new_path in self.files:
+                    return RenameOutcome.CONFLICT
+                self.files[new_path] = self.files.pop(old_path)
+                return RenameOutcome.OK
+
+        downloader = FakeDownloader()
+        result = await RenamerService(db_session, rename_method="advance").rename_all(
+            downloader
+        )
+
+        assert result == [{"torrent_id": torrent.id, "file_count": len(MEDIA_EXTENSIONS)}]
+        # No media or subtitle file keeps its source name; other files are untouched.
+        assert not (set(media) | set(subtitles)) & set(downloader.files)
+        assert set(other) <= set(downloader.files)
+        for ext in MEDIA_EXTENSIONS + SUBTITLE_EXTENSIONS:
+            assert any(path.endswith(ext) for path in downloader.files), ext
+
+    @pytest.mark.asyncio
     async def test_rename_all_success(
         self, db_session, mock_downloader, mock_parser
     ):

@@ -156,9 +156,18 @@ async def find_conflicting_mikan_subscription(
     series = await SeriesRepository(session).get_by_mikan_id(mikan_bangumi_id)
     if series is None:
         return None
-    existing = await BangumiRepository(session).get_by_series_and_subgroup(
-        series.id, mikan_subgroup_id
-    )
+    bangumi_repo = BangumiRepository(session)
+    existing = await bangumi_repo.get_by_series_and_subgroup(series.id, mikan_subgroup_id)
+    if existing is None:
+        # Rows from the old add_rss have no mikan_subgroup_id; read it from the link.
+        existing = next(
+            (
+                b for b in await bangumi_repo.list_by_series(series.id)
+                if b.mikan_subgroup_id is None
+                and extract_mikan_ids_from_rss(b.rss_link)[1] == mikan_subgroup_id
+            ),
+            None,
+        )
     if existing is not None and existing.rss_id != exclude_rss_id:
         return existing
     return None

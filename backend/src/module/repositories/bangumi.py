@@ -448,7 +448,7 @@ class BangumiRepository:
         return result.scalar_one_or_none()
 
     async def list_by_series(self, series_id: int) -> list[Bangumi]:
-        stmt = select(Bangumi).where(
+        stmt = select(Bangumi).options(selectinload(Bangumi.series)).where(
             and_(Bangumi.series_id == series_id, Bangumi.deleted == False)
         )
         result = await self.session.execute(stmt)

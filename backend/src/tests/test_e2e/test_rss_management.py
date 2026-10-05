@@ -138,6 +138,52 @@ class TestAddRSS:
         assert "Title X" in body["msg_en"]
         assert "Title X" in body["msg_zh"]
 
+    def test_add_same_title_other_mikan_season_allowed(
+        self, authed_client, fixture_request_content
+    ):
+        client, mock_dl, token = authed_client
+
+        # Another bangumiId whose feed parses to the same title (Mikan gives
+        # each season its own bangumiId).
+        original_resolve = fixture_request_content._resolve_xml
+        fixture_request_content._resolve_xml = lambda url: original_resolve(
+            url.replace("bangumiId=9999", "bangumiId=3738")
+        )
+
+        assert add_non_aggregate_rss(client).status_code == 200
+        other_season = WILD_BOSS_RSS_URL.replace("bangumiId=3738", "bangumiId=9999")
+        resp = add_non_aggregate_rss(client, name="Wild Boss S2", url=other_season)
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("second_title", [None, "Title Y"])
+    def test_add_conflict_with_pre_upgrade_row_rejected(self, authed_client, second_title):
+        """Rows from the old add_rss have no mikan_subgroup_id column value."""
+        from sqlalchemy import text
+
+        from module.database.engine import sync_engine
+
+        client, mock_dl, token = authed_client
+
+        def _add(url, title):
+            params = {"official_title": title} if title else {}
+            return client.post(
+                "/api/v1/rss/add",
+                params=params,
+                json={
+                    "url": url, "name": title or "Wild Boss", "aggregate": False,
+                    "parser": "mikan", "enabled": True,
+                },
+            )
+
+        assert _add(WILD_BOSS_RSS_URL, "Title X" if second_title else None).status_code == 200
+        with sync_engine.begin() as conn:
+            conn.execute(text("UPDATE bangumi SET mikan_subgroup_id = NULL"))
+
+        alias = WILD_BOSS_RSS_URL.replace("mikanani.me", "mikanime.tv")
+        r = _add(alias, second_title)
+        assert r.status_code == 409
+        assert len(get_all_bangumi(client).json()) == 1
+
     def test_add_parse_error_returns_422(self, authed_client, fixture_request_content):
         client, mock_dl, token = authed_client
 
