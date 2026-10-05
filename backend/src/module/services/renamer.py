@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from module.domain.bangumi_view import (
+    effective_save_path,
+    effective_season,
+    effective_title,
+)
 from module.domain.models.bangumi import Bangumi
 from module.domain.models.torrent import RenameStatus, Torrent
 from module.domain.parser.title_parser import TitleParser
@@ -489,8 +494,8 @@ class RenamerService:
         conflict_target is a non-None target path string when a rename was
         skipped due to a collision (spec §10.3).
         """
-        _season = bangumi.series.season if bangumi.series is not None else 1
-        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _season = effective_season(bangumi)
+        _title = effective_title(bangumi)
         ep = self.parser.torrent_parser(
             torrent_name=torrent_info.name,
             torrent_path=media_path,
@@ -567,14 +572,7 @@ class RenamerService:
         Uses path_override directly when set; otherwise appends
         ``Season {season}`` to the series root_path.
         """
-        if bangumi.path_override:
-            return bangumi.path_override
-        if bangumi.series is None:
-            return None
-        from pathlib import PurePosixPath
-        return str(
-            PurePosixPath(bangumi.series.root_path) / f"Season {bangumi.series.season}"
-        )
+        return effective_save_path(bangumi)
 
     @staticmethod
     def _apply_offset(
@@ -639,8 +637,8 @@ class RenamerService:
         file inside one torrent is independently scrapable; the user will
         see both renamed entries and one stuck-on-conflict entry.
         """
-        _season = bangumi.series.season if bangumi.series is not None else 1
-        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _season = effective_season(bangumi)
+        _title = effective_title(bangumi)
         _offset = bangumi.offset or 0
         rename_plan: list[tuple[str, str]] = []
         for media_path in media_files:
@@ -766,8 +764,8 @@ class RenamerService:
         bangumi: Bangumi,
         downloader: DownloaderProtocol,
     ) -> tuple[RenameOutcome, Optional[str]]:
-        _season = bangumi.series.season if bangumi.series is not None else 1
-        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
+        _season = effective_season(bangumi)
+        _title = effective_title(bangumi)
         _offset = bangumi.offset or 0
         subtitle_method = "subtitle_" + self.rename_method
         overall = RenameOutcome.OK

@@ -9,7 +9,12 @@ from module.api.middleware.auth import get_current_user
 from module.api.response import u_response
 from module.conf import settings
 from module.database.engine import get_db_session
-from module.domain.models.bangumi import Bangumi as DomainBangumi
+from module.domain.bangumi_view import (
+    effective_poster,
+    effective_season,
+    effective_title,
+    effective_year,
+)
 from module.domain.value_objects import APIResponse, BangumiParsingError, ResponseModel
 from module.models import (
     Bangumi,
@@ -31,44 +36,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rss", tags=["rss"])
 
 analyser = AsyncRSSAnalyserAdapter()
-
-
-def _sqlmodel_to_domain_bangumi(data: Bangumi) -> DomainBangumi:
-    """Map a Pydantic Bangumi schema onto an ORM Bangumi instance.
-
-    Post-0008: official_title, season, year, save_path, poster_link are
-    read-only properties on the ORM model (delegated to Series). We skip
-    those here; callers of collect_season / subscribe_season that need
-    these values should fetch the ORM Bangumi from DB directly by id.
-
-    Fields mapped to their ORM equivalents:
-      save_path → path_override  (stored per-bangumi override)
-    Fields silently skipped (read-only properties on ORM):
-      official_title, year, season, poster_link
-    Fields dropped (no longer on ORM after 0008):
-      title_raw, season_raw
-    """
-    # Direct ORM columns safe to set
-    _DIRECT_FIELDS = frozenset({
-        "id", "rss_id", "group_name", "dpi", "source", "subtitle",
-        "eps_collect", "offset", "filter", "rss_link", "added",
-        "rule_name", "deleted", "pending_review", "global_filter_matches",
-        "active",
-    })
-    domain = DomainBangumi.__new__(DomainBangumi)
-    for field in _DIRECT_FIELDS:
-        if hasattr(data, field):
-            try:
-                setattr(domain, field, getattr(data, field))
-            except (AttributeError, TypeError):
-                pass
-    # Map save_path → path_override
-    if hasattr(data, "save_path") and data.save_path is not None:
-        try:
-            domain.path_override = data.save_path
-        except AttributeError:
-            pass
-    return domain
 
 
 def _rss_update_to_dict(data: RSSUpdate) -> dict:
@@ -737,24 +704,19 @@ async def get_pending_bangumi_list(rss_id: int, session: AsyncSession = Depends(
 
     bangumi_data = []
     for bangumi in pending_list:
-        _b_series = bangumi.series
-        _b_title = _b_series.canonical_title if _b_series is not None else None
-        _b_year = _b_series.year if _b_series is not None else None
-        _b_season = _b_series.season if _b_series is not None else 1
-        _b_poster = _b_series.poster_url if _b_series is not None else None
         bangumi_data.append({
             "id": bangumi.id,
             "rss_id": bangumi.rss_id,
-            "official_title": _b_title,
-            "year": _b_year,
-            "season": _b_season,
+            "official_title": effective_title(bangumi, default=None),
+            "year": effective_year(bangumi),
+            "season": effective_season(bangumi),
             "group_name": bangumi.group_name,
             "dpi": bangumi.dpi,
             "source": bangumi.source,
             "subtitle": bangumi.subtitle,
             "filter": bangumi.filter,
             "rss_link": bangumi.rss_link,
-            "poster_link": _b_poster,
+            "poster_link": effective_poster(bangumi),
             "pending_review": bangumi.pending_review,
             "global_filter_matches": (
                 [m.strip() for m in bangumi.global_filter_matches.split(",")]

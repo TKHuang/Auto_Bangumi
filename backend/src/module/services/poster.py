@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf.config import settings
+from module.domain.bangumi_view import effective_season, effective_title
 from module.domain.parser.title_parser import TitleParser
 from module.repositories import BangumiRepository, RSSRepository, TorrentRepository
 
@@ -100,8 +101,8 @@ class PosterService:
             logger.error(f"Bangumi not found: {bangumi_id}")
             raise ValueError(f"Bangumi not found: {bangumi_id}")
 
-        _title = bangumi.series.canonical_title if bangumi.series is not None else ""
-        _season = bangumi.series.season if bangumi.series is not None else 1
+        _title = effective_title(bangumi)
+        _season = effective_season(bangumi)
         try:
             poster_link = await self._fetch_mikan_poster(bangumi, _title)
             if not poster_link:

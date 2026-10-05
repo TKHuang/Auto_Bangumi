@@ -10,11 +10,18 @@ the flat API surface (official_title, season, year, save_path, poster_link)
 is always populated correctly even though the shims are gone from the ORM.
 """
 
-from pathlib import PurePosixPath
 from typing import Any, Optional
 
 from pydantic import model_validator
 from sqlmodel import Field, SQLModel
+
+from module.domain.bangumi_view import (
+    effective_poster,
+    effective_save_path,
+    effective_season,
+    effective_title,
+    effective_year,
+)
 
 
 def _orm_bangumi_to_flat(obj: Any) -> dict:
@@ -24,26 +31,12 @@ def _orm_bangumi_to_flat(obj: Any) -> dict:
     Only called when `obj` is not already a plain dict (i.e. it is an ORM
     object coming in via ``model_validate(orm_obj)``).
     """
-    series = getattr(obj, "series", None)
-
-    # --- identity / series-side fields ---
-    canonical_title: str = ""
-    year_val: Optional[str] = None
-    season_val: int = 1
-    poster_val: Optional[str] = None
-    save_path_val: Optional[str] = None
-
-    if series is not None:
-        canonical_title = series.canonical_title or ""
-        year_val = str(series.year) if series.year is not None else None
-        season_val = series.season if series.season is not None else 1
-        poster_val = series.poster_url
-
-    path_override = getattr(obj, "path_override", None)
-    if path_override:
-        save_path_val = path_override
-    elif series is not None and series.root_path:
-        save_path_val = str(PurePosixPath(series.root_path) / f"Season {season_val}")
+    year = effective_year(obj)
+    canonical_title = effective_title(obj)
+    year_val = str(year) if year is not None else None
+    season_val = effective_season(obj)
+    poster_val = effective_poster(obj)
+    save_path_val = effective_save_path(obj)
 
     return {
         # ORM direct columns
