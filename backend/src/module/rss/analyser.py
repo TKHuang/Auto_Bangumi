@@ -19,7 +19,7 @@ def _is_mikan_season_rss(rss_link: str) -> bool:
 
 
 def _extract_season_from_title(title: str | None) -> int | None:
-    """Mirror of ``services.rss_engine._extract_season_from_title``.
+    """Parse an explicit season marker from a title.
 
     Returns parsed season when the input carries an explicit marker, else
     ``None`` so the caller's "default to 1" branch wins.
@@ -79,9 +79,8 @@ class RSSAnalyser(TitleParser):
             group_name = torrent.name.split("★", 1)[0].strip() or group_name
 
         title = re.sub(r"[/:.\\]", " ", result.official_title)
-        # See services/rss_engine._build_pending_bangumi_from_mikan: parsing
-        # season from the Mikan-derived title prevents S2 shows from being
-        # written as S01.
+        # Parsing season from the Mikan-derived title prevents S2 shows from
+        # being written as S01.
         season_from_title = _extract_season_from_title(
             result.official_title
         ) or _extract_season_from_title(torrent.name) or 1
