@@ -116,7 +116,7 @@ class MockRequestContent:
         return []
 
     def get_torrents_with_filter(
-        self, _url: str, _filter: str = None, title_raw: str = None, retry: int = 3
+        self, _url: str, _filter: str = None, retry: int = 3
     ) -> list[dict]:
         """Delegate to real get_torrents_with_filter logic with fixture data."""
         from module.conf import settings
@@ -134,26 +134,9 @@ class MockRequestContent:
             else:
                 actual_filter = _filter.replace(",", "|")
 
-            raw_parser = None
-            BangumiParsingError = None
-            if title_raw:
-                from module.domain.value_objects import BangumiParsingError
-                from module.domain.parser.title_parser import TitleParser
-                raw_parser = TitleParser()
-
             for _title, torrent_url, homepage in zip(
                 torrent_titles, torrent_urls, torrent_homepage
             ):
-                if title_raw and raw_parser:
-                    try:
-                        parsed = raw_parser.raw_parser(_title)
-                        if not parsed:
-                            continue
-                        if title_raw not in parsed.title_raw and parsed.title_raw not in title_raw:
-                            continue
-                    except BangumiParsingError:
-                        continue
-
                 filtered = False
                 if actual_filter and re.search(actual_filter, _title, re.IGNORECASE):
                     filtered = True

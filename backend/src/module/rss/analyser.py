@@ -309,4 +309,26 @@ class RSSAnalyser(TitleParser):
                       (useful for aggregate RSS to show only torrents for a specific bangumi)
         """
         with RequestContent() as req:
-            return req.get_torrents_with_filter(rss.url, _filter, title_raw)
+            torrents = req.get_torrents_with_filter(rss.url, _filter)
+        if title_raw:
+            torrents = self._filter_by_title_raw(torrents, title_raw)
+        return torrents
+
+    def _filter_by_title_raw(self, torrents: list[dict], title_raw: str) -> list[dict]:
+        matched = []
+        for torrent in torrents:
+            try:
+                parsed = self.raw_parser(torrent["name"])
+            except BangumiParsingError:
+                # Unparseable torrents cannot be filtered by title_raw - skip them
+                continue
+            if not parsed:
+                continue
+            # Use substring matching instead of strict equality
+            # Different subgroups format titles differently, e.g.:
+            #   "Modaete yo, Adam-kun (BDRip 1080p HEVC FLAC)" vs "Modaete yo, Adam-kun"
+            # If either title contains the other, consider it a match
+            _parsed_title_raw = parsed.title_raw or ""
+            if title_raw in _parsed_title_raw or _parsed_title_raw in title_raw:
+                matched.append(torrent)
+        return matched
