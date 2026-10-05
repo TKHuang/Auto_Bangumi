@@ -8,7 +8,7 @@
 
 - **Goal:** 依已核准設計完成兩項重構並驗證外部行為不變。
 
-- **Last update:** 2026-09-06 23:43:54 Asia/Taipei.
+- **Last update:** 2026-09-06 23:43:54 +0800.
 
 - **Evidence commit:** bdba9de44c07662cc0288e332117508792e93e33.
 

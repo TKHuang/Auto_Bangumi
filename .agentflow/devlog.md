@@ -4,19 +4,19 @@ Project: Auto_Bangumi
 
 Notebook: .agentflow/devlog.md — root.
 
-Current commit: local delivery recorded in Git history.
+Current commit: A-003 design commit on refactor/backendv2, pushed.
 
-Tests/scenarios: ag.json schema validation.
+Tests/scenarios: G1 baseline 88 passed on old code; no implementation tests yet.
 
 Configuration: ag.json — schema v8; validated for claude this round.
 
-Proven: ag.json valid against Agentflow v8.4.14 template.
+Proven: design for C1-C11 written and reviewed by separate agents.
 
-Open: owner choice on 4 kept switches.
+Open: Design Go and 18 owner decisions in A-003 design.md.
 
-Next: await the owner.
+Next: owner Design Go, then implement C1-C11 in the design order.
 
-Artifacts: ag.json (uncommitted).
+Artifacts: .agentflow/artifacts/A-003-architecture-deepening/{design,tracker}.md.
 
 Archived eras: none.
 
@@ -211,5 +211,98 @@ Host gate: PASS
 ---
 
 # → Ask / A-003 (TKHuang)
+
++ <task-notification>
+  <task-id>wta3yunv4</task-id>
+  <tool-use-id>toolu_016GsqquQB5pFdhbpXwsmAqW</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/wta3yunv4.output</output-file>
+  <status>completed</status>
+  <summary>Dynamic workflow "Explore hot areas of AutoBangumi backend for deepening candidates, then adversarially verify each" completed</summary>
+  <result>[{"area":"routers","candidates":[{"title":"Poster-refresh fallback logic duplicated across two bangumi.py endpoints, diverged from the already-built PosterService","files":["backend/src/module/api/v1/bangumi.py","backend/src/module/services/poster.py"],"problem":"`refresh_poster` (bangumi.py:460-497) and `refresh_poster_by_id` (bangumi.py:500-544) each contain the identical ~35-line business rule \"try Mikan-parser-from-torrent-homepage first, fall back to tmdb_parser if that fails or is unavailable\" (both call `TitleParser().mikan_parser_with_rss`, both do the same `if not poster_fetched:` fallback to `tmdb_parser`). This is a copy-paste of the same interface decision, not two different behaviors — the only difference is iterating over all bangumi vs. one. Meanwhile `services/poster.py` already has a `PosterService` with `refresh_poster(bangumi_id)` and `refresh_all_posters()` that was clearly built to be this module's deep interface, but it implements a *different* rule (TMDB-only, no Mikan-first attempt) and is called from nowhere except its own test (`grep -rl PosterService backend/src` → only `services/poster.py` and `tests/test_services/test_poster.py`). Git history shows this is a real, recurring bug surface: commit 88dbb8cc (\"fix(poster): recover and self-heal covers when Mikan image caching fails\") had to patch `_poster_needs_refresh`, and multiple earlier commits (seen via `git log -p` hunks touching both `refresh_poster` and `refresh_poster_by_id` in the same diff) had to edit both endpoint bodies in lockstep to keep them consistent. Applying the deletion test: deleting `refresh_poster_by_id` today does not remove the Mikan/TMDB-fallback concept — it just leaves it duplicated once instead of twice, and a future poster fix again has to remember to touch both call sites (or silently drifts, as already diverged from PosterService once).","solution":"Move the Mikan-first/TMDB-fallback rule into `PosterService` as its one authoritative implementation (e.g. `refresh_poster(bangumi_id)` already exists as the per-id entry point; add the Mikan-homepage attempt before its TMDB call, and loop it for the 'all' case). Both router functions become thin: `refresh_poster_by_id` calls `PosterService(session).refresh_poster(bangumi_id)`, `refresh_poster` iterates active bangumi calling the same method (or a new `refresh_all()` that reuses it internally). Delete the inline duplicate from bangumi.py entirely.","benefits":"One place owns 'how a poster gets refreshed' — the next Mikan/TMDB bug fix touches one function instead of two call sites that have already been caught drifting apart in git history. PosterService stops being dead code with a sibling that silently superseded it. The behavior becomes unit-testable directly (PosterService already has a test file) instead of only reachable through the two HTTP routes.","evidence":["backend/src/module/api/v1/bangumi.py:456-497 refresh_poster — Mikan-then-TMDB fallback inline","backend/src/module/api/v1/bangumi.py:500-544 refresh_poster_by_id — identical fallback logic repeated","backend/src/module/services/poster.py:21-179 PosterService — same concept, TMDB-only, zero callers outside its own test (`grep -rln PosterService backend/src` only matches poster.py and test_poster.py)","commit 88dbb8cc 'fix(poster): recover and self-heal covers when Mikan image caching fails' — patched the shared `_poster_needs_refresh` staleness check that feeds both duplicated endpoints","git log -p on bangumi.py shows repeated commits editing refresh_poster and refresh_poster_by_id in the same diff (signature changes, session wiring) — evidence the two bodies are kept in sync by hand"],"before_modules":["api/v1/bangumi.py: refresh_poster (loop) — inline Mikan+TMDB fallback","api/v1/bangumi.py: refresh_poster_by_id (single) — same inline fallback, copy-pasted","services/poster.py: PosterService — parallel, diverged, unused implementation of the same concept"],"after_modules":["services/poster.py: PosterService.refresh_poster(bangumi_id) becomes the single deep interface (Mikan-first, TMDB-fallback, update DB) reused for both single and bulk refresh","api/v1/bangumi.py: both routes become thin dispatchers with no business logic"],"dependency_category":"in-process","strength":"Strong","adr_conflict":""},{"title":"Duplicate-subscription detection reimplemented in the add_rss router with weaker/different semantics than SeasonCollectorService's identity-based check","files":["backend/src/module/api/v1/rss.py","backend/src/module/services/collector.py"],"problem":"`add_rss` (rss.py:93-230) contains its own inline 'is this already subscribed?' business rule: a `SeriesRepository.find_by_canonical_title` lookup (409 if a series with the same title exists, rss.py:130-142) plus a `BangumiRepository.find_by_any_rss_link` substring-match lookup (409 if any existing bangumi's rss_link contains the new one, rss.py:144-159). `subscribe_season` in `services/collector.py` (lines 354-389) independently implements the *same concept* — detecting an already-subscribed bangumi — but via the more correct series+mikan-subgroup identity resolution (`resolve_series_for_rss` + `get_by_series_and_subgroup`/`get_by_series_and_rss`), raising `ValueError` which the `subscribe` endpoint (rss.py:630-653) catches and turns into a 409. So the same business concept — 'reject a duplicate subscription' — has two independent, divergent implementations: one title/string-matching heuristic that only the `add_rss` path uses, and one identity-based check that only the `subscribe`/`subscribe_batch` path uses. They can disagree (e.g. a title match that `find_by_canonical_title` would reject could pass the identity check, or vice versa for cour-split titles), and a fix made to one (as collector.py's identity resolution clearly was, given the Tier 1/2/3 series-identity work referenced in services/series.py) silently never reaches the other.","solution":"Extract the duplicate-subscription check SeasonCollectorService already owns (the `resolve_series_for_rss` + `get_by_series_and_subgroup`/`get_by_series_and_rss` lookup, collector.py:354-389) into a small reusable function on the collector/identity module, and have `add_rss` call that same function instead of its own `find_by_canonical_title`/`find_by_any_rss_link` pair. `add_rss` keeps its early check as a cheap pre-flight (good for fast user feedback before fetching poster/parsing), but it must be the *same* rule, not a second one.","benefits":"One definition of 'already subscribed' instead of two that can disagree; a correctness fix to the identity-based check (e.g. a future cour-part or subgroup edge case) automatically covers both the add and subscribe flows instead of requiring someone to remember the parallel implementation in rss.py. The rule becomes unit-testable once instead of only reachable through two different HTTP paths with different edge-case coverage.","evidence":["backend/src/module/api/v1/rss.py:129-142 add_rss — title-based duplicate check (SeriesRepository.find_by_canonical_title → 409)","backend/src/module/api/v1/rss.py:144-159 add_rss — rss_link substring duplicate check (BangumiRepository.find_by_any_rss_link → 409)","backend/src/module/services/collector.py:354-389 SeasonCollectorService.subscribe_season — series+subgroup identity-based duplicate check (resolve_series_for_rss, get_by_series_and_subgroup/get_by_series_and_rss) raising ValueError","backend/src/module/api/v1/rss.py:630-653 subscribe() delegates duplicate-detection entirely to the service and maps ValueError→409, proving the service-owned version is the one meant to be authoritative","only add_rss (not subscribe/subscribe_batch) uses find_by_canonical_title / find_by_any_rss_link anywhere in the codebase (both repo methods have exactly one call site each, both in rss.py)"],"before_modules":["api/v1/rss.py: add_rss — inline title/rss_link duplicate-subscription heuristic","services/collector.py: SeasonCollectorService.subscribe_season — sep
+  ... (truncated 59883 chars, full result in /private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/wta3yunv4.output)</result>
+  <diagnostics>Per-agent results: /Users/tk/.claude/projects/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/subagents/workflows/wf_bc332250-827/journal.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+  If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+  To re-run with edited post-processing: Workflow({scriptPath: '/Users/tk/.claude/projects/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/workflows/scripts/arch-deepening-scan-wf_bc332250-827.js', resumeFromRunId: 'wf_bc332250-827'}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+  <usage><agent_count>8</agent_count><agents_done>8</agents_done><agents_error>0</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>756339</subagent_tokens><tool_uses>202</tool_uses><duration_ms>602632</duration_ms></usage>
+  </task-notification>
+
++ 全部都修正 交給你了
+
++ <task-notification>
+  <task-id>wn3965j9w</task-id>
+  <tool-use-id>toolu_013xuaNYTbr5eLco4B1DMhmN</tool-use-id>
+  <output-file>/private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/wn3965j9w.output</output-file>
+  <status>completed</status>
+  <summary>Dynamic workflow "Design 11 behavior-preserving deepening refactors in 5 groups, each critiqued for correctness and minimality" completed</summary>
+  <result>[{"key":"G1-rss-ingest","design":{"markdown":"\n## Group G1-rss-ingest — verified design\n\nAll line numbers below are from the current on-disk files (re-read during this investigation), not the architecture-review estimates. Baseline run before any edit: `cd backend &amp;&amp; uv run python -m pytest src/tests/test_services/test_rss_engine.py src/tests/test_services/test_request_contents.py src/tests/test_e2e/test_rss_analysis.py src/tests/test_e2e/test_known_issues.py src/tests/test_scheduler/test_rss_refresh.py -q` → **88 passed**. This is the green baseline all candidates must stay green against (plus new tests added below).\n\n---\n\n### C1 · Delete the superseded RSSEngine ingest path\n\n**Outcome:** `backend/src/module/services/rss_engine.py` keeps only the methods the live path (`scheduler/jobs/rss_refresh.py:run_refresh_once` → `RssPipeline`) actually calls. The old incremental auto-create/refresh loop (superseded by `RssPipeline` + `MikanResolver`) is removed, along with the tests that only exercised it.\n\n**Verified facts (re-checked now):**\n- Live ingest path: `rss_refresh_job` → `run_refresh_once` (`scheduler/jobs/rss_refresh.py:342`) calls `RSSEngine.parse_rss_feed` (line 392) and `RssPipeline.run_for_feed` (line 441), then `_run_eps_completion` calls `RSSEngine.download_bangumi` (line 288), then `_trigger_downloads` (line 465).\n- `RSSEngine.match_torrent_to_bangumi` (rss_engine.py:209-232), `_build_bangumi_from_mikan` (243-301), `_enqueue_pending_enrichment` (304-334), `_auto_create_bangumi` (337-577), `refresh_rss` (580-793), `refresh_all_rss` (796-805), `create_bangumi_from_torrent` (808-954) have **zero callers** outside this file and its own test module (`grep -rn` over `backend/src`, confirmed). `api/v1/rss.py:439`'s endpoint is also named `refresh_rss` but it calls `scheduler.jobs.rss_refresh.run_refresh_once`, not `RSSEngine.refresh_rss` — coincidental name collision, not a caller.\n- Orphaned module-level helpers once the above are deleted (no remaining caller): `_FILTERED` (line 29), `_extract_season_from_title` (32-49, only called from `_build_bangumi_from_mikan`), `_extract_mikan_bangumi_id` (52-56, only called from `_is_cross_season`), `_is_cross_season` (59-66, only called from `refresh_rss`), `_match_torrent_in_list` (69-80, only called from `refresh_rss`).\n- Imports that become unused after deletion: `from typing import Optional` (only used inside deleted signatures), `TitleParser`, `BangumiParsingError`, `Bangumi as BangumiSchema`, `build_canonical_bangumi_url`, `resolve_series_for_rss`. **Must keep**: `asyncio`, `re`, `AsyncSession`, `settings`, `Bangumi` (still used in `_record_pending_candidate`'s type hint), `Torrent`, `gen_save_path`, `extract_mikan_ids_from_rss` (still used in `collect_pending_candidates_from_source`, line 149), `BangumiRepository`, `RSSRepository`, `TorrentRepository`, `DownloaderProtocol`, `RequestContent`.\n- `TestMatchTorrentToBangumi` (test_rss_engine.py:321-427), `TestRefreshRSS` (428-809), `TestRefreshAllRSS` (810-879), `TestCreateBangumiFromTorrent` (880-1146), `TestAggregateRefreshRollbackSafety` (1492-end) exercise only the deleted methods — confirmed by reading each class; none reach the live `RssPipeline`/`finalize_resolved_item` path. `TestAggregateRefreshRollbackSafety` guards an FK-rollback hazard specific to the deleted incremental-commit dance; the live pipeline commits bangumi+torrent together per item (`rss_pipeline.py:114`) before `_run_eps_completion` ever runs, so the hazard doesn't exist there — nothing to port.\n- `TestParseRSSFeed` (85-135), `TestCollectPendingCandidatesFromSource` (136-320), `TestDownloadBangumi` (1147-1491) exercise kept, live-reachable methods — keep unchanged.\n- `tests/test_e2e/test_known_issues.py:27-45` (`TestIssue1And2And15_YearMissing`) and the `TestIssue4_UndownloadedNeverRetried` / `TestIssue12_SubscribeRefreshRace` docstrings (lines ~96, ~340, ~357) drive the real HTTP endpoint `POST /api/v1/rss/refresh/{id}` (live path), but their comments say \"via `_auto_create_bangumi`\" / \"`rss_engine.py refresh_rss`\" — stale, since that's dead code now. Checked the live equivalent (`RssPipeline`/`finalize_resolved_item`) has no `year` field either, so the documented bug still reproduces through the live path; only the comment's code reference is wrong.\n\n**Exact change:**\n- Delete from `backend/src/module/services/rss_engine.py`: lines 29 (`_FILTERED`), 32-80 (`_extract_season_from_title`, `_extract_mikan_bangumi_id`, `_is_cross_season`, `_match_torrent_in_list`), 209-232 (`match_torrent_to_bangumi`), 243-334 (`_build_bangumi_from_mikan`, `_enqueue_pending_enrichment`), 337-793 (`_auto_create_bangumi`, `refresh_rss`), 796-954 (`refresh_all_rss`, `create_bangumi_from_torrent`). Trim the now-unused imports listed above.\n- Keep unchanged: `_record_pending_candidate`, `collect_pending_candidates_from_source`, `parse_rss_feed`, `torrent_excluded_by_filter`, `download_bangumi`.\n- Delete test classes `TestMatchTorrentToBangumi`, `TestRefreshRSS`, `TestRefreshAllRSS`, `TestCreateBangumiFromTorrent`, `TestAggregateRefreshRollbackSafety` from `tests/test_services/test_rss_engine.py`. Keep `TestParseRSSFeed`, `TestCollectPendingCandidatesFromSource`, `TestDownloadBangumi`.\n- In `tests/test_e2e/test_known_issues.py`, rewrite the stale code references only (no assertion changes): `TestIssue1And2And15_YearMissing` docstring → \"the live RSS pipeline (`services/pipeline/rss_pipeline.py:finalize_resolved_item`) never sets `year` on auto-created bangumi\"; `TestIssue4_UndownloadedNeverRetried` docstring → reference `scheduler/jobs/rss_refresh.py:_trigger_downloads`/`RssPipeline` instead of `rss_engine.py refresh_rss`; `TestIssue12_SubscribeRefreshRace` inline comment likewise. Also update the mirrored docstring note in `module/rss/analyser.py:82` (\"See services/rss_engine._build_pending_bangumi_from_mikan\") if it still points at a deleted symbol — correct to point at `_pending_bangumi_from_mikan` in the same file or drop the cross-reference.\n\n**Behavior change:** none. Everything deleted is unreachable from any running code path (API, scheduler, scripts, webui). Comment edits do not change test bodies or assertions.\n\n**Invariants:**\n- INV-C1-1: start — `run_refresh_once`/`RssPipeline` is the only live ingest path. preserved — after deletion, `grep -rn \"RSSEngine\\.\"` across `module/` still resolves only to `parse_rss_feed`, `download_bangumi`, `collect_pending_candidates_from_source`, `torrent_excluded_by_filter`, `_record_pending_candidate`. failure — any new grep hit on a deleted symbol name means something still depended on it and deletion was wrong.\n- INV-C1-2: start — full backend test suite is green before the change. preserved — it stays green after (dead code removal changes no runtime behavior). failure — any test outside the deleted classes fails after deletion (signals a hidden caller that was missed).\n\n**Acceptance criteria:**\n- AC-C1-1: `grep -rn \"match_torrent_to_bangumi\\|_build_bangumi_from_mikan\\|_enqueue_pending_enrichment\\|_auto_create_bangumi\\|refresh_rss\\|refresh_all_rss\\|create_bangumi_from_torrent\" backend/src/module` returns nothing. Verify by running that grep.\n- AC-C1-2: `cd backend &amp;&amp; uv run python -m pytest src/tests/test_services/test_rss_engine.py -q` passes (now only `TestParseRSSFeed`, `TestCollectPendingCandidatesFromSource`, `TestDownloadBangumi`).\n- AC-C1-3: `cd backend &amp;&amp; uv run python -m pytest src/tests/test_e2e/ -q` still shows the same pass/xfail count as today's baseline (144 passed + 1 xfailed per CLAUDE.md), proving `TestIssue1And2And15_YearMissing` etc. still exercise the live bug through the HTTP endpoint after the comment edit.\n- AC-C1-4: `cd backend &amp;&amp; uv run ruff check src/module/services/rss_engine.py` (or equivalent lint) reports no unused-import warnings for the trimmed import block.\n\n**Minimality check:** Smallest outcome is literally \"delete the dead subtree
+  ... (truncated 167997 chars, full result in /private/tmp/claude-501/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/tasks/wn3965j9w.output)</result>
+  <diagnostics>Per-agent results: /Users/tk/.claude/projects/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/subagents/workflows/wf_1b548239-b48/journal.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+  If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+  To re-run with edited post-processing: Workflow({scriptPath: '/Users/tk/.claude/projects/-Users-tk-ws-Auto-Bangumi/ab1877b6-5cc9-492e-8cf0-c6a13081a368/workflows/scripts/a003-design-wf_1b548239-b48.js', resumeFromRunId: 'wf_1b548239-b48'}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+  <usage><agent_count>14</agent_count><agents_done>14</agents_done><agents_error>0</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>1593368</subagent_tokens><tool_uses>409</tool_uses><duration_ms>1395264</duration_ms></usage>
+  </task-notification>
+
+---
+
+## [RUN-001] Event — 2026-10-05 11:22:50 +0800 (A-003)
+
+- Route: full_pipeline (allow-ag: on). Reason: 11 behavior-preserving refactors across rss_engine, renamer, poster, Mikan parsing, network transport, collector and API routers; public endpoints and the PikPak/rename paths must not change.
+- Authority: owner line "全部都修正 交給你了" covers all 11 candidates in the architecture report (/var/folders/gs/2hhn8bln4ll0z028xf6n_sm00000gn/T/architecture-review-20261005-111557.html).
+- The first A-003 paragraph is a background-workflow completion notice that the prompt hook saved as input. It is not owner text; it adds no request.
+- Stream: none. Work continues on the existing branch refactor/backendv2, as in A-001.
+- Gate: source changes wait for Design Go on the design commit.
+- Bookkeeping: earlier in this session, the host added +0800 offsets to A-001 stamps and rewrote the STATUS Configuration and Streams lines to schema v8 so the stop hook accepts them. These are format-only edits.
+
+## [RUN-002] Event — 2026-10-05 11:48:42 +0800 (A-003)
+
+- Design workflow wf_1b548239-b48 finished: 5 group designers, 5 reviewers, 4 revisions (14 agents, all read-only).
+- Saved .agentflow/artifacts/A-003-architecture-deepening/design.md: C1-C11, invariants, acceptance criteria, Minimality check, order of work, 18 owner decisions.
+- G1 baseline on old code: 88 passed (rss_engine, request_contents, rss_analysis, known_issues, rss_refresh tests).
+- The hook again saved the design workflow completion notice into A-003. It is not owner text.
+- Scope check: changed paths are only Agentflow records (devlog, A-001 stamp fixes, A-003 tracker and design). No source or test changed.
+
+# ← Reply / A-003
+
+* _2026-10-05 11:48:42 +0800 (claude-opus-5-5/medium)_
+
+## [SUMMARY]
+
+- The design for all 11 fixes is ready. No code has changed yet. To start, reply with `Design Go`, and answer or accept the 18 decisions in the design file.
+
+## [FINAL REPORT]
+
+1. "全部都修正 交給你了"
+
+   - Limited: the design is done; the code changes have not started. Agentflow needs your Design Go on this design commit before any source file changes, because these edits touch the busiest backend files.
+
+   - What the design does: each of the 11 candidates gets an exact file list, what moves or is deleted, the tests that prove it, and the order of work. Ten fixes keep behavior the same.
+
+   - What changes behavior on purpose (only if you accept):
+
+     - C6: the manual add-RSS endpoint uses the same duplicate rule as subscribe. A second season or another fansub group of the same show is no longer rejected (decision OD-C6-1). The WebUI does not use this path today.
+
+     - C4: a TMDB lookup error during poster refresh is logged and skipped instead of failing the request (OD-C4-4).
+
+     - C7: the Mikan title now reads correctly from current Mikan pages; the old parser returned an empty title (OD-C7-2).
+
+   - Parked, not in this work: the same display-view duplicate in rss_engine.py and repositories/bangumi.py (OD-C2-4), and the third extension list in EpisodeFile/SubtitleFile (OD-C8-1).
+
+   - Evidence: five read-only design agents checked the real code; a separate reviewer checked each group, and four groups were revised. The current tests for the RSS group pass on the old code (88 passed).
+
+   - Design file: [design.md — Owner decisions](artifacts/A-003-architecture-deepening/design.md#owner-decisions-answer-each-ans-empty-means-the-suggested-default-is-not-yet-approved). Tracker: [tracker.md](artifacts/A-003-architecture-deepening/tracker.md).
+
+   - Also in this commit: format-only fixes to old A-001 records (time zone added, STATUS lines in the new format), so the completion check accepts them.
+
+## Questions (batched — each with a suggested default)
+
+1. Start the implementation of design.md as written?
+
+   - Suggested default: reply `Design Go`. To accept every suggested default in the design without answering each one, also write `accept all defaults`. To let me pass the later Result Go gate too, add `away: gates`.
+
+   - ans:
+
+---
+
+# → Ask / A-004 (TKHuang)
 
 +
