@@ -1,5 +1,6 @@
-"""Poster service for fetching and caching anime posters from TMDB."""
+"""Poster service: refresh a bangumi poster from Mikan, then TMDB."""
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -7,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.conf.config import settings
-from module.repositories import BangumiRepository
+from module.domain.parser.title_parser import TitleParser
+from module.repositories import BangumiRepository, RSSRepository, TorrentRepository
 
 if TYPE_CHECKING:
     from module.domain.models import Bangumi  # noqa: F401
@@ -32,6 +34,8 @@ class PosterService:
         """
         self.session = session
         self.bangumi_repo = BangumiRepository(session)
+        self.rss_repo = RSSRepository(session)
+        self.torrent_repo = TorrentRepository(session)
 
     async def fetch_poster(
         self, official_title: str, season: int = 1
@@ -61,7 +65,7 @@ class PosterService:
 
         # Query TMDB for anime info
         language = settings.rss_parser.language
-        tmdb_info = tmdb_parser(official_title, language, test=False)
+        tmdb_info = await asyncio.to_thread(tmdb_parser, official_title, language)
 
         if not tmdb_info or not tmdb_info.poster_link:
             logger.warning(f"No poster found on TMDB for: {official_title}")
@@ -70,61 +74,11 @@ class PosterService:
         logger.debug(f"TMDB found poster: {tmdb_info.poster_link}")
         return tmdb_info.poster_link
 
-    async def refresh_all_posters(self) -> dict[str, int]:
-        """Refresh posters for all bangumi without poster_link.
-
-        Iterates through all active bangumi and fetches posters from TMDB
-        for those missing poster_link. Updates database with new poster links.
-
-        Returns:
-            Dictionary with refresh statistics:
-            - total: Total bangumi processed
-            - updated: Number of bangumi with new posters
-            - failed: Number of bangumi where poster fetch failed
-        """
-        logger.info("Starting refresh_all_posters")
-
-        # Get all active bangumi
-        bangumis = await self.bangumi_repo.get_active()
-        total = len(bangumis)
-        updated = 0
-        failed = 0
-
-        for bangumi in bangumis:
-            _poster = bangumi.series.poster_url if bangumi.series is not None else None
-            _title = bangumi.series.canonical_title if bangumi.series is not None else ""
-            _season = bangumi.series.season if bangumi.series is not None else 1
-            if _poster:
-                logger.debug(f"Skipping {_title} - already has poster")
-                continue
-
-            try:
-                poster_link = await self.fetch_poster(_title, _season)
-                if poster_link:
-                    # Update bangumi with new poster link via series
-                    await self.bangumi_repo.update(
-                        bangumi.id,
-                        {"poster_link": poster_link},
-                        expected_version=bangumi.version,
-                    )
-                    updated += 1
-                    logger.info(f"Updated poster for {_title}: {poster_link}")
-                else:
-                    failed += 1
-                    logger.warning(f"No poster found for {_title}")
-            except Exception as e:
-                failed += 1
-                logger.error(f"Error fetching poster for {_title}: {e}")
-
-        logger.info(
-            f"refresh_all_posters completed: total={total}, updated={updated}, failed={failed}"
-        )
-        return {"total": total, "updated": updated, "failed": failed}
-
     async def refresh_poster(self, bangumi_id: int) -> dict[str, Any]:
         """Refresh poster for a specific bangumi.
 
-        Fetches poster from TMDB and updates the bangumi record.
+        Tries the Mikan episode page of the bangumi's newest torrent first
+        (Mikan RSS only), then TMDB. Saves the first poster found.
 
         Args:
             bangumi_id: ID of bangumi to refresh
@@ -149,13 +103,12 @@ class PosterService:
         _title = bangumi.series.canonical_title if bangumi.series is not None else ""
         _season = bangumi.series.season if bangumi.series is not None else 1
         try:
-            poster_link = await self.fetch_poster(_title, _season)
+            poster_link = await self._fetch_mikan_poster(bangumi, _title)
+            if not poster_link:
+                poster_link = await self.fetch_poster(_title, _season)
             if poster_link:
-                # Update bangumi with new poster link
-                await self.bangumi_repo.update(
-                    bangumi.id,
-                    {"poster_link": poster_link},
-                    expected_version=bangumi.version,
+                await self.bangumi_repo.update_simple(
+                    bangumi.id, {"poster_link": poster_link}
                 )
                 logger.info(f"Updated poster for {_title}: {poster_link}")
                 return {
@@ -177,3 +130,21 @@ class PosterService:
                 "poster_link": None,
                 "message": f"Error: {str(e)}",
             }
+
+    async def _fetch_mikan_poster(self, bangumi, title: str) -> str | None:
+        if not bangumi.rss_id:
+            return None
+        rss = await self.rss_repo.get_by_id(bangumi.rss_id)
+        if not rss or rss.parser != "mikan":
+            return None
+        torrent = await self.torrent_repo.get_by_bangumi_with_homepage(bangumi.id)
+        if not torrent or not torrent.homepage:
+            return None
+        try:
+            result = await asyncio.to_thread(
+                TitleParser().mikan_parser_with_rss, torrent.homepage
+            )
+        except Exception as e:
+            logger.warning(f"[Poster] Mikan parser failed for {title}: {e}")
+            return None
+        return result.poster_link or None

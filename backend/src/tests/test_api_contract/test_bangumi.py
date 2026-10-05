@@ -540,72 +540,55 @@ class TestRefreshPoster:
 
     @pytest.mark.asyncio
     async def test_refresh_poster_all_success(self, client):
-        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
-            with patch("module.api.v1.bangumi.RSSRepository"):
-                with patch("module.api.v1.bangumi.TorrentRepository"):
-                    with patch("module.api.v1.bangumi.TitleParser"):
-                        mock_b = AsyncMock()
-                        mock_b_cls.return_value = mock_b
-                        mock_b.get_all.return_value = []
-                        response = client.post("/api/v1/bangumi/refresh/poster/all")
-                        assert response.status_code == 200
-                        assert "msg_en" in response.json()
-
-    @pytest.mark.asyncio
-    async def test_refresh_poster_all_refetches_when_cached_file_missing(self, client):
-        bangumi = _mock_bangumi_obj(
-            id=1,
-            poster_link="posters/missing.jpg",
-        )
-        torrent = MagicMock(homepage="https://mikanani.me/Home/Episode/test")
-        parser = MagicMock()
-        parser.mikan_parser_with_rss.return_value = MagicMock(
-            poster_link="posters/new.jpg"
-        )
-
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
-             patch("module.api.v1.bangumi.RSSRepository") as mock_r_cls, \
-             patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls, \
-             patch("module.api.v1.bangumi.TitleParser", return_value=parser), \
-             patch("module.api.v1.bangumi._poster_needs_refresh", return_value=True):
+             patch("module.api.v1.bangumi.PosterService") as mock_p_cls:
             mock_b = AsyncMock()
             mock_b_cls.return_value = mock_b
-            mock_b.get_all.return_value = [bangumi]
+            mock_b.get_all.return_value = []
+            mock_p_cls.return_value = AsyncMock()
+            response = client.post("/api/v1/bangumi/refresh/poster/all")
+            assert response.status_code == 200
+            assert "msg_en" in response.json()
 
-            mock_r = AsyncMock()
-            mock_r_cls.return_value = mock_r
-            mock_r.get_by_id.return_value = MagicMock(parser="mikan")
+    @pytest.mark.asyncio
+    async def test_refresh_poster_all_refreshes_only_stale_posters(self, client):
+        stale = _mock_bangumi_obj(id=1, poster_link="posters/missing.jpg")
+        fresh = _mock_bangumi_obj(id=2, poster_link="posters/ok.jpg")
 
-            mock_t = AsyncMock()
-            mock_t_cls.return_value = mock_t
-            mock_t.get_by_bangumi_with_homepage.return_value = torrent
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.bangumi.PosterService") as mock_p_cls, \
+             patch(
+                 "module.api.v1.bangumi._poster_needs_refresh",
+                 side_effect=lambda b: b.id == 1,
+             ):
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_all.return_value = [stale, fresh]
+            poster_service = AsyncMock()
+            mock_p_cls.return_value = poster_service
 
             response = client.post("/api/v1/bangumi/refresh/poster/all")
 
             assert response.status_code == 200
-            mock_b.update_simple.assert_awaited_once_with(1, {"poster_link": "posters/new.jpg"})
+            poster_service.refresh_poster.assert_awaited_once_with(1)
 
 
 class TestRefreshPosterById:
 
     @pytest.mark.asyncio
     async def test_refresh_poster_by_id_success(self, client):
-        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
-            with patch("module.api.v1.bangumi.RSSRepository") as mock_r_cls:
-                with patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls:
-                    with patch("module.api.v1.bangumi.TitleParser"):
-                        mock_b = AsyncMock()
-                        mock_b_cls.return_value = mock_b
-                        mock_r = AsyncMock()
-                        mock_r_cls.return_value = mock_r
-                        mock_r.get_by_id.return_value = None
-                        mock_t = AsyncMock()
-                        mock_t_cls.return_value = mock_t
-                        bangumi = _mock_bangumi_obj(poster_link="")
-                        mock_b.get_by_id.return_value = bangumi
-                        response = client.post("/api/v1/bangumi/refresh/poster/1")
-                        assert response.status_code == 200
-                        assert "msg_en" in response.json()
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.bangumi.PosterService") as mock_p_cls, \
+             patch("module.api.v1.bangumi._poster_needs_refresh", return_value=False):
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = _mock_bangumi_obj(poster_link="")
+            poster_service = AsyncMock()
+            mock_p_cls.return_value = poster_service
+            response = client.post("/api/v1/bangumi/refresh/poster/1")
+            assert response.status_code == 200
+            assert "msg_en" in response.json()
+            poster_service.refresh_poster.assert_awaited_once_with(1)
 
 
 class TestGetTorrentStatus:

@@ -38,6 +38,7 @@ def _make_bangumi_mock(
     bangumi.id = id
     bangumi.version = version
     bangumi.series = series_mock
+    bangumi.rss_id = None
     return bangumi
 
 
@@ -136,133 +137,6 @@ class TestFetchPoster:
                 assert call_args[0][1] == "zh"
 
 
-class TestRefreshAllPosters:
-    """Tests for refresh_all_posters method."""
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_posters_success(self, poster_service):
-        """Test successful refresh of all posters."""
-        bangumi1 = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
-        bangumi2 = _make_bangumi_mock(id=2, title="Anime 2", poster_url="posters/existing.jpg")
-
-        with patch.object(
-            poster_service.bangumi_repo, "get_active"
-        ) as mock_get_active:
-            with patch.object(
-                poster_service.bangumi_repo, "update"
-            ) as mock_update:
-                with patch.object(
-                    poster_service, "fetch_poster"
-                ) as mock_fetch:
-                    mock_get_active.return_value = [bangumi1, bangumi2]
-                    mock_fetch.return_value = "posters/new123.jpg"
-
-                    result = await poster_service.refresh_all_posters()
-
-                    assert result["total"] == 2
-                    assert result["updated"] == 1
-                    assert result["failed"] == 0
-                    # Should only update bangumi1 (bangumi2 already has poster)
-                    mock_update.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_posters_no_results(self, poster_service):
-        """Test refresh when no bangumi found."""
-        with patch.object(
-            poster_service.bangumi_repo, "get_active"
-        ) as mock_get_active:
-            mock_get_active.return_value = []
-
-            result = await poster_service.refresh_all_posters()
-
-            assert result["total"] == 0
-            assert result["updated"] == 0
-            assert result["failed"] == 0
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_posters_fetch_failure(self, poster_service):
-        """Test refresh when poster fetch fails."""
-        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
-
-        with patch.object(
-            poster_service.bangumi_repo, "get_active"
-        ) as mock_get_active:
-            with patch.object(poster_service, "fetch_poster") as mock_fetch:
-                mock_get_active.return_value = [bangumi]
-                mock_fetch.return_value = None
-
-                result = await poster_service.refresh_all_posters()
-
-                assert result["total"] == 1
-                assert result["updated"] == 0
-                assert result["failed"] == 1
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_posters_exception_handling(self, poster_service):
-        """Test refresh handles exceptions gracefully."""
-        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
-
-        with patch.object(
-            poster_service.bangumi_repo, "get_active"
-        ) as mock_get_active:
-            with patch.object(poster_service, "fetch_poster") as mock_fetch:
-                mock_get_active.return_value = [bangumi]
-                mock_fetch.side_effect = Exception("Network error")
-
-                result = await poster_service.refresh_all_posters()
-
-                assert result["total"] == 1
-                assert result["updated"] == 0
-                assert result["failed"] == 1
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_posters_skips_existing(self, poster_service):
-        """Test refresh skips bangumi that already have posters."""
-        bangumi = _make_bangumi_mock(id=1, title="Anime 1", poster_url="posters/existing.jpg")
-
-        with patch.object(
-            poster_service.bangumi_repo, "get_active"
-        ) as mock_get_active:
-            with patch.object(poster_service, "fetch_poster") as mock_fetch:
-                mock_get_active.return_value = [bangumi]
-
-                result = await poster_service.refresh_all_posters()
-
-                assert result["total"] == 1
-                assert result["updated"] == 0
-                assert result["failed"] == 0
-                # fetch_poster should not be called for bangumi with existing poster
-                mock_fetch.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_refresh_all_posters_multiple_updates(self, poster_service):
-        """Test refresh updates multiple bangumi."""
-        bangumi1 = _make_bangumi_mock(id=1, title="Anime 1", poster_url=None)
-        bangumi2 = _make_bangumi_mock(id=2, title="Anime 2", poster_url=None)
-
-        with patch.object(
-            poster_service.bangumi_repo, "get_active"
-        ) as mock_get_active:
-            with patch.object(
-                poster_service.bangumi_repo, "update"
-            ) as mock_update:
-                with patch.object(
-                    poster_service, "fetch_poster"
-                ) as mock_fetch:
-                    mock_get_active.return_value = [bangumi1, bangumi2]
-                    mock_fetch.side_effect = [
-                        "posters/new1.jpg",
-                        "posters/new2.jpg",
-                    ]
-
-                    result = await poster_service.refresh_all_posters()
-
-                    assert result["total"] == 2
-                    assert result["updated"] == 2
-                    assert result["failed"] == 0
-                    assert mock_update.call_count == 2
-
-
 class TestRefreshPoster:
     """Tests for refresh_poster method."""
 
@@ -275,7 +149,7 @@ class TestRefreshPoster:
             poster_service.bangumi_repo, "get_by_id"
         ) as mock_get:
             with patch.object(
-                poster_service.bangumi_repo, "update"
+                poster_service.bangumi_repo, "update_simple"
             ) as mock_update:
                 with patch.object(
                     poster_service, "fetch_poster"
@@ -343,7 +217,7 @@ class TestRefreshPoster:
             poster_service.bangumi_repo, "get_by_id"
         ) as mock_get:
             with patch.object(
-                poster_service.bangumi_repo, "update"
+                poster_service.bangumi_repo, "update_simple"
             ) as mock_update:
                 with patch.object(
                     poster_service, "fetch_poster"
@@ -355,3 +229,56 @@ class TestRefreshPoster:
 
                     assert "Test Anime" in result["message"]
                     assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_refresh_poster_tries_mikan_first(self, poster_service):
+        """Mikan RSS bangumi: the Mikan page poster wins; TMDB is not asked."""
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1")
+        bangumi.rss_id = 7
+        parser = MagicMock()
+        parser.mikan_parser_with_rss.return_value = MagicMock(
+            poster_link="posters/mikan.jpg"
+        )
+
+        with patch.object(poster_service.bangumi_repo, "get_by_id", return_value=bangumi), \
+             patch.object(poster_service.bangumi_repo, "update_simple") as mock_update, \
+             patch.object(
+                 poster_service.rss_repo, "get_by_id",
+                 return_value=MagicMock(parser="mikan"),
+             ), \
+             patch.object(
+                 poster_service.torrent_repo, "get_by_bangumi_with_homepage",
+                 return_value=MagicMock(homepage="https://mikanani.me/Home/Episode/x"),
+             ), \
+             patch("module.services.poster.TitleParser", return_value=parser), \
+             patch.object(poster_service, "fetch_poster") as mock_fetch:
+            result = await poster_service.refresh_poster(1)
+
+        assert result["success"] is True
+        mock_fetch.assert_not_called()
+        mock_update.assert_called_once_with(1, {"poster_link": "posters/mikan.jpg"})
+
+    @pytest.mark.asyncio
+    async def test_refresh_poster_falls_back_to_tmdb_when_mikan_fails(self, poster_service):
+        """A Mikan parser error is logged; TMDB supplies the poster."""
+        bangumi = _make_bangumi_mock(id=1, title="Anime 1")
+        bangumi.rss_id = 7
+        parser = MagicMock()
+        parser.mikan_parser_with_rss.side_effect = RuntimeError("page down")
+
+        with patch.object(poster_service.bangumi_repo, "get_by_id", return_value=bangumi), \
+             patch.object(poster_service.bangumi_repo, "update_simple") as mock_update, \
+             patch.object(
+                 poster_service.rss_repo, "get_by_id",
+                 return_value=MagicMock(parser="mikan"),
+             ), \
+             patch.object(
+                 poster_service.torrent_repo, "get_by_bangumi_with_homepage",
+                 return_value=MagicMock(homepage="https://mikanani.me/Home/Episode/x"),
+             ), \
+             patch("module.services.poster.TitleParser", return_value=parser), \
+             patch.object(poster_service, "fetch_poster", return_value="posters/tmdb.jpg"):
+            result = await poster_service.refresh_poster(1)
+
+        assert result["poster_link"] == "posters/tmdb.jpg"
+        mock_update.assert_called_once_with(1, {"poster_link": "posters/tmdb.jpg"})

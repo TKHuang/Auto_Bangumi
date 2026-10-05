@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import re
 from pathlib import Path
@@ -14,14 +13,13 @@ from module.conf.const import MIKAN_SEASON_RSS_PATTERN
 from module.concurrency.activation_lock import try_acquire_bangumi_activation_lock
 from module.concurrency.rename_lock import rename_lock_guard
 from module.database.engine import get_db_session
-from module.domain.parser.title_parser import TitleParser
 from module.domain.value_objects import gen_save_path
 from module.models.bangumi import Bangumi, BangumiUpdate
 from module.repositories.bangumi import BangumiRepository
-from module.repositories.rss import RSSRepository
 from module.domain.models.torrent import TorrentState
 from module.repositories.torrent import TorrentRepository
 from module.services.downloader.factory import create_downloader
+from module.services.poster import PosterService
 from module.services.renamer import RenamerService
 from module.services.rss_engine import RSSEngine as AsyncRSSEngine
 
@@ -456,36 +454,12 @@ async def reset_all(session: AsyncSession = Depends(get_db_session)):
 )
 async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
-    rss_repo = RSSRepository(session)
-    torrent_repo = TorrentRepository(session)
+    poster_service = PosterService(session)
 
     bangumis = await bangumi_repo.get_all()
-    parser = TitleParser()
-
     for bangumi in bangumis:
-        _canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
         if _poster_needs_refresh(bangumi):
-            poster_fetched = False
-
-            if bangumi.rss_id:
-                rss = await rss_repo.get_by_id(bangumi.rss_id)
-                if rss and rss.parser == "mikan":
-                    torrent = await torrent_repo.get_by_bangumi_with_homepage(bangumi.id)
-                    if torrent and torrent.homepage:
-                        try:
-                            result = await asyncio.to_thread(parser.mikan_parser_with_rss, torrent.homepage)
-                            if result.poster_link:
-                                await bangumi_repo.update_simple(bangumi.id, {"poster_link": result.poster_link})
-                                poster_fetched = True
-                        except Exception as e:
-                            logger.warning(f"[Poster] Mikan parser failed for {_canonical}: {e}")
-
-            if not poster_fetched:
-                from module.domain.parser.analyser.tmdb_parser import tmdb_parser
-                _language = settings.rss_parser.language
-                _tmdb_info = await asyncio.to_thread(tmdb_parser, _canonical, _language)
-                if _tmdb_info and _tmdb_info.poster_link:
-                    await bangumi_repo.update_simple(bangumi.id, {"poster_link": _tmdb_info.poster_link})
+            await poster_service.refresh_poster(bangumi.id)
 
     await session.commit()
     return JSONResponse(
@@ -500,8 +474,6 @@ async def refresh_poster(session: AsyncSession = Depends(get_db_session)):
 )
 async def refresh_poster_by_id(bangumi_id: int, session: AsyncSession = Depends(get_db_session)):
     bangumi_repo = BangumiRepository(session)
-    rss_repo = RSSRepository(session)
-    torrent_repo = TorrentRepository(session)
 
     bangumi = await bangumi_repo.get_by_id(bangumi_id)
     if not bangumi:
@@ -510,29 +482,7 @@ async def refresh_poster_by_id(bangumi_id: int, session: AsyncSession = Depends(
             content={"msg_en": f"Can't find id {bangumi_id}", "msg_zh": f"无法找到 id {bangumi_id}"},
         )
 
-    _bg_canonical = bangumi.series.canonical_title if bangumi.series is not None else ""
-    poster_fetched = False
-    parser = TitleParser()
-
-    if bangumi.rss_id:
-        rss = await rss_repo.get_by_id(bangumi.rss_id)
-        if rss and rss.parser == "mikan":
-            torrent = await torrent_repo.get_by_bangumi_with_homepage(bangumi.id)
-            if torrent and torrent.homepage:
-                try:
-                    result = await asyncio.to_thread(parser.mikan_parser_with_rss, torrent.homepage)
-                    if result.poster_link:
-                        await bangumi_repo.update_simple(bangumi.id, {"poster_link": result.poster_link})
-                        poster_fetched = True
-                except Exception as e:
-                    logger.warning(f"[Poster] Mikan parser failed for {_bg_canonical}: {e}")
-
-    if not poster_fetched:
-        from module.domain.parser.analyser.tmdb_parser import tmdb_parser
-        _language = settings.rss_parser.language
-        _tmdb_info = await asyncio.to_thread(tmdb_parser, _bg_canonical, _language)
-        if _tmdb_info and _tmdb_info.poster_link:
-            await bangumi_repo.update_simple(bangumi.id, {"poster_link": _tmdb_info.poster_link})
+    await PosterService(session).refresh_poster(bangumi_id)
 
     await session.commit()
     return JSONResponse(
