@@ -369,7 +369,7 @@ class TestUpdateBangumi:
             "save_path": "/downloads", "rss_id": 1,
         }
         with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls:
-            with patch("module.api.v1.bangumi.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
+            with patch("module.concurrency.rename_lock.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
                 mock_b = AsyncMock()
                 mock_b_cls.return_value = mock_b
                 mock_b.get_by_id.return_value = _mock_bangumi_obj()
@@ -378,7 +378,7 @@ class TestUpdateBangumi:
 
                 assert response.status_code == 409
                 body = response.json()
-                assert "rename" in body["msg_en"].lower()
+                assert body["msg_en"] == "Rename is already in progress. Please try Apply again shortly."
 
 
 class TestDeleteBangumi:
@@ -928,11 +928,11 @@ class TestRetriggerRename:
 
     @pytest.mark.asyncio
     async def test_retrigger_rename_returns_409_when_lock_held(self, client):
-        with patch("module.api.v1.bangumi.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
+        with patch("module.concurrency.rename_lock.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
             response = client.post("/api/v1/bangumi/1/retrigger-rename")
             assert response.status_code == 409
             data = response.json()
-            assert "rename" in data["msg_en"].lower()
+            assert data["msg_en"] == "Rename is already in progress. Please try again shortly."
 
 
 class TestBackfillSource:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Optional
 
 _rename_lock = asyncio.Lock()
@@ -25,3 +27,18 @@ async def try_acquire_rename_lock() -> Optional[asyncio.Lock]:
         return None
     await _rename_lock.acquire()
     return _rename_lock
+
+
+@asynccontextmanager
+async def rename_lock_guard() -> AsyncIterator[Optional[asyncio.Lock]]:
+    """Hold the shared rename lock for the ``async with`` block.
+
+    Yields ``None`` when another rename holds the lock; the caller then
+    returns its own busy response. The lock is released on any exit.
+    """
+    lock = await try_acquire_rename_lock()
+    try:
+        yield lock
+    finally:
+        if lock is not None:
+            lock.release()
