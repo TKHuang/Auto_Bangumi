@@ -28,61 +28,38 @@ class TestStatus:
 
 @pytest.mark.e2e
 class TestStopStart:
+    """Merged flow covering stop/start/restart transitions and their
+    idempotency (formerly 6 TestStopStart + 2 TestRestart tests)."""
 
-    def test_stop(self, authed_client):
+    def test_stop_start_restart_flow(self, authed_client):
         client, mock_dl, token = authed_client
+
+        # Stop → status False
         resp = client.post("/api/v1/stop")
         assert resp.status_code == 200
         assert "stop" in resp.json()["msg_en"].lower()
+        assert client.get("/api/v1/status").json()["status"] is False
 
-    def test_start_after_stop(self, authed_client):
-        client, mock_dl, token = authed_client
-        stop_resp = client.post("/api/v1/stop")
-        assert stop_resp.status_code == 200
+        # Start → status True
+        resp = client.post("/api/v1/start")
+        assert resp.status_code == 200
+        assert "start" in resp.json()["msg_en"].lower()
+        assert client.get("/api/v1/status").json()["status"] is True
 
-        start_resp = client.post("/api/v1/start")
-        assert start_resp.status_code == 200
-        assert "start" in start_resp.json()["msg_en"].lower()
-
-    def test_idempotent_start(self, authed_client):
-        client, mock_dl, token = authed_client
+        # Start again — idempotent
         resp = client.post("/api/v1/start")
         assert resp.status_code == 200
 
-    def test_idempotent_stop(self, authed_client):
-        client, mock_dl, token = authed_client
+        # Stop, then stop again — idempotent
         client.post("/api/v1/stop")
         resp = client.post("/api/v1/stop")
         assert resp.status_code == 200
 
-    def test_status_false_after_stop(self, authed_client):
-        client, mock_dl, token = authed_client
-        client.post("/api/v1/stop")
-        resp = client.get("/api/v1/status")
-        assert resp.json()["status"] is False
-
-    def test_status_true_after_start(self, authed_client):
-        client, mock_dl, token = authed_client
-        client.post("/api/v1/stop")
-        client.post("/api/v1/start")
-        resp = client.get("/api/v1/status")
-        assert resp.json()["status"] is True
-
-
-@pytest.mark.e2e
-class TestRestart:
-
-    def test_restart_roundtrip(self, authed_client):
-        client, mock_dl, token = authed_client
+        # Restart → status True
         resp = client.post("/api/v1/restart")
         assert resp.status_code == 200
         assert "restart" in resp.json()["msg_en"].lower()
-
-    def test_status_true_after_restart(self, authed_client):
-        client, mock_dl, token = authed_client
-        client.post("/api/v1/restart")
-        resp = client.get("/api/v1/status")
-        assert resp.json()["status"] is True
+        assert client.get("/api/v1/status").json()["status"] is True
 
 
 @pytest.mark.e2e

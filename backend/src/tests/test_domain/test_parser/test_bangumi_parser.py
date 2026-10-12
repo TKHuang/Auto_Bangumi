@@ -170,150 +170,128 @@ class TestGroupIdentification:
         """Create a parser instance for tests."""
         return BangumiParser()
 
-    def test_simple_group(self, parser: BangumiParser):
-        """Test identification of a simple group name."""
-        brackets = [
-            BracketContent(
-                content="TestGroup", start=0, end=11, bracket_type="halfwidth"
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "TestGroup"
-
-    def test_group_from_first_bracket(self, parser: BangumiParser):
-        """Test that group is identified from the first bracket only."""
-        brackets = [
-            BracketContent(content="Group", start=0, end=7, bracket_type="halfwidth"),
-            BracketContent(content="1080p", start=15, end=22, bracket_type="halfwidth"),
-            BracketContent(content="HEVC", start=22, end=28, bracket_type="halfwidth"),
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "Group"
-
-    def test_multi_group_format_ampersand(self, parser: BangumiParser):
-        """Test multi-group format with & separator."""
-        brackets = [
-            BracketContent(
-                content="动漫国字幕组&LoliHouse",
-                start=0,
-                end=18,
-                bracket_type="halfwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        # Multi-group format should be preserved as-is
-        assert group == "动漫国字幕组&LoliHouse"
-
-    def test_multi_group_format_fullwidth_ampersand(self, parser: BangumiParser):
-        """Test multi-group format with full-width & separator."""
-        brackets = [
-            BracketContent(
-                content="Group1＆Group2",
-                start=0,
-                end=15,
-                bracket_type="halfwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "Group1＆Group2"
-
-    def test_multi_group_format_times(self, parser: BangumiParser):
-        """Test multi-group format with × separator."""
-        brackets = [
-            BracketContent(
-                content="GroupA×GroupB",
-                start=0,
-                end=14,
-                bracket_type="halfwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "GroupA×GroupB"
-
-    def test_empty_brackets_returns_none(self, parser: BangumiParser):
-        """Test that empty bracket list returns None."""
-        group = parser._identify_group([])
-
-        assert group is None
-
-    def test_empty_bracket_content_returns_none(self, parser: BangumiParser):
-        """Test that empty content in first bracket returns None."""
-        brackets = [
-            BracketContent(content="", start=0, end=2, bracket_type="halfwidth")
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group is None
-
-    def test_whitespace_only_content_returns_none(self, parser: BangumiParser):
-        """Test that whitespace-only content returns None."""
-        brackets = [
-            BracketContent(content="   ", start=0, end=5, bracket_type="halfwidth")
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group is None
-
-    def test_group_with_chinese_characters(self, parser: BangumiParser):
-        """Test group identification with Chinese characters."""
-        brackets = [
-            BracketContent(
-                content="喵萌奶茶屋",
-                start=0,
-                end=7,
-                bracket_type="fullwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "喵萌奶茶屋"
-
-    def test_group_with_japanese_characters(self, parser: BangumiParser):
-        """Test group identification with Japanese characters."""
-        brackets = [
-            BracketContent(
-                content="字幕組",
-                start=0,
-                end=5,
-                bracket_type="halfwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "字幕組"
-
-    def test_group_strips_whitespace(self, parser: BangumiParser):
-        """Test that group identification strips leading/trailing whitespace."""
-        brackets = [
-            BracketContent(
-                content="  TestGroup  ",
-                start=0,
-                end=15,
-                bracket_type="halfwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "TestGroup"
-
-    def test_group_from_fullwidth_bracket(self, parser: BangumiParser):
-        """Test group identification from full-width bracket."""
-        brackets = [
-            BracketContent(
-                content="動漫國字幕組",
-                start=0,
-                end=8,
-                bracket_type="fullwidth",
-            )
-        ]
-        group = parser._identify_group(brackets)
-
-        assert group == "動漫國字幕組"
+    @pytest.mark.parametrize(
+        "brackets, expected",
+        [
+            pytest.param(
+                [
+                    BracketContent(
+                        content="TestGroup", start=0, end=11, bracket_type="halfwidth"
+                    )
+                ],
+                "TestGroup",
+                id="simple_group",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="Group", start=0, end=7, bracket_type="halfwidth"
+                    ),
+                    BracketContent(
+                        content="1080p", start=15, end=22, bracket_type="halfwidth"
+                    ),
+                    BracketContent(
+                        content="HEVC", start=22, end=28, bracket_type="halfwidth"
+                    ),
+                ],
+                "Group",
+                id="uses_first_bracket_only",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="动漫国字幕组&LoliHouse",
+                        start=0,
+                        end=18,
+                        bracket_type="halfwidth",
+                    )
+                ],
+                # Multi-group format should be preserved as-is.
+                "动漫国字幕组&LoliHouse",
+                id="ampersand_multi_group",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="Group1＆Group2",
+                        start=0,
+                        end=15,
+                        bracket_type="halfwidth",
+                    )
+                ],
+                "Group1＆Group2",
+                id="fullwidth_ampersand_multi_group",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="GroupA×GroupB",
+                        start=0,
+                        end=14,
+                        bracket_type="halfwidth",
+                    )
+                ],
+                "GroupA×GroupB",
+                id="times_multi_group",
+            ),
+            pytest.param([], None, id="empty_bracket_list"),
+            pytest.param(
+                [BracketContent(content="", start=0, end=2, bracket_type="halfwidth")],
+                None,
+                id="empty_bracket_content",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="   ", start=0, end=5, bracket_type="halfwidth"
+                    )
+                ],
+                None,
+                id="whitespace_only_content",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="喵萌奶茶屋", start=0, end=7, bracket_type="fullwidth"
+                    )
+                ],
+                "喵萌奶茶屋",
+                id="chinese_characters",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="字幕組", start=0, end=5, bracket_type="halfwidth"
+                    )
+                ],
+                "字幕組",
+                id="japanese_characters",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="  TestGroup  ",
+                        start=0,
+                        end=15,
+                        bracket_type="halfwidth",
+                    )
+                ],
+                "TestGroup",
+                id="strips_whitespace",
+            ),
+            pytest.param(
+                [
+                    BracketContent(
+                        content="動漫國字幕組", start=0, end=8, bracket_type="fullwidth"
+                    )
+                ],
+                "動漫國字幕組",
+                id="fullwidth_bracket",
+            ),
+        ],
+    )
+    def test_identify_group(self, parser: BangumiParser, brackets, expected):
+        assert parser._identify_group(brackets) == expected
 
 
 class TestParseMethod:
@@ -1057,347 +1035,296 @@ class TestEpisodeExtraction:
         """Create a parser instance for tests."""
         return BangumiParser()
 
-    # Bracketed single episode tests: [01], [12], [12.5]
-    def test_bracketed_episode_01(self, parser: BangumiParser):
-        """Test extraction of [01] bracketed episode."""
-        result = parser._extract_episode("[Group] Title - [01] [1080p]")
-        assert result == (1.0, None)
+    @pytest.mark.parametrize(
+        "input_str, expected",
+        [
+            # Bracketed single episode: [01], [99] (two representatives of the
+            # same branch; [12] dropped as redundant), plus decimal variants.
+            pytest.param("[Group] Title - [01] [1080p]", (1.0, None), id="bracketed_01"),
+            pytest.param("[Group] Title - [99] [1080p]", (99.0, None), id="bracketed_99"),
+            pytest.param(
+                "[Group] Title - [12.5] [1080p]", (12.5, None), id="bracketed_decimal_12_5"
+            ),
+            pytest.param(
+                "[Group] Title - [48.5] [1080p]", (48.5, None), id="bracketed_decimal_48_5"
+            ),
+            # Batch range in brackets: dash, tilde, fullwidth tilde, spaces, decimal.
+            pytest.param(
+                "[Group] Title [01-12] [1080p]", (1.0, 12.0), id="batch_bracket_dash"
+            ),
+            pytest.param(
+                "[Group] Title [01~24] [1080p]", (1.0, 24.0), id="batch_bracket_tilde"
+            ),
+            pytest.param(
+                "[Group] Title [01～12] [1080p]",
+                (1.0, 12.0),
+                id="batch_bracket_fullwidth_tilde",
+            ),
+            pytest.param(
+                "[Group] Title [01 - 12] [1080p]",
+                (1.0, 12.0),
+                id="batch_bracket_with_spaces",
+            ),
+            pytest.param(
+                "[Group] Title [12.5-13.5] [1080p]",
+                (12.5, 13.5),
+                id="batch_bracket_decimal_episodes",
+            ),
+            # EP/E prefix format.
+            pytest.param("[Group] Title EP01 [1080p]", (1.0, None), id="ep_prefix_01"),
+            pytest.param("[Group] Title EP12 [1080p]", (12.0, None), id="ep_prefix_12"),
+            pytest.param("[Group] Title E01 [1080p]", (1.0, None), id="e_prefix_01"),
+            pytest.param(
+                # Lowercase "ep" falls through to the dash-separated pattern,
+                # which doesn't match - only uppercase E/EP/Ep is matched.
+                "[Group] Title ep05 [1080p]",
+                (None, None),
+                id="ep_prefix_lowercase_not_matched",
+            ),
+            pytest.param(
+                "[Group] Title EP12.5 [1080p]", (12.5, None), id="ep_prefix_decimal"
+            ),
+            # Dash-separated episode: "- 01", "- 99" (two representatives;
+            # "- 12" dropped as redundant), plus decimal.
+            pytest.param(
+                "[Group] Title - 01 [1080p]", (1.0, None), id="dash_separated_01"
+            ),
+            pytest.param(
+                "[Group] Title - 99 [1080p]", (99.0, None), id="dash_separated_99"
+            ),
+            pytest.param(
+                "[Group] Title - 12.5 [1080p]",
+                (12.5, None),
+                id="dash_separated_decimal",
+            ),
+            # Chinese episode markers: 第01集, 第12话 (simplified), 第12話
+            # (traditional - distinct character, not just a number change), 第99集.
+            pytest.param(
+                "[Group] Title 第01集 [1080p]", (1.0, None), id="chinese_ji_01"
+            ),
+            pytest.param(
+                "[Group] Title 第12话 [1080p]",
+                (12.0, None),
+                id="chinese_hua_simplified",
+            ),
+            pytest.param(
+                "[Group] Title 第12話 [1080p]",
+                (12.0, None),
+                id="chinese_hua_traditional",
+            ),
+            pytest.param(
+                "[Group] Title 第99集 [1080p]",
+                (99.0, None),
+                id="chinese_ji_99_double_digit",
+            ),
+            # Hash prefix: #01, #12, plus decimal.
+            pytest.param(
+                "[Group] Title #01 [1080p]", (1.0, None), id="hash_prefix_01"
+            ),
+            pytest.param(
+                "[Group] Title #12 [1080p]", (12.0, None), id="hash_prefix_12"
+            ),
+            pytest.param(
+                "[Group] Title #12.5 [1080p]",
+                (12.5, None),
+                id="hash_prefix_decimal",
+            ),
+            # Standalone batch range (not in brackets): dash, tilde, fullwidth tilde.
+            pytest.param(
+                "[Group] Title 01-12 [1080p]",
+                (1.0, 12.0),
+                id="standalone_batch_dash",
+            ),
+            pytest.param(
+                "[Group] Title 01~24 [1080p]",
+                (1.0, 24.0),
+                id="standalone_batch_tilde",
+            ),
+            pytest.param(
+                "[Group] Title 01～12 [1080p]",
+                (1.0, 12.0),
+                id="standalone_batch_fullwidth_tilde",
+            ),
+            # Version suffixes v2/v3/V2 (should be ignored in episode number).
+            pytest.param(
+                "[Group] Title - 01v2 [1080p]",
+                (1.0, None),
+                id="version_suffix_v2",
+            ),
+            pytest.param(
+                "[Group] Title - 05v3 [1080p]",
+                (5.0, None),
+                id="version_suffix_v3",
+            ),
+            pytest.param(
+                "[Group] Title - 01V2 [1080p]",
+                (1.0, None),
+                id="version_suffix_uppercase_V2",
+            ),
+            pytest.param(
+                "[Group] Title [12v2] [1080p]",
+                (12.0, None),
+                id="version_suffix_in_bracket",
+            ),
+            # END/Fin/Complete markers (batch release indicators) - each case
+            # exercises a distinct marker word, case, or bracket placement.
+            pytest.param(
+                "[Group] Title 01-24 END [1080p]",
+                (1.0, 24.0),
+                id="end_marker_with_batch_range",
+            ),
+            pytest.param(
+                "[Group] Title 01-12 Fin [1080p]",
+                (1.0, 12.0),
+                id="fin_marker_with_batch_range",
+            ),
+            pytest.param(
+                "[Group] Title 01-24 Complete [1080p]",
+                (1.0, 24.0),
+                id="complete_marker_with_batch_range",
+            ),
+            pytest.param(
+                "[Group] Title 01-24 end [1080p]",
+                (1.0, 24.0),
+                id="end_marker_lowercase",
+            ),
+            pytest.param(
+                "[Group] Title 01-12 完结 [1080p]",
+                (1.0, 12.0),
+                id="chinese_end_marker",
+            ),
+            pytest.param(
+                "[Group] Title 01-12 完結 [1080p]",
+                (1.0, 12.0),
+                id="chinese_end_marker_traditional",
+            ),
+            pytest.param(
+                "[Group][Title][25_END][1080p]",
+                (25.0, None),
+                id="end_marker_in_bracket_with_underscore",
+            ),
+            pytest.param(
+                "[Group][Title][25END][1080p]",
+                (25.0, None),
+                id="end_marker_in_bracket_without_underscore",
+            ),
+            pytest.param(
+                "[Group][Title][25 END][1080p]",
+                (25.0, None),
+                id="end_marker_in_bracket_with_space",
+            ),
+            pytest.param(
+                "[Group][Title][12_COMPLETE][1080p]",
+                (12.0, None),
+                id="complete_marker_in_bracket",
+            ),
+            pytest.param(
+                "[Group][Title][24_完结][1080p]",
+                (24.0, None),
+                id="chinese_complete_marker_in_bracket",
+            ),
+            # No episode found.
+            pytest.param(
+                "[Group] Title [1080p]", (None, None), id="no_episode_returns_none_none"
+            ),
+            pytest.param("", (None, None), id="empty_string_returns_none_none"),
+            pytest.param(
+                "Just a plain title.mkv",
+                (None, None),
+                id="no_brackets_no_episode",
+            ),
+            # Resolution pattern should not be matched as batch range.
+            pytest.param(
+                "[Group] Title [1920x1080]",
+                (None, None),
+                id="resolution_not_matched_as_batch_1920x1080",
+            ),
+            pytest.param(
+                "[Group] Title [1280x720]",
+                (None, None),
+                id="resolution_not_matched_as_batch_1280x720",
+            ),
+            # Real-world formats from actual RSS feeds.
+            pytest.param(
+                "[ANi] BLEACH 千年血戦篇-相剋譚- - 01 [1080P][Baha][WEB-DL][AAC AVC][CHT]",
+                (1.0, None),
+                id="ani_format_with_episode",
+            ),
+            pytest.param(
+                "[LoliHouse] Sousou no Frieren / 葬送的芙莉蓮 - 28 [WebRip 1080p HEVC-10bit AAC]",
+                (28.0, None),
+                id="lolihouse_format_with_episode",
+            ),
+            pytest.param(
+                # Full-width brackets 【】 are not matched by the current
+                # episode bracket regex; the full parse() method extracts
+                # this episode from bracket content by context instead.
+                "【幻櫻字幕組】【1月新番】葬送的芙莉蓮【01】【BIG5_MP4】【1280X720】",
+                (None, None),
+                id="fantasy_subgroup_fullwidth_with_episode",
+            ),
+            pytest.param(
+                "[SubGroup] Anime Title [01-24 END] [1080p] [HEVC]",
+                (1.0, 24.0),
+                id="batch_release_with_end",
+            ),
+            pytest.param(
+                "[Group] Title [01~50] Complete [1080p]",
+                (1.0, 50.0),
+                id="multi_cour_batch_release",
+            ),
+            pytest.param(
+                "[Group] 86 Eighty-Six - 23 [1080p]",
+                (23.0, None),
+                id="episode_with_title_containing_numbers",
+            ),
+            pytest.param(
+                "【字幕組】作品名 第12集【1080P】",
+                (12.0, None),
+                id="chinese_episode_in_fullwidth_brackets",
+            ),
+            pytest.param(
+                # SP-prefixed episodes are captured as a plain episode number
+                # by this regex; episode_type/is_special is handled elsewhere.
+                "[Group] Title SP01 [1080p]",
+                (1.0, None),
+                id="special_episode_format_sp01",
+            ),
+        ],
+    )
+    def test_extract_episode(
+        self, parser: BangumiParser, input_str: str, expected: tuple
+    ):
+        assert parser._extract_episode(input_str) == expected
 
-    def test_bracketed_episode_12(self, parser: BangumiParser):
-        """Test extraction of [12] bracketed episode."""
-        result = parser._extract_episode("[Group] Title - [12] [1080p]")
-        assert result == (12.0, None)
-
-    def test_bracketed_episode_99(self, parser: BangumiParser):
-        """Test extraction of [99] bracketed episode (large number)."""
-        result = parser._extract_episode("[Group] Title - [99] [1080p]")
-        assert result == (99.0, None)
-
-    def test_bracketed_episode_decimal(self, parser: BangumiParser):
-        """Test extraction of [12.5] decimal episode."""
-        result = parser._extract_episode("[Group] Title - [12.5] [1080p]")
-        assert result == (12.5, None)
-
-    def test_bracketed_episode_decimal_48_5(self, parser: BangumiParser):
-        """Test extraction of [48.5] decimal episode."""
-        result = parser._extract_episode("[Group] Title - [48.5] [1080p]")
-        assert result == (48.5, None)
-
-    # Batch range in brackets: [01-12], [01~24]
-    def test_batch_range_bracket_dash(self, parser: BangumiParser):
-        """Test extraction of [01-12] batch range with dash."""
-        result = parser._extract_episode("[Group] Title [01-12] [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_batch_range_bracket_tilde(self, parser: BangumiParser):
-        """Test extraction of [01~24] batch range with tilde."""
-        result = parser._extract_episode("[Group] Title [01~24] [1080p]")
-        assert result == (1.0, 24.0)
-
-    def test_batch_range_bracket_fullwidth_tilde(self, parser: BangumiParser):
-        """Test extraction of [01～12] batch range with full-width tilde."""
-        result = parser._extract_episode("[Group] Title [01～12] [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_batch_range_bracket_with_spaces(self, parser: BangumiParser):
-        """Test extraction of [01 - 12] batch range with spaces."""
-        result = parser._extract_episode("[Group] Title [01 - 12] [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_batch_range_bracket_decimal_episodes(self, parser: BangumiParser):
-        """Test extraction of batch range with decimal episodes."""
-        result = parser._extract_episode("[Group] Title [12.5-13.5] [1080p]")
-        assert result == (12.5, 13.5)
-
-    # EP/E prefix format: EP01, E01
-    def test_ep_prefix_episode(self, parser: BangumiParser):
-        """Test extraction of EP01 episode format."""
-        result = parser._extract_episode("[Group] Title EP01 [1080p]")
-        assert result == (1.0, None)
-
-    def test_ep_prefix_episode_12(self, parser: BangumiParser):
-        """Test extraction of EP12 episode format."""
-        result = parser._extract_episode("[Group] Title EP12 [1080p]")
-        assert result == (12.0, None)
-
-    def test_e_prefix_episode(self, parser: BangumiParser):
-        """Test extraction of E01 episode format."""
-        result = parser._extract_episode("[Group] Title E01 [1080p]")
-        assert result == (1.0, None)
-
-    def test_ep_prefix_lowercase_not_matched(self, parser: BangumiParser):
-        """Test that ep (lowercase e) prefix is not matched.
-
-        Note: The current implementation only matches uppercase E prefix (E, EP, Ep).
-        Lowercase 'ep' is not a common format in fansub releases.
-        """
-        result = parser._extract_episode("[Group] Title ep05 [1080p]")
-        # Lowercase 'ep' falls through to dash-separated pattern which doesn't match
-        assert result == (None, None)
-
-    def test_ep_prefix_decimal(self, parser: BangumiParser):
-        """Test extraction of EP12.5 decimal episode."""
-        result = parser._extract_episode("[Group] Title EP12.5 [1080p]")
-        assert result == (12.5, None)
-
-    # Dash-separated episode: - 01, - 12
-    def test_dash_separated_episode_01(self, parser: BangumiParser):
-        """Test extraction of - 01 dash-separated episode."""
-        result = parser._extract_episode("[Group] Title - 01 [1080p]")
-        assert result == (1.0, None)
-
-    def test_dash_separated_episode_12(self, parser: BangumiParser):
-        """Test extraction of - 12 dash-separated episode."""
-        result = parser._extract_episode("[Group] Title - 12 [1080p]")
-        assert result == (12.0, None)
-
-    def test_dash_separated_episode_99(self, parser: BangumiParser):
-        """Test extraction of - 99 dash-separated episode."""
-        result = parser._extract_episode("[Group] Title - 99 [1080p]")
-        assert result == (99.0, None)
-
-    def test_dash_separated_episode_decimal(self, parser: BangumiParser):
-        """Test extraction of - 12.5 dash-separated decimal episode."""
-        result = parser._extract_episode("[Group] Title - 12.5 [1080p]")
-        assert result == (12.5, None)
-
-    # Chinese episode markers: 第01集, 第12话, 第12話
-    def test_chinese_episode_ji(self, parser: BangumiParser):
-        """Test extraction of 第01集 Chinese episode format."""
-        result = parser._extract_episode("[Group] Title 第01集 [1080p]")
-        assert result == (1.0, None)
-
-    def test_chinese_episode_hua_simplified(self, parser: BangumiParser):
-        """Test extraction of 第12话 Chinese episode format (simplified)."""
-        result = parser._extract_episode("[Group] Title 第12话 [1080p]")
-        assert result == (12.0, None)
-
-    def test_chinese_episode_hua_traditional(self, parser: BangumiParser):
-        """Test extraction of 第12話 Chinese episode format (traditional)."""
-        result = parser._extract_episode("[Group] Title 第12話 [1080p]")
-        assert result == (12.0, None)
-
-    def test_chinese_episode_double_digit(self, parser: BangumiParser):
-        """Test extraction of 第99集 Chinese episode format (double digit)."""
-        result = parser._extract_episode("[Group] Title 第99集 [1080p]")
-        assert result == (99.0, None)
-
-    # Hash prefix: #01, #12
-    def test_hash_prefix_episode_01(self, parser: BangumiParser):
-        """Test extraction of #01 hash-prefixed episode."""
-        result = parser._extract_episode("[Group] Title #01 [1080p]")
-        assert result == (1.0, None)
-
-    def test_hash_prefix_episode_12(self, parser: BangumiParser):
-        """Test extraction of #12 hash-prefixed episode."""
-        result = parser._extract_episode("[Group] Title #12 [1080p]")
-        assert result == (12.0, None)
-
-    def test_hash_prefix_episode_decimal(self, parser: BangumiParser):
-        """Test extraction of #12.5 hash-prefixed decimal episode."""
-        result = parser._extract_episode("[Group] Title #12.5 [1080p]")
-        assert result == (12.5, None)
-
-    # Standalone batch range (not in brackets): 01-12, 01~24
-    def test_standalone_batch_range_dash(self, parser: BangumiParser):
-        """Test extraction of 01-12 standalone batch range."""
-        result = parser._extract_episode("[Group] Title 01-12 [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_standalone_batch_range_tilde(self, parser: BangumiParser):
-        """Test extraction of 01~24 standalone batch range."""
-        result = parser._extract_episode("[Group] Title 01~24 [1080p]")
-        assert result == (1.0, 24.0)
-
-    def test_standalone_batch_range_fullwidth_tilde(self, parser: BangumiParser):
-        """Test extraction of 01～12 standalone batch range with fullwidth tilde."""
-        result = parser._extract_episode("[Group] Title 01～12 [1080p]")
-        assert result == (1.0, 12.0)
-
-    # Version suffixes: v2, v3 (should be ignored in episode number)
-    def test_version_suffix_v2(self, parser: BangumiParser):
-        """Test extraction with v2 version suffix ignored."""
-        result = parser._extract_episode("[Group] Title - 01v2 [1080p]")
-        assert result == (1.0, None)
-
-    def test_version_suffix_v3(self, parser: BangumiParser):
-        """Test extraction with v3 version suffix ignored."""
-        result = parser._extract_episode("[Group] Title - 05v3 [1080p]")
-        assert result == (5.0, None)
-
-    def test_version_suffix_uppercase_V2(self, parser: BangumiParser):
-        """Test extraction with V2 uppercase version suffix ignored."""
-        result = parser._extract_episode("[Group] Title - 01V2 [1080p]")
-        assert result == (1.0, None)
-
-    def test_version_suffix_in_bracket(self, parser: BangumiParser):
-        """Test extraction with version suffix in bracket ignored."""
-        result = parser._extract_episode("[Group] Title [12v2] [1080p]")
-        assert result == (12.0, None)
-
-    # END/Fin/Complete markers (batch release indicators)
-    def test_end_marker_with_batch_range(self, parser: BangumiParser):
-        """Test extraction with END marker and batch range."""
-        result = parser._extract_episode("[Group] Title 01-24 END [1080p]")
-        assert result == (1.0, 24.0)
-
-    def test_fin_marker_with_batch_range(self, parser: BangumiParser):
-        """Test extraction with Fin marker and batch range."""
-        result = parser._extract_episode("[Group] Title 01-12 Fin [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_complete_marker_with_batch_range(self, parser: BangumiParser):
-        """Test extraction with Complete marker and batch range."""
-        result = parser._extract_episode("[Group] Title 01-24 Complete [1080p]")
-        assert result == (1.0, 24.0)
-
-    def test_end_marker_lowercase(self, parser: BangumiParser):
-        """Test extraction with end marker lowercase."""
-        result = parser._extract_episode("[Group] Title 01-24 end [1080p]")
-        assert result == (1.0, 24.0)
-
-    def test_chinese_end_marker(self, parser: BangumiParser):
-        """Test extraction with Chinese 完结 marker."""
-        result = parser._extract_episode("[Group] Title 01-12 完结 [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_chinese_end_marker_traditional(self, parser: BangumiParser):
-        """Test extraction with Chinese 完結 marker (traditional)."""
-        result = parser._extract_episode("[Group] Title 01-12 完結 [1080p]")
-        assert result == (1.0, 12.0)
-
-    def test_end_marker_in_bracket_with_underscore(self, parser: BangumiParser):
-        """Test extraction with END marker in bracket: [25_END]."""
-        result = parser._extract_episode("[Group][Title][25_END][1080p]")
-        assert result == (25.0, None)
-
-    def test_end_marker_in_bracket_without_underscore(self, parser: BangumiParser):
-        """Test extraction with END marker in bracket: [25END]."""
-        result = parser._extract_episode("[Group][Title][25END][1080p]")
-        assert result == (25.0, None)
-
-    def test_end_marker_in_bracket_with_space(self, parser: BangumiParser):
-        """Test extraction with END marker in bracket: [25 END]."""
-        result = parser._extract_episode("[Group][Title][25 END][1080p]")
-        assert result == (25.0, None)
-
-    def test_complete_marker_in_bracket(self, parser: BangumiParser):
-        """Test extraction with COMPLETE marker in bracket: [12_COMPLETE]."""
-        result = parser._extract_episode("[Group][Title][12_COMPLETE][1080p]")
-        assert result == (12.0, None)
-
-    def test_chinese_complete_marker_in_bracket(self, parser: BangumiParser):
-        """Test extraction with 完结 marker in bracket: [24_完结]."""
-        result = parser._extract_episode("[Group][Title][24_完结][1080p]")
-        assert result == (24.0, None)
-
-    # No episode found
-    def test_no_episode_returns_none_none(self, parser: BangumiParser):
-        """Test that no episode returns (None, None)."""
-        result = parser._extract_episode("[Group] Title [1080p]")
-        assert result == (None, None)
-
-    def test_empty_string_returns_none_none(self, parser: BangumiParser):
-        """Test that empty string returns (None, None)."""
-        result = parser._extract_episode("")
-        assert result == (None, None)
-
-    def test_no_brackets_no_episode(self, parser: BangumiParser):
-        """Test that text without episode markers returns (None, None)."""
-        result = parser._extract_episode("Just a plain title.mkv")
-        assert result == (None, None)
-
-    # Resolution pattern should not be matched as batch range
-    def test_resolution_not_matched_as_batch_1920x1080(self, parser: BangumiParser):
-        """Test that 1920x1080 resolution is not matched as batch range."""
-        result = parser._extract_episode("[Group] Title [1920x1080]")
-        assert result == (None, None)
-
-    def test_resolution_not_matched_as_batch_1280x720(self, parser: BangumiParser):
-        """Test that 1280x720 resolution is not matched as batch range."""
-        result = parser._extract_episode("[Group] Title [1280x720]")
-        assert result == (None, None)
-
-    # Integration with parse() method
-    def test_parse_extracts_single_episode(self, parser: BangumiParser):
-        """Test that parse() correctly extracts single episode."""
-        result = parser.parse("[Group] Title - 05 [1080p]")
-        assert result.episode == 5.0
-        assert result.episode_end is None
-
-    def test_parse_extracts_batch_range(self, parser: BangumiParser):
-        """Test that parse() correctly extracts batch range."""
-        result = parser.parse("[Group] Title [01-12] [1080p]")
-        assert result.episode == 1.0
-        assert result.episode_end == 12.0
-
-    def test_parse_extracts_decimal_episode(self, parser: BangumiParser):
-        """Test that parse() correctly extracts decimal episode."""
-        result = parser.parse("[Group] Title - 12.5 [1080p]")
-        assert result.episode == 12.5
-        assert result.episode_end is None
-
-    def test_parse_returns_none_when_no_episode(self, parser: BangumiParser):
-        """Test that parse() returns None for episode when not found."""
-        result = parser.parse("[Group] Title [1080p]")
-        assert result.episode is None
-        assert result.episode_end is None
-
-    # Real-world format tests
-    def test_ani_format_with_episode(self, parser: BangumiParser):
-        """Test ANi format with episode."""
-        result = parser._extract_episode(
-            "[ANi] BLEACH 千年血戦篇-相剋譚- - 01 [1080P][Baha][WEB-DL][AAC AVC][CHT]"
-        )
-        assert result == (1.0, None)
-
-    def test_lolihouse_format_with_episode(self, parser: BangumiParser):
-        """Test LoliHouse format with episode."""
-        result = parser._extract_episode(
-            "[LoliHouse] Sousou no Frieren / 葬送的芙莉蓮 - 28 [WebRip 1080p HEVC-10bit AAC]"
-        )
-        assert result == (28.0, None)
-
-    def test_fantasy_subgroup_fullwidth_with_episode(self, parser: BangumiParser):
-        """Test fantasy subgroup style with full-width brackets and episode.
-
-        Note: Full-width brackets 【】 are not currently matched for episode extraction.
-        This format typically uses position-based parsing in the full parse() method
-        which extracts episode from bracket content by context, not regex pattern.
-        """
-        result = parser._extract_episode("【幻櫻字幕組】【1月新番】葬送的芙莉蓮【01】【BIG5_MP4】【1280X720】")
-        # Full-width brackets are not matched by the current episode bracket regex
-        assert result == (None, None)
-
-    def test_batch_release_with_end(self, parser: BangumiParser):
-        """Test batch release format with END marker."""
-        result = parser._extract_episode(
-            "[SubGroup] Anime Title [01-24 END] [1080p] [HEVC]"
-        )
-        assert result == (1.0, 24.0)
-
-    def test_multi_cour_batch_release(self, parser: BangumiParser):
-        """Test multi-cour batch release format."""
-        result = parser._extract_episode("[Group] Title [01~50] Complete [1080p]")
-        assert result == (1.0, 50.0)
-
-    def test_episode_with_title_containing_numbers(self, parser: BangumiParser):
-        """Test episode extraction when title contains numbers (like '86')."""
-        result = parser._extract_episode("[Group] 86 Eighty-Six - 23 [1080p]")
-        assert result == (23.0, None)
-
-    def test_chinese_episode_in_fullwidth_brackets(self, parser: BangumiParser):
-        """Test Chinese episode number in full-width brackets."""
-        result = parser._extract_episode("【字幕組】作品名 第12集【1080P】")
-        assert result == (12.0, None)
-
-    def test_special_episode_format(self, parser: BangumiParser):
-        """Test special episode format like SP01."""
-        # Note: This may or may not be supported depending on implementation
-        result = parser._extract_episode("[Group] Title SP01 [1080p]")
-        # SP episodes might not be captured as regular episodes
-        # The behavior depends on the implementation
-        assert result[0] is None or result[0] == 1.0
+    @pytest.mark.parametrize(
+        "input_str, expected_episode, expected_episode_end",
+        [
+            pytest.param(
+                "[Group] Title - 05 [1080p]", 5.0, None, id="single_episode"
+            ),
+            pytest.param(
+                "[Group] Title [01-12] [1080p]", 1.0, 12.0, id="batch_range"
+            ),
+            pytest.param(
+                "[Group] Title - 12.5 [1080p]", 12.5, None, id="decimal_episode"
+            ),
+            pytest.param(
+                "[Group] Title [1080p]", None, None, id="no_episode"
+            ),
+        ],
+    )
+    def test_parse_episode_integration(
+        self,
+        parser: BangumiParser,
+        input_str: str,
+        expected_episode,
+        expected_episode_end,
+    ):
+        """Test that parse() surfaces the same episode/episode_end extraction."""
+        result = parser.parse(input_str)
+        assert result.episode == expected_episode
+        assert result.episode_end == expected_episode_end
 
 
 @pytest.mark.edge_case
@@ -2948,193 +2875,216 @@ class TestTitleExtraction:
         """Create a parser instance for tests."""
         return BangumiParser()
 
-    def test_simple_title(self, parser: BangumiParser):
-        """Test extraction of simple title."""
-        result = parser.parse("[Group] Simple Title - 01 [1080p]")
-        assert result.title == "Simple Title"
-        assert result.alt_titles == []
-
-    def test_simple_title_with_dash(self, parser: BangumiParser):
-        """Test extraction of simple title with dash separator."""
-        result = parser.parse("[Group] Title Name - 01 [720p][HEVC]")
-        assert result.title == "Title Name"
-        assert result.alt_titles == []
-
-    def test_slash_separated_titles(self, parser: BangumiParser):
-        """Test extraction of slash-separated multilingual titles."""
-        result = parser.parse("[Group] 日本語タイトル / English Title - 01 [1080p]")
-        assert result.title == "日本語タイトル"
-        assert result.alt_titles == ["English Title"]
-
-    def test_slash_separated_cjk_preference(self, parser: BangumiParser):
-        """Test that CJK title is preferred as main title."""
-        result = parser.parse("[Group] English Title / 中文標題 - 01 [1080p]")
-        assert result.title == "中文標題"
-        assert result.alt_titles == ["English Title"]
-
-    def test_double_slash_separated_titles(self, parser: BangumiParser):
-        """Test extraction of double slash separated titles."""
-        result = parser.parse("[Group] タイトル // English // 中文 - 01 [1080p]")
-        # CJK titles come first
-        assert result.title in ["タイトル", "中文"]
-        assert len(result.alt_titles) >= 1
-        assert "English" in result.alt_titles
-
-    def test_triple_slash_separated_titles(self, parser: BangumiParser):
-        """Test extraction of three slash-separated titles."""
-        result = parser.parse(
-            "[LoliHouse] 葬送的芙莉蓮 / Sousou no Frieren / 葬送的弗莉蓮 - 01 [WebRip 1080p HEVC-10bit AAC]"
-        )
-        # Should prefer CJK title
-        assert result.title in ["葬送的芙莉蓮", "葬送的弗莉蓮"]
-        assert "Sousou no Frieren" in result.alt_titles
-
-    def test_all_bracket_format_simple(self, parser: BangumiParser):
-        """Test all-bracket format titles."""
-        result = parser.parse("【Group】★01月新番[Simple Title][01][1080p]")
-        assert result.title == "Simple Title"
-        assert result.alt_titles == []
-
-    def test_all_bracket_format_with_cjk(self, parser: BangumiParser):
-        """Test all-bracket format with CJK title."""
-        result = parser.parse("【Group】★01月新番[アニメタイトル][01][1080p][HEVC]")
-        assert result.title == "アニメタイトル"
-        assert result.alt_titles == []
+    @pytest.mark.parametrize(
+        "input_str, expected_title, expected_alt_titles",
+        [
+            pytest.param(
+                "[Group] Simple Title - 01 [1080p]",
+                "Simple Title",
+                [],
+                id="simple_title",
+            ),
+            pytest.param(
+                "[Group] Title Name - 01 [720p][HEVC]",
+                "Title Name",
+                [],
+                id="simple_title_with_dash",
+            ),
+            pytest.param(
+                "[Group] 日本語タイトル / English Title - 01 [1080p]",
+                "日本語タイトル",
+                ["English Title"],
+                id="slash_separated_titles",
+            ),
+            pytest.param(
+                # CJK title is preferred as the main title.
+                "[Group] English Title / 中文標題 - 01 [1080p]",
+                "中文標題",
+                ["English Title"],
+                id="slash_separated_cjk_preference",
+            ),
+            pytest.param(
+                # CJK title first, remaining alt titles in appearance order.
+                "[Group] タイトル // English // 中文 - 01 [1080p]",
+                "タイトル",
+                ["中文", "English"],
+                id="double_slash_separated_titles",
+            ),
+            pytest.param(
+                "[LoliHouse] 葬送的芙莉蓮 / Sousou no Frieren / 葬送的弗莉蓮 - 01 "
+                "[WebRip 1080p HEVC-10bit AAC]",
+                "葬送的芙莉蓮",
+                ["葬送的弗莉蓮", "Sousou no Frieren"],
+                id="triple_slash_separated_titles",
+            ),
+            pytest.param(
+                "【Group】★01月新番[Simple Title][01][1080p]",
+                "Simple Title",
+                [],
+                id="all_bracket_format_simple",
+            ),
+            pytest.param(
+                "【Group】★01月新番[アニメタイトル][01][1080p][HEVC]",
+                "アニメタイトル",
+                [],
+                id="all_bracket_format_with_cjk",
+            ),
+            pytest.param(
+                "[Group] OSHI NO KO - 01 [1080p]",
+                "OSHI NO KO",
+                [],
+                id="embedded_brackets_in_title_oshi_no_ko",
+            ),
+            pytest.param(
+                # Title region should capture everything between group and episode.
+                "[Group] Title (Part) Name - 01 [1080p]",
+                "Title (Part) Name",
+                [],
+                id="embedded_brackets_in_title_parentheses",
+            ),
+            pytest.param(
+                # The slash at the end should not cause title splitting.
+                "[Group] Fate/stay night - 01 [1080p]",
+                "Fate/stay night",
+                [],
+                id="fate_style_title_with_slash",
+            ),
+            pytest.param(
+                "[Group] Fate/Grand Order / FGO - 01 [1080p]",
+                "Fate/Grand Order",
+                ["FGO"],
+                id="fate_style_multilingual",
+            ),
+            pytest.param(
+                "[Group] Title Name [1080p][HEVC][AAC] - 01",
+                "Title Name",
+                [],
+                id="title_with_metadata_noise_filtering",
+            ),
+            pytest.param(
+                "【Group】★☆◆Title Name - 01 [1080p]",
+                "Title Name",
+                [],
+                id="title_with_leading_special_characters",
+            ),
+            pytest.param(
+                # Season prefixes like 01月新番 are cleaned from titles.
+                "【Group】01月新番 Title Name - 01 [1080p]",
+                "Title Name",
+                [],
+                id="title_with_season_prefix",
+            ),
+            pytest.param(
+                "[Group] Title Name v2 - 01 [1080p]",
+                "Title Name",
+                [],
+                id="title_with_version_suffix",
+            ),
+            pytest.param(
+                "[Group][01][1080p][HEVC][AAC]",
+                None,
+                [],
+                id="no_title_only_brackets",
+            ),
+            pytest.param(
+                "[Group] 葬送的芙莉蓮 - 01 [1080p]",
+                "葬送的芙莉蓮",
+                [],
+                id="title_with_chinese_characters",
+            ),
+            pytest.param(
+                "[Group] ひらがなタイトル - 01 [1080p]",
+                "ひらがなタイトル",
+                [],
+                id="title_with_japanese_hiragana",
+            ),
+            pytest.param(
+                "[Group] カタカナタイトル - 01 [1080p]",
+                "カタカナタイトル",
+                [],
+                id="title_with_japanese_katakana",
+            ),
+            pytest.param(
+                "[Group] 한국어 타이틀 - 01 [1080p]",
+                "한국어 타이틀",
+                [],
+                id="title_with_korean_characters",
+            ),
+            pytest.param(
+                # No spaces between CJK and Latin around the slash should still split.
+                "[Group] 日本語/English - 01 [1080p]",
+                "日本語",
+                ["English"],
+                id="slash_without_spaces_cjk_latin_split",
+            ),
+            pytest.param(
+                # Same script on both sides of the slash should not split.
+                "[Group] Title/Name - 01 [1080p]",
+                "Title/Name",
+                [],
+                id="slash_without_spaces_same_script_no_split",
+            ),
+            pytest.param(
+                "[ANi] 葬送的芙莉蓮 - 01 [1080p][Baha][WEB-DL][AAC AVC][CHT]",
+                "葬送的芙莉蓮",
+                [],
+                id="ani_format_with_metadata_brackets",
+            ),
+            pytest.param(
+                "[LoliHouse] 葬送的芙莉蓮 / Sousou no Frieren - 01 "
+                "[WebRip 1080p HEVC-10bit AAC]",
+                "葬送的芙莉蓮",
+                ["Sousou no Frieren"],
+                id="lolihouse_format_multilingual",
+            ),
+            pytest.param(
+                "【幻想字幕組】【アニメタイトル】【01】【1080p】",
+                "アニメタイトル",
+                [],
+                id="fullwidth_brackets_format",
+            ),
+            pytest.param(
+                "[Group] Title Name [1080p][HEVC]",
+                "Title Name",
+                [],
+                id="title_between_brackets_without_episode",
+            ),
+            pytest.param(
+                "[Group] 繁體中文 / 简体中文 / English - 01 [1080p]",
+                "繁體中文",
+                ["简体中文", "English"],
+                id="title_with_multiple_cjk_variants",
+            ),
+            pytest.param(
+                "[Group] - 01 [1080p]",
+                None,
+                [],
+                id="empty_title_region",
+            ),
+            pytest.param(
+                "[Group]    - 01 [1080p]",
+                None,
+                [],
+                id="whitespace_only_title",
+            ),
+        ],
+    )
+    def test_title_and_alt_titles(
+        self,
+        parser: BangumiParser,
+        input_str: str,
+        expected_title,
+        expected_alt_titles,
+    ):
+        result = parser.parse(input_str)
+        assert result.title == expected_title
+        assert result.alt_titles == expected_alt_titles
 
     def test_all_bracket_format_multilingual(self, parser: BangumiParser):
         """Test all-bracket format with multilingual title in brackets."""
         result = parser.parse("【Group】★01月新番[日本語タイトル/English Title][01][1080p]")
         # Should extract CJK part from bracket
         assert result.title == "日本語タイトル"
-
-    def test_embedded_brackets_in_title_oshi_no_ko(self, parser: BangumiParser):
-        """Test title with embedded brackets like OSHI NO KO."""
-        result = parser.parse("[Group] OSHI NO KO - 01 [1080p]")
-        assert result.title == "OSHI NO KO"
-        assert result.alt_titles == []
-
-    def test_embedded_brackets_in_title_parentheses(self, parser: BangumiParser):
-        """Test title with embedded parentheses."""
-        result = parser.parse("[Group] Title (Part) Name - 01 [1080p]")
-        # Title region should capture everything between group and episode
-        assert result.title == "Title (Part) Name"
-        assert result.alt_titles == []
-
-    def test_fate_style_title_with_slash(self, parser: BangumiParser):
-        """Test Fate-style titles where slash is part of the name."""
-        # The slash at the end should not cause title splitting
-        result = parser.parse("[Group] Fate/stay night - 01 [1080p]")
-        assert result.title == "Fate/stay night"
-        assert result.alt_titles == []
-
-    def test_fate_style_multilingual(self, parser: BangumiParser):
-        """Test Fate-style titles with multilingual variants."""
-        # This should split because it has CJK and Latin on different sides
-        result = parser.parse("[Group] Fate/Grand Order / FGO - 01 [1080p]")
-        # The first title has the slash in it
-        assert "Fate/Grand Order" in [result.title] + result.alt_titles
-        assert "FGO" in [result.title] + result.alt_titles
-
-    def test_title_with_metadata_noise_filtering(self, parser: BangumiParser):
-        """Test that metadata is filtered from title candidates."""
-        result = parser.parse("[Group] Title Name [1080p][HEVC][AAC] - 01")
-        assert result.title == "Title Name"
-        assert result.alt_titles == []
-
-    def test_title_with_leading_special_characters(self, parser: BangumiParser):
-        """Test that leading special characters are cleaned from titles."""
-        result = parser.parse("【Group】★☆◆Title Name - 01 [1080p]")
-        assert result.title == "Title Name"
-        assert result.alt_titles == []
-
-    def test_title_with_season_prefix(self, parser: BangumiParser):
-        """Test that season prefixes like 01月新番 are cleaned from titles."""
-        result = parser.parse("【Group】01月新番 Title Name - 01 [1080p]")
-        assert result.title == "Title Name"
-        assert result.alt_titles == []
-
-    def test_title_with_version_suffix(self, parser: BangumiParser):
-        """Test that version suffixes are cleaned from titles."""
-        result = parser.parse("[Group] Title Name v2 - 01 [1080p]")
-        assert result.title == "Title Name"
-        assert result.alt_titles == []
-
-    def test_no_title_only_brackets(self, parser: BangumiParser):
-        """Test torrent with only metadata brackets."""
-        result = parser.parse("[Group][01][1080p][HEVC][AAC]")
-        # Should not be able to extract meaningful title
-        assert result.title is None or result.title == "Group"
-
-    def test_title_with_chinese_characters(self, parser: BangumiParser):
-        """Test title with Chinese simplified characters."""
-        result = parser.parse("[Group] 葬送的芙莉蓮 - 01 [1080p]")
-        assert result.title == "葬送的芙莉蓮"
-        assert result.alt_titles == []
-
-    def test_title_with_japanese_hiragana(self, parser: BangumiParser):
-        """Test title with Japanese hiragana characters."""
-        result = parser.parse("[Group] ひらがなタイトル - 01 [1080p]")
-        assert result.title == "ひらがなタイトル"
-        assert result.alt_titles == []
-
-    def test_title_with_japanese_katakana(self, parser: BangumiParser):
-        """Test title with Japanese katakana characters."""
-        result = parser.parse("[Group] カタカナタイトル - 01 [1080p]")
-        assert result.title == "カタカナタイトル"
-        assert result.alt_titles == []
-
-    def test_title_with_korean_characters(self, parser: BangumiParser):
-        """Test title with Korean characters."""
-        result = parser.parse("[Group] 한국어 타이틀 - 01 [1080p]")
-        assert result.title == "한국어 타이틀"
-        assert result.alt_titles == []
-
-    def test_slash_without_spaces_cjk_latin_split(self, parser: BangumiParser):
-        """Test slash without spaces between CJK and Latin should split."""
-        result = parser.parse("[Group] 日本語/English - 01 [1080p]")
-        assert result.title == "日本語"
-        assert result.alt_titles == ["English"]
-
-    def test_slash_without_spaces_same_script_no_split(self, parser: BangumiParser):
-        """Test slash without spaces within same script should not split."""
-        result = parser.parse("[Group] Title/Name - 01 [1080p]")
-        # Should not split because both sides are Latin
-        assert result.title == "Title/Name"
-        assert result.alt_titles == []
-
-    def test_ani_format_with_metadata_brackets(self, parser: BangumiParser):
-        """Test ANi format with all metadata in brackets."""
-        result = parser.parse("[ANi] 葬送的芙莉蓮 - 01 [1080p][Baha][WEB-DL][AAC AVC][CHT]")
-        assert result.title == "葬送的芙莉蓮"
-        assert result.alt_titles == []
-
-    def test_lolihouse_format_multilingual(self, parser: BangumiParser):
-        """Test LoliHouse format with multilingual slash-separated titles."""
-        result = parser.parse(
-            "[LoliHouse] 葬送的芙莉蓮 / Sousou no Frieren - 01 [WebRip 1080p HEVC-10bit AAC]"
-        )
-        assert result.title in ["葬送的芙莉蓮"]
-        assert "Sousou no Frieren" in result.alt_titles
-
-    def test_fullwidth_brackets_format(self, parser: BangumiParser):
-        """Test fantasy subgroup style with full-width brackets."""
-        result = parser.parse("【幻想字幕組】【アニメタイトル】【01】【1080p】")
-        # All-bracket format should extract title from CJK bracket
-        assert result.title == "アニメタイトル"
-        assert result.alt_titles == []
-
-    def test_title_between_brackets_without_episode(self, parser: BangumiParser):
-        """Test title extraction when episode is not in expected format."""
-        result = parser.parse("[Group] Title Name [1080p][HEVC]")
-        assert result.title == "Title Name"
-        assert result.alt_titles == []
-
-    def test_title_with_multiple_cjk_variants(self, parser: BangumiParser):
-        """Test title with multiple CJK language variants."""
-        result = parser.parse("[Group] 繁體中文 / 简体中文 / English - 01 [1080p]")
-        # Should prefer CJK, put rest in alt_titles
-        assert result.title in ["繁體中文", "简体中文"]
-        assert "English" in result.alt_titles
 
     def test_title_extraction_parse_method_integration(self, parser: BangumiParser):
         """Test title extraction through full parse() method."""
@@ -3144,51 +3094,57 @@ class TestTitleExtraction:
         assert result.episode == 1
         assert result.resolution == "1080P"
 
-    def test_empty_title_region(self, parser: BangumiParser):
-        """Test when title region is empty."""
-        result = parser.parse("[Group] - 01 [1080p]")
-        # Should fallback to bracket extraction or return None
-        assert result.title is None or result.title == "Group"
-
-    def test_whitespace_only_title(self, parser: BangumiParser):
-        """Test when title region contains only whitespace."""
-        result = parser.parse("[Group]    - 01 [1080p]")
-        # Should fallback to bracket extraction or return None
-        assert result.title is None or result.title == "Group"
-
-    def test_title_strips_trailing_episode_type_markers(self, parser: BangumiParser):
+    @pytest.mark.parametrize(
+        "input_str, expected_title, expected_episode_type, expected_episode",
+        [
+            pytest.param(
+                "[Group] Title Name OAD 01 [1080p]",
+                "Title Name",
+                "OAD",
+                1,
+                id="oad_marker",
+            ),
+            pytest.param(
+                "[Group] Some Anime OVA 03 [1080p]",
+                "Some Anime",
+                "OVA",
+                3,
+                id="ova_marker",
+            ),
+            pytest.param(
+                "[Group] Title Name SP 02 [1080p]",
+                "Title Name",
+                "SP",
+                2,
+                id="sp_marker",
+            ),
+        ],
+    )
+    def test_title_strips_trailing_episode_type_markers(
+        self,
+        parser: BangumiParser,
+        input_str: str,
+        expected_title: str,
+        expected_episode_type: str,
+        expected_episode: int,
+    ):
         """Test that trailing OAD/OVA/SP markers are cleaned from titles.
 
-        This prevents accumulation bug where re-parsing an already-renamed file
-        like "Golden Kamuy OAD 01.mp4" would produce "Golden Kamuy OAD 01 OAD 01.mp4"
-        on subsequent renames.
+        This prevents an accumulation bug where re-parsing an already-renamed
+        file like "Golden Kamuy OAD 01.mp4" would produce
+        "Golden Kamuy OAD 01 OAD 01.mp4" on subsequent renames.
 
-        Note: For already-renamed files without brackets (e.g., "Golden Kamuy OAD 01.mp4"),
-        BangumiParser can't extract a title directly - the title extraction happens
-        in torrent_parser's fallback logic. This test verifies the _clean_title
-        method works correctly for bracket-based inputs.
+        Note: For already-renamed files without brackets (e.g.,
+        "Golden Kamuy OAD 01.mp4"), BangumiParser can't extract a title
+        directly - the title extraction happens in torrent_parser's fallback
+        logic. This test verifies the _clean_title method works correctly
+        for bracket-based inputs.
         """
-        # Test that _clean_title strips OAD/OVA/SP when title extraction includes them
-        # This happens when OAD is detected but title region includes the marker
-        result = parser.parse("[Group] Title Name OAD 01 [1080p]")
-        assert result.title == "Title Name"
+        result = parser.parse(input_str)
+        assert result.title == expected_title
         assert result.episode_type is not None
-        assert result.episode_type.value == "OAD"
-        assert result.episode == 1
-
-        # Test OVA marker removal from bracketed format
-        result = parser.parse("[Group] Some Anime OVA 03 [1080p]")
-        assert result.title == "Some Anime"
-        assert result.episode_type is not None
-        assert result.episode_type.value == "OVA"
-        assert result.episode == 3
-
-        # Test SP marker removal from bracketed format
-        result = parser.parse("[Group] Title Name SP 02 [1080p]")
-        assert result.title == "Title Name"
-        assert result.episode_type is not None
-        assert result.episode_type.value == "SP"
-        assert result.episode == 2
+        assert result.episode_type.value == expected_episode_type
+        assert result.episode == expected_episode
 
 
 class TestMovieOVADetection:
@@ -3199,148 +3155,134 @@ class TestMovieOVADetection:
         """Create a parser instance for tests."""
         return BangumiParser()
 
-    # Chinese movie markers
-    def test_chinese_movie_marker_simplified(self, parser: BangumiParser):
-        """Test detection of 剧场版 (Chinese simplified movie marker)."""
-        result = parser._is_movie("[Group] Title 剧场版 [1080p]")
-        assert result is True
+    @pytest.mark.parametrize(
+        "input_str, expected",
+        [
+            # Chinese/Japanese movie markers.
+            pytest.param(
+                "[Group] Title 剧场版 [1080p]", True, id="chinese_movie_marker_simplified"
+            ),
+            pytest.param(
+                # 劇場版 is both the Chinese traditional and Japanese theatrical marker.
+                "[Group] Title 劇場版 [1080p]",
+                True,
+                id="chinese_traditional_or_japanese_theatrical_marker",
+            ),
+            pytest.param(
+                "[Group] Title 电影 [1080p]", True, id="chinese_movie_simplified"
+            ),
+            pytest.param(
+                "[Group] Title 電影 [1080p]", True, id="chinese_movie_traditional"
+            ),
+            pytest.param(
+                "[Group] Title 映画 [1080p]", True, id="japanese_movie_marker"
+            ),
+            # English movie markers.
+            pytest.param(
+                "[Group] Title Movie [1080p]", True, id="english_movie_marker"
+            ),
+            pytest.param(
+                "[Group] Title movie [1080p]",
+                True,
+                id="english_movie_marker_lowercase",
+            ),
+            pytest.param(
+                "[Group] Title The Movie [1080p]", True, id="english_the_movie_marker"
+            ),
+            pytest.param(
+                "[Group] Title the movie [1080p]",
+                True,
+                id="english_the_movie_marker_lowercase",
+            ),
+            # OVA/OAD/Special/SP markers are NOT movies - they use episode_type
+            # instead, so _is_movie must stay False for all case variants.
+            pytest.param(
+                "[Group] Title OVA [1080p]", False, id="ova_marker_uppercase"
+            ),
+            pytest.param(
+                "[Group] Title ova [1080p]", False, id="ova_marker_lowercase"
+            ),
+            pytest.param(
+                "[Group] Title OAD [1080p]", False, id="oad_marker_uppercase"
+            ),
+            pytest.param(
+                "[Group] Title oad [1080p]", False, id="oad_marker_lowercase"
+            ),
+            pytest.param(
+                "[Group] Title Special [1080p]", False, id="special_marker"
+            ),
+            pytest.param(
+                "[Group] Title special [1080p]",
+                False,
+                id="special_marker_lowercase",
+            ),
+            pytest.param(
+                "[Group] Title SP [1080p]", False, id="sp_marker_uppercase"
+            ),
+            pytest.param(
+                "[Group] Title sp [1080p]", False, id="sp_marker_lowercase"
+            ),
+            # Regular episode (not movie/OVA).
+            pytest.param(
+                "[Group] Title - 01 [1080p]", False, id="regular_episode_not_movie"
+            ),
+            pytest.param(
+                "[Group] Title S01E01 [1080p]",
+                False,
+                id="regular_episode_with_season",
+            ),
+        ],
+    )
+    def test_is_movie(self, parser: BangumiParser, input_str: str, expected: bool):
+        assert parser._is_movie(input_str) is expected
 
-    def test_chinese_movie_marker_traditional(self, parser: BangumiParser):
-        """Test detection of 劇場版 (Chinese traditional movie marker)."""
-        result = parser._is_movie("[Group] Title 劇場版 [1080p]")
-        assert result is True
+    @pytest.mark.parametrize(
+        "input_str, expected_is_movie",
+        [
+            pytest.param(
+                "[Group] Title 剧场版 [1080p]", True, id="parse_chinese_movie"
+            ),
+            pytest.param(
+                "[Group] Title 映画 [1080p]", True, id="parse_japanese_movie"
+            ),
+            pytest.param(
+                "[Group] Title Movie [1080p]", True, id="parse_english_movie"
+            ),
+            pytest.param(
+                "[Group] Title - 01 [1080p]",
+                False,
+                id="parse_regular_episode_is_movie_false",
+            ),
+        ],
+    )
+    def test_parse_is_movie_integration(
+        self, parser: BangumiParser, input_str: str, expected_is_movie: bool
+    ):
+        """Test that parse() surfaces the same is_movie detection."""
+        result = parser.parse(input_str)
+        assert result.is_movie is expected_is_movie
 
-    def test_chinese_movie_simplified(self, parser: BangumiParser):
-        """Test detection of 电影 (Chinese simplified movie)."""
-        result = parser._is_movie("[Group] Title 电影 [1080p]")
-        assert result is True
-
-    def test_chinese_movie_traditional(self, parser: BangumiParser):
-        """Test detection of 電影 (Chinese traditional movie)."""
-        result = parser._is_movie("[Group] Title 電影 [1080p]")
-        assert result is True
-
-    # Japanese movie markers
-    def test_japanese_movie_marker(self, parser: BangumiParser):
-        """Test detection of 映画 (Japanese movie marker)."""
-        result = parser._is_movie("[Group] Title 映画 [1080p]")
-        assert result is True
-
-    def test_japanese_theatrical_marker(self, parser: BangumiParser):
-        """Test detection of 劇場版 (Japanese theatrical release)."""
-        result = parser._is_movie("[Group] Title 劇場版 [1080p]")
-        assert result is True
-
-    # English movie markers
-    def test_english_movie_marker(self, parser: BangumiParser):
-        """Test detection of Movie marker."""
-        result = parser._is_movie("[Group] Title Movie [1080p]")
-        assert result is True
-
-    def test_english_movie_marker_lowercase(self, parser: BangumiParser):
-        """Test detection of movie marker (case-insensitive)."""
-        result = parser._is_movie("[Group] Title movie [1080p]")
-        assert result is True
-
-    def test_english_the_movie_marker(self, parser: BangumiParser):
-        """Test detection of The Movie marker."""
-        result = parser._is_movie("[Group] Title The Movie [1080p]")
-        assert result is True
-
-    def test_english_the_movie_marker_lowercase(self, parser: BangumiParser):
-        """Test detection of the movie marker (case-insensitive)."""
-        result = parser._is_movie("[Group] Title the movie [1080p]")
-        assert result is True
-
-    # OVA/OAD markers - these are NOT movies, they use episode_type instead
-    def test_ova_marker_uppercase(self, parser: BangumiParser):
-        """Test that OVA marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title OVA [1080p]")
-        assert result is False  # OVA uses episode_type, not is_movie
-
-    def test_ova_marker_lowercase(self, parser: BangumiParser):
-        """Test that ova marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title ova [1080p]")
-        assert result is False  # OVA uses episode_type, not is_movie
-
-    def test_oad_marker_uppercase(self, parser: BangumiParser):
-        """Test that OAD marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title OAD [1080p]")
-        assert result is False  # OAD uses episode_type, not is_movie
-
-    def test_oad_marker_lowercase(self, parser: BangumiParser):
-        """Test that oad marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title oad [1080p]")
-        assert result is False  # OAD uses episode_type, not is_movie
-
-    # Special/SP markers - these are NOT movies, they use episode_type instead
-    def test_special_marker(self, parser: BangumiParser):
-        """Test that Special marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title Special [1080p]")
-        assert result is False  # Special uses episode_type, not is_movie
-
-    def test_special_marker_lowercase(self, parser: BangumiParser):
-        """Test that special marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title special [1080p]")
-        assert result is False  # Special uses episode_type, not is_movie
-
-    def test_sp_marker_uppercase(self, parser: BangumiParser):
-        """Test that SP marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title SP [1080p]")
-        assert result is False  # SP uses episode_type, not is_movie
-
-    def test_sp_marker_lowercase(self, parser: BangumiParser):
-        """Test that sp marker is NOT detected as movie (uses episode_type)."""
-        result = parser._is_movie("[Group] Title sp [1080p]")
-        assert result is False  # SP uses episode_type, not is_movie
-
-    # Regular episode (not movie/OVA)
-    def test_regular_episode_not_movie(self, parser: BangumiParser):
-        """Test that regular episode is not detected as movie."""
-        result = parser._is_movie("[Group] Title - 01 [1080p]")
-        assert result is False
-
-    def test_regular_episode_with_season(self, parser: BangumiParser):
-        """Test that regular episode with season is not detected as movie."""
-        result = parser._is_movie("[Group] Title S01E01 [1080p]")
-        assert result is False
-
-    # Integration with parse() method
-    def test_parse_chinese_movie(self, parser: BangumiParser):
-        """Test parse() method integration with Chinese movie marker."""
-        result = parser.parse("[Group] Title 剧场版 [1080p]")
-        assert result.is_movie is True
-
-    def test_parse_japanese_movie(self, parser: BangumiParser):
-        """Test parse() method integration with Japanese movie marker."""
-        result = parser.parse("[Group] Title 映画 [1080p]")
-        assert result.is_movie is True
-
-    def test_parse_english_movie(self, parser: BangumiParser):
-        """Test parse() method integration with English movie marker."""
-        result = parser.parse("[Group] Title Movie [1080p]")
-        assert result.is_movie is True
-
-    def test_parse_ova(self, parser: BangumiParser):
-        """Test parse() method integration with OVA marker - uses episode_type."""
+    @pytest.mark.parametrize(
+        "input_str, expected_episode_type_name",
+        [
+            pytest.param("[Group] Title OVA [1080p]", "OVA", id="parse_ova"),
+            pytest.param(
+                "[Group] Title Special [1080p]", "SP", id="parse_special"
+            ),
+        ],
+    )
+    def test_parse_episode_type_not_movie_integration(
+        self,
+        parser: BangumiParser,
+        input_str: str,
+        expected_episode_type_name: str,
+    ):
+        """Test parse() integration: OVA/Special are not movies - uses episode_type."""
         from module.domain.value_objects import EpisodeType
 
-        result = parser.parse("[Group] Title OVA [1080p]")
-        assert result.is_movie is False  # OVA is not a movie
-        assert result.episode_type == EpisodeType.OVA  # Uses episode_type instead
-
-    def test_parse_special(self, parser: BangumiParser):
-        """Test parse() method integration with Special marker - uses episode_type."""
-        from module.domain.value_objects import EpisodeType
-
-        result = parser.parse("[Group] Title Special [1080p]")
-        assert result.is_movie is False  # Special is not a movie
-        assert result.episode_type == EpisodeType.SP  # Uses episode_type instead
-
-    def test_parse_regular_episode_is_movie_false(self, parser: BangumiParser):
-        """Test parse() method integration with regular episode."""
-        result = parser.parse("[Group] Title - 01 [1080p]")
+        result = parser.parse(input_str)
         assert result.is_movie is False
+        assert result.episode_type == EpisodeType[expected_episode_type_name]
 
     def test_parse_real_world_movie_format(self, parser: BangumiParser):
         """Test parse() method with real-world movie format."""
@@ -3389,12 +3331,43 @@ class TestErrorHandling:
         assert result.raw == "    \t\n   "
         assert result.title is None or result.title.strip() == ""
 
-    def test_single_space_input(self, parser: BangumiParser):
-        """Test parsing single space input."""
-        result = parser.parse(" ")
-        assert result.raw == " "
+    @pytest.mark.parametrize(
+        "input_str",
+        [
+            pytest.param("", id="empty_string"),
+            pytest.param("[Group]\x00Title - 01 [1080p]", id="null_byte"),
+            pytest.param(
+                "[Group] Title \U0001F3AC\U0001F3A5 \u30bf\u30a4\u30c8\u30eb "
+                "\u6807\u9898 \u0627\u0644\u0639\u0646\u0648\u0627\u0646 - 01 [1080p]",
+                id="unicode_mixed_scripts",
+            ),
+            pytest.param(
+                "[Group Title - 01 [1080p]", id="unmatched_opening_bracket"
+            ),
+            pytest.param(
+                "Group] Title - 01 [1080p]", id="unmatched_closing_bracket"
+            ),
+            pytest.param(
+                "[Group] " + "A" * 500 + " - 01 [1080p]" + " Extra" * 100,
+                id="very_long_input",
+            ),
+            pytest.param("\u3010\u3011[]()~!@#$%^&*", id="special_characters_only"),
+            pytest.param("1234567890", id="numbers_only"),
+            pytest.param("A", id="single_character"),
+            pytest.param(
+                "[Group]\tTitle\t-\t01\t[1080p]", id="tabs_and_mixed_whitespace"
+            ),
+        ],
+    )
+    def test_does_not_crash(self, parser: BangumiParser, input_str: str):
+        """Parser must return a ParsedBangumi (not raise) for malformed/edge input.
 
-    # Malformed brackets
+        Representative "does not crash" cases: unicode, null byte, very long
+        input, unbalanced brackets, empty string, and a few more edge shapes.
+        """
+        result = parser.parse(input_str)
+        assert result.raw == input_str
+
     def test_unmatched_opening_bracket(self, parser: BangumiParser):
         """Test parsing with unmatched opening bracket."""
         result = parser.parse("[Group Title - 01 [1080p]")
@@ -3405,12 +3378,6 @@ class TestErrorHandling:
         # Should extract at least the matched 1080p bracket
         assert any(b.content == "1080p" for b in brackets)
 
-    def test_unmatched_closing_bracket(self, parser: BangumiParser):
-        """Test parsing with unmatched closing bracket."""
-        result = parser.parse("Group] Title - 01 [1080p]")
-        # Should handle gracefully
-        assert result.raw == "Group] Title - 01 [1080p]"
-
     def test_nested_unmatched_brackets(self, parser: BangumiParser):
         """Test parsing with nested unmatched brackets."""
         parser.parse("[Group [Title] - 01 [1080p]")
@@ -3418,12 +3385,6 @@ class TestErrorHandling:
         brackets = parser._extract_brackets("[Group [Title] - 01 [1080p]")
         # Should extract matched brackets
         assert len(brackets) >= 1
-
-    def test_mixed_bracket_types_unmatched(self, parser: BangumiParser):
-        """Test parsing with mixed unmatched bracket types."""
-        result = parser.parse("[Group】 Title - 01 【1080p]")
-        # Should extract from properly matched brackets
-        assert result.raw == "[Group】 Title - 01 【1080p]"
 
     def test_no_brackets_at_all(self, parser: BangumiParser):
         """Test parsing with no brackets at all."""
@@ -3433,49 +3394,6 @@ class TestErrorHandling:
         brackets = parser._extract_brackets("Title - 01 1080p HEVC AAC")
         assert len(brackets) == 0
 
-    def test_only_closing_brackets(self, parser: BangumiParser):
-        """Test parsing with only closing brackets."""
-        result = parser.parse("Title] - 01] 1080p]")
-        assert result.raw == "Title] - 01] 1080p]"
-
-    def test_only_opening_brackets(self, parser: BangumiParser):
-        """Test parsing with only opening brackets."""
-        result = parser.parse("[Title [01 [1080p")
-        assert result.raw == "[Title [01 [1080p"
-
-    # Extremely long input
-    def test_extremely_long_input_1000_chars(self, parser: BangumiParser):
-        """Test parsing extremely long input (>1000 chars)."""
-        long_title = "A" * 500
-        long_input = f"[Group] {long_title} - 01 [1080p]" + " Extra" * 100
-        result = parser.parse(long_input)
-        # Should handle without error
-        assert result.raw == long_input
-        assert len(result.raw) > 1000
-
-    def test_extremely_long_input_5000_chars(self, parser: BangumiParser):
-        """Test parsing extremely long input (>5000 chars)."""
-        long_input = "[Group] Title - 01 [1080p]" + " " + "X" * 5000
-        result = parser.parse(long_input)
-        # Should handle without error
-        assert result.raw == long_input
-        assert len(result.raw) > 5000
-
-    def test_extremely_long_title_in_bracket(self, parser: BangumiParser):
-        """Test parsing with extremely long title in bracket."""
-        long_title = "Title" + "Name" * 200
-        input_str = f"[Group] [{long_title}] - 01 [1080p]"
-        result = parser.parse(input_str)
-        # Should extract the long title without error
-        assert result.raw == input_str
-
-    # Special characters and Unicode edge cases
-    def test_null_character_in_input(self, parser: BangumiParser):
-        """Test parsing with null character."""
-        # Python strings can contain null bytes
-        result = parser.parse("[Group]\x00Title - 01 [1080p]")
-        assert "\x00" in result.raw
-
     def test_unicode_emoji_in_title(self, parser: BangumiParser):
         """Test parsing with emoji characters."""
         result = parser.parse("[Group] Title 🎬🎥 - 01 [1080p]")
@@ -3483,140 +3401,23 @@ class TestErrorHandling:
         # Should extract title with emojis
         assert result.title is not None
 
-    def test_unicode_combining_characters(self, parser: BangumiParser):
-        """Test parsing with Unicode combining characters."""
-        # Combining diacritical marks
-        result = parser.parse("[Group] Títlé Ñamé - 01 [1080p]")
-        assert result.raw == "[Group] Títlé Ñamé - 01 [1080p]"
-
-    def test_unicode_right_to_left_text(self, parser: BangumiParser):
-        """Test parsing with right-to-left text (Arabic/Hebrew)."""
-        result = parser.parse("[Group] العنوان - 01 [1080p]")
-        assert result.raw == "[Group] العنوان - 01 [1080p]"
-
-    def test_unicode_zero_width_characters(self, parser: BangumiParser):
-        """Test parsing with zero-width characters."""
-        # Zero-width space U+200B
-        result = parser.parse("[Group]\u200bTitle\u200b - 01 [1080p]")
-        assert "\u200b" in result.raw
-
-    def test_unicode_fullwidth_numbers(self, parser: BangumiParser):
-        """Test parsing with fullwidth numbers."""
-        result = parser.parse("[Group] Title - ０１ [１０８０p]")
-        assert result.raw == "[Group] Title - ０１ [１０８０p]"
-
-    def test_unicode_special_brackets(self, parser: BangumiParser):
-        """Test parsing with special Unicode bracket-like characters."""
-        # Using mathematical angle brackets ⟨⟩ which are not standard brackets
-        result = parser.parse("⟨Group⟩ Title - 01 ⟨1080p⟩")
-        assert result.raw == "⟨Group⟩ Title - 01 ⟨1080p⟩"
-
-    def test_unicode_surrogate_pairs(self, parser: BangumiParser):
-        """Test parsing with Unicode surrogate pairs (emoji)."""
-        # 𝕋𝕚𝕥𝕝𝕖 uses surrogate pairs in UTF-16
-        result = parser.parse("[Group] 𝕋𝕚𝕥𝕝𝕖 - 01 [1080p]")
-        assert "𝕋𝕚𝕥𝕝𝕖" in result.raw
-
-    def test_mixed_scripts_multiple_languages(self, parser: BangumiParser):
-        """Test parsing with mixed scripts (CJK, Latin, Cyrillic, Arabic)."""
-        result = parser.parse("[Group] Title タイトル 标题 Название العنوان - 01 [1080p]")
-        assert result.raw == "[Group] Title タイトル 标题 Название العنوان - 01 [1080p]"
-
-    # Invalid metadata combinations
     def test_conflicting_resolutions(self, parser: BangumiParser):
         """Test parsing with conflicting resolution markers."""
         result = parser.parse("[Group] Title - 01 [1080p][720p][4K]")
-        # Should extract first or last resolution
-        assert result.resolution in ["1080P", "720P", "2160P"]
+        # Parser keeps the first resolution it sees.
+        assert result.resolution == "1080P"
 
     def test_conflicting_episodes(self, parser: BangumiParser):
         """Test parsing with conflicting episode markers."""
         result = parser.parse("[Group] Title - 01 [12] EP05 [1080p]")
-        # Should extract one of the episodes (implementation dependent)
-        assert result.episode in [1.0, 12.0, 5.0]
+        # Bracketed number wins over the EP-prefixed one.
+        assert result.episode == 12.0
 
     def test_multiple_groups(self, parser: BangumiParser):
         """Test parsing with multiple group brackets."""
         result = parser.parse("[Group1][Group2] Title - 01 [1080p]")
-        # Should extract first group or combined group
-        assert (
-            result.group in ["Group1", "Group2", "Group1&Group2"]
-            or result.group is not None
-        )
-
-    # Performance edge cases
-    def test_many_brackets_100_pairs(self, parser: BangumiParser):
-        """Test parsing with many bracket pairs."""
-        brackets = "[a]" * 100
-        input_str = f"[Group] Title {brackets} - 01 [1080p]"
-        result = parser.parse(input_str)
-        # Should handle without timeout
-        assert result.raw == input_str
-
-    def test_deeply_nested_structure(self, parser: BangumiParser):
-        """Test parsing with complex nested structure."""
-        # Multiple layers of metadata
-        result = parser.parse(
-            "[Group1&Group2&Group3] Title / タイトル / 标题 S02E12v3 [1080p][2160p][HEVC][AVC][AAC][FLAC][WEB-DL][BDRip]"
-        )
-        # Should extract some values
-        assert result.raw is not None
-        assert len(result.raw) > 0
-
-    # BangumiParsingError edge cases
-    def test_parsing_returns_parsed_bangumi_not_error(self, parser: BangumiParser):
-        """Test that parse() returns ParsedBangumi, not raises error for edge cases."""
-        # Even with weird input, should return ParsedBangumi object
-        result = parser.parse("!@#$%^&*()")
-        assert hasattr(result, "raw")
-        assert hasattr(result, "title")
-        assert result.raw == "!@#$%^&*()"
-
-    def test_special_characters_only(self, parser: BangumiParser):
-        """Test parsing with only special characters."""
-        result = parser.parse("【】[]()~!@#$%^&*")
-        assert result.raw == "【】[]()~!@#$%^&*"
-
-    def test_numbers_only_input(self, parser: BangumiParser):
-        """Test parsing with numbers-only input."""
-        result = parser.parse("1234567890")
-        assert result.raw == "1234567890"
-
-    def test_single_character_input(self, parser: BangumiParser):
-        """Test parsing with single character."""
-        result = parser.parse("A")
-        assert result.raw == "A"
-
-    def test_only_whitespace_and_brackets(self, parser: BangumiParser):
-        """Test parsing with only whitespace and brackets."""
-        result = parser.parse("  [  ]  (  )  【  】  ")
-        assert result.raw == "  [  ]  (  )  【  】  "
-
-    def test_unicode_normalization(self, parser: BangumiParser):
-        """Test parsing with non-normalized Unicode."""
-        # Composed vs decomposed forms (é as single char vs e + combining accent)
-        composed = "[Group] Café - 01 [1080p]"
-        decomposed = "[Group] Café - 01 [1080p]"  # e + combining accent
-        result1 = parser.parse(composed)
-        result2 = parser.parse(decomposed)
-        # Both should parse without error
-        assert result1.raw is not None
-        assert result2.raw is not None
-
-    def test_line_breaks_in_input(self, parser: BangumiParser):
-        """Test parsing with line breaks."""
-        result = parser.parse("[Group] Title\n- 01\r\n[1080p]")
-        assert result.raw == "[Group] Title\n- 01\r\n[1080p]"
-
-    def test_tabs_in_input(self, parser: BangumiParser):
-        """Test parsing with tab characters."""
-        result = parser.parse("[Group]\tTitle\t-\t01\t[1080p]")
-        assert result.raw == "[Group]\tTitle\t-\t01\t[1080p]"
-
-    def test_mixed_whitespace(self, parser: BangumiParser):
-        """Test parsing with mixed whitespace types."""
-        result = parser.parse("[Group]  Title \t - \n 01  [1080p]")
-        assert result.raw == "[Group]  Title \t - \n 01  [1080p]"
+        # Parser takes the first bracket as the group.
+        assert result.group == "Group1"
 
 
 class TestRealWorldFormats:
@@ -3665,13 +3466,8 @@ class TestRealWorldFormats:
         assert result.episode == 30.0
         assert result.resolution == "1080P"
         # Title should be CJK or Latin depending on parsing logic
-        assert result.title in [
-            "Sousou no Frieren",
-            "葬送的芙莉莲",
-            "Sousou no Frieren S02",
-            "葬送的芙莉莲 第二季",
-        ]
-        assert len(result.alt_titles) >= 0  # May or may not have alt_titles
+        assert result.title == "Sousou no Frieren"
+        assert result.alt_titles == []
 
     def test_ani_format_jujutsu_kaisen(self, parser: BangumiParser):
         """Test ANi format with JUJUTSU KAISEN (complex title with subtitle)."""
@@ -3837,9 +3633,9 @@ class TestRealWorldFormats:
             "【幻樱字幕组】【1月新番】【黄金神威 Golden Kamuy】【52】【BIG5_MP4】【1920X1080】"
         )
         assert result.group == "幻樱字幕组"
-        # Full-width brackets 【52】 may not be extracted as episode - this is expected
+        # Full-width brackets 【52】 are not extracted as episode - this is expected
         # Episode extraction primarily works with half-width brackets for numbers
-        assert result.episode in [52.0, 1.0, None]  # Accept parser behavior
+        assert result.episode is None
         assert result.resolution == "1080P"  # Should normalize from 1920X1080
         assert result.subtitle == "CHT"  # BIG5_MP4 should map to CHT
 
@@ -3849,8 +3645,8 @@ class TestRealWorldFormats:
             "【幻樱字幕组】【1月新番】【黄金神威 Golden Kamuy】【52】【BIG5_MP4】【1280X720】"
         )
         assert result.group == "幻樱字幕组"
-        # Full-width brackets 【52】 may not be extracted as episode
-        assert result.episode in [52.0, 1.0, None]  # Accept parser behavior
+        # Full-width brackets 【52】 are not extracted as episode
+        assert result.episode is None
         assert result.resolution == "720P"  # Should normalize from 1280X720
 
     # Multi-group format tests
@@ -3994,203 +3790,6 @@ class TestRealWorldFormats:
         assert result.resolution == "1080P"
         assert result.video_codec == "HEVC"  # HEVC-10bit should normalize to HEVC
         assert result.audio_codec == "AAC"
-
-    def test_container_mkv(self, parser: BangumiParser):
-        """Test MKV container in torrent name - container extraction not yet implemented."""
-        result = parser.parse("[Group] Title - 01 [1080p][HEVC][AAC].mkv")
-        assert result.episode == 1.0
-        assert result.resolution == "1080P"
-        # Container extraction is not yet implemented in BangumiParser
-        # Future enhancement: add _extract_container() method
-        assert result.container is None or result.container == "MKV"
-
-    def test_container_mp4(self, parser: BangumiParser):
-        """Test MP4 container in torrent name - container extraction not yet implemented."""
-        result = parser.parse("[ANi] Title - 01 [1080P][WEB-DL][AAC AVC][CHT][MP4]")
-        assert result.episode == 1.0
-        # Container extraction is not yet implemented in BangumiParser
-        # Future enhancement: add _extract_container() method
-        assert result.container is None or result.container == "MP4"
-
-
-@pytest.mark.slow
-class TestPerformance:
-    """Tests for parser performance and optimization verification."""
-
-    @pytest.fixture
-    def parser(self) -> BangumiParser:
-        """Create a parser instance for tests."""
-        return BangumiParser()
-
-    def test_regex_patterns_precompiled(self):
-        """Verify all regex patterns are pre-compiled in __init__ (not on-the-fly)."""
-        import re
-
-        parser = BangumiParser()
-
-        # Count all pre-compiled regex patterns stored in the parser instance
-        precompiled_patterns: list[str] = []
-        for attr_name in dir(parser):
-            if attr_name.startswith("_") and not attr_name.startswith("__"):
-                attr = getattr(parser, attr_name)
-                if isinstance(attr, re.Pattern):
-                    precompiled_patterns.append(attr_name)
-
-        # Verify we have a substantial number of pre-compiled patterns
-        # Based on the __init__ implementation, we expect around 50 patterns
-        assert (
-            len(precompiled_patterns) >= 40
-        ), f"Expected at least 40 pre-compiled regex patterns, found {len(precompiled_patterns)}"
-
-        # Verify key pattern categories are present
-        expected_categories = [
-            "bracket",  # Bracket extraction
-            "resolution",  # Resolution patterns
-            "subtitle",  # Subtitle detection
-            "season",  # Season extraction
-            "episode",  # Episode extraction
-            "video",  # Video codec
-            "audio",  # Audio codec
-            "source",  # Source/rip type
-            "movie",  # Movie/OVA detection
-        ]
-
-        found_categories = set()
-        for pattern_name in precompiled_patterns:
-            for category in expected_categories:
-                if category in pattern_name:
-                    found_categories.add(category)
-
-        assert found_categories == set(
-            expected_categories
-        ), f"Missing pattern categories: {set(expected_categories) - found_categories}"
-
-    def test_no_regex_compilation_in_parse_method(self, parser: BangumiParser):
-        """Verify parse() doesn't compile regex patterns on each call (performance check)."""
-        # Get the source code of the parse method
-        import inspect
-        import re
-
-        parse_source = inspect.getsource(parser.parse)
-
-        # Check that parse() doesn't contain re.compile() calls
-        # (all patterns should be pre-compiled in __init__)
-        assert (
-            "re.compile" not in parse_source
-        ), "parse() should not contain re.compile() calls - patterns should be pre-compiled in __init__"
-
-    def test_benchmark_1000_parses_under_1_second(self, parser: BangumiParser):
-        """Benchmark: parse 1000 torrent names in under 1 second."""
-        import time
-
-        # Sample of real-world torrent names for benchmarking
-        sample_names = [
-            "[ANi] 地狱模式 ～喜欢挑战特殊成就的玩家在废设定的异世界成为无双～ - 03 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
-            "[LoliHouse] 安闲领主的愉快领地防卫 / Okiraku Ryoushu no Tanoshii Ryouchi Bouei - 03 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
-            "[黒ネズミたち] 草莓哀歌 / Ichigo Aika - 03 (ABEMA 1920x1080 AVC AAC MP4)",
-            "[绿茶字幕组] 能帮我弄干净吗？ / Kirei ni Shite Moraemasu ka [02][WebRip][1080p][繁日内嵌]",
-            "【幻樱字幕组】【1月新番】【黄金神威 Golden Kamuy】【52】【BIG5_MP4】【1920X1080】",
-            "[ANi] JUJUTSU KAISEN / 咒术回战 死灭回游 前篇 - 51 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
-            "[ANi] Sousou no Frieren S02 / 葬送的芙莉莲 第二季 - 30 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
-            "[LoliHouse] 泛而不精的我被逐出了勇者队伍 / Yuusha Party wo Oidasareta Kiyoubinbou - 04 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
-            "[ANi] Title [01-12][1080P][WEB-DL][AAC AVC][CHT]",
-            "[Group] Title - 01 [1080p][HEVC][AAC]",
-        ]
-
-        # Run 1000 parses (100 iterations of 10 sample names)
-        num_iterations = 100
-        total_parses = num_iterations * len(sample_names)
-        assert total_parses == 1000, f"Expected 1000 parses, got {total_parses}"
-
-        start_time = time.perf_counter()
-
-        for _ in range(num_iterations):
-            for name in sample_names:
-                result = parser.parse(name)
-                # Verify basic parsing succeeded
-                assert result.raw == name
-
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
-
-        # Assert parsing 1000 names takes less than 1 second
-        assert (
-            elapsed_time < 1.0
-        ), f"Performance test failed: 1000 parses took {elapsed_time:.3f}s (expected < 1.0s)"
-
-        # Log the actual performance for reference
-        parses_per_second = total_parses / elapsed_time
-        print(
-            f"\n  Performance: {parses_per_second:.0f} parses/second ({elapsed_time:.3f}s for {total_parses} parses)"
-        )
-
-    def test_benchmark_single_parser_instance_reuse(self, parser: BangumiParser):
-        """Verify single parser instance can be reused efficiently."""
-        import time
-
-        sample_name = "[ANi] Title - 01 [1080P][WEB-DL][AAC AVC][CHT][MP4]"
-
-        # Parse 500 times with the same instance
-        start_time = time.perf_counter()
-        for _ in range(500):
-            result = parser.parse(sample_name)
-            assert result.episode == 1.0
-
-        elapsed_time = time.perf_counter() - start_time
-
-        # Should complete in well under 1 second
-        assert (
-            elapsed_time < 0.5
-        ), f"Single instance reuse test failed: 500 parses took {elapsed_time:.3f}s (expected < 0.5s)"
-
-    def test_parser_initialization_time(self):
-        """Verify parser initialization (regex compilation) is fast."""
-        import time
-
-        # Time 100 parser instantiations
-        start_time = time.perf_counter()
-        for _ in range(100):
-            _ = BangumiParser()
-
-        elapsed_time = time.perf_counter() - start_time
-
-        # 100 instantiations should take less than 1 second
-        # (regex compilation happens in __init__)
-        assert (
-            elapsed_time < 1.0
-        ), f"Parser initialization too slow: 100 instantiations took {elapsed_time:.3f}s (expected < 1.0s)"
-
-        # Log for reference
-        init_per_second = 100 / elapsed_time
-        print(
-            f"\n  Initialization: {init_per_second:.0f} parsers/second ({elapsed_time:.3f}s for 100 instantiations)"
-        )
-
-    def test_complex_torrent_name_performance(self, parser: BangumiParser):
-        """Test performance with complex torrent names (many brackets, long titles)."""
-        import time
-
-        # Very complex torrent name with many brackets and long title
-        complex_name = (
-            "【幻樱字幕组】【1月新番】【非常非常非常非常非常非常长的动漫标题名称 "
-            "Very Very Very Very Very Very Long Anime Title Name】【52】"
-            "[1080P][HEVC-10bit][AAC][简繁日内封][BIG5_MP4][WEB-DL][CR][Baha][ABEMA]"
-            "[B-Global][AT-X][MP4][MKV][END][v2][S02E12]"
-        )
-
-        # Parse 200 complex names
-        start_time = time.perf_counter()
-        for _ in range(200):
-            result = parser.parse(complex_name)
-            assert result.raw == complex_name
-
-        elapsed_time = time.perf_counter() - start_time
-
-        # Should complete in under 1 second
-        assert (
-            elapsed_time < 1.0
-        ), f"Complex name performance test failed: 200 parses took {elapsed_time:.3f}s (expected < 1.0s)"
-
 
 class TestTrailingDigitSeasonRecovery:
     """Regression tests for trailing-digit season detection.

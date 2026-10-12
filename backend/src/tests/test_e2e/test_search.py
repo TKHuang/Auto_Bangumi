@@ -4,7 +4,9 @@ Note: The search endpoint uses SSE (EventSourceResponse). With TestClient,
 we may not receive full SSE events, so we verify the response starts correctly.
 """
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from tests.test_e2e.conftest import MockRequestContent
 
 
 @pytest.mark.e2e
@@ -33,13 +35,22 @@ class TestSearchBangumi:
     """GET /api/v1/search/bangumi"""
 
     def test_search_returns_response(self, authed_client):
-        """GET /api/v1/search/bangumi?keywords=test&site=mikan returns 200."""
+        """GET /api/v1/search/bangumi?keywords=test&site=mikan returns 200.
+
+        module.services.search imports RequestContent directly, so it is not
+        covered by conftest's RequestContent patches (which only cover
+        rss_engine/analyser/title_parser). Without this patch the test hits
+        the real mikan.ai network boundary (~1.3s). Mock it the same way
+        conftest does, by returning MockRequestContent's fixture data.
+        """
         client, mock_dl, token = authed_client
 
-        resp = client.get(
-            "/api/v1/search/bangumi",
-            params={"keywords": "test", "site": "mikan"},
-        )
+        mock_rc_class = MagicMock(return_value=MockRequestContent())
+        with patch("module.services.search.RequestContent", mock_rc_class):
+            resp = client.get(
+                "/api/v1/search/bangumi",
+                params={"keywords": "test", "site": "mikan"},
+            )
         # SSE endpoint returns 200 with streaming content
         assert resp.status_code == 200
 

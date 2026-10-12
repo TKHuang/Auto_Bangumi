@@ -86,51 +86,42 @@ class TestParseRSSFeed:
     """Test parse_rss_feed function."""
 
     @pytest.mark.asyncio
-    async def test_parse_rss_feed_success(self):
-        """Test successful RSS feed parsing."""
+    @pytest.mark.parametrize(
+        "sample_torrents",
+        [
+            pytest.param(
+                [
+                    Torrent(
+                        name="[TestGroup] Test Anime - 01 [1080p]",
+                        url="https://example.com/torrent1.torrent",
+                        homepage="https://example.com/episode/1",
+                        hash="hash1",
+                    ),
+                    Torrent(
+                        name="[TestGroup] Test Anime - 02 [1080p]",
+                        url="https://example.com/torrent2.torrent",
+                        homepage="https://example.com/episode/2",
+                        hash="hash2",
+                    ),
+                ],
+                id="success",
+            ),
+            pytest.param([], id="empty"),
+        ],
+    )
+    async def test_parse_rss_feed(self, sample_torrents):
+        """Test RSS feed parsing returns whatever get_torrents yields."""
         url = "https://example.com/rss"
 
-        # Mock RequestContent
         with patch("module.services.rss_engine.RequestContent") as mock_request:
             mock_instance = MagicMock()
             mock_request.return_value.__enter__.return_value = mock_instance
-
-            # Mock get_torrents to return sample torrents
-            mock_instance.get_torrents.return_value = [
-                Torrent(
-                    name="[TestGroup] Test Anime - 01 [1080p]",
-                    url="https://example.com/torrent1.torrent",
-                    homepage="https://example.com/episode/1",
-                    hash="hash1",
-                ),
-                Torrent(
-                    name="[TestGroup] Test Anime - 02 [1080p]",
-                    url="https://example.com/torrent2.torrent",
-                    homepage="https://example.com/episode/2",
-                    hash="hash2",
-                ),
-            ]
+            mock_instance.get_torrents.return_value = sample_torrents
 
             torrents = await RSSEngine.parse_rss_feed(url)
 
-            assert len(torrents) == 2
-            assert torrents[0].name == "[TestGroup] Test Anime - 01 [1080p]"
-            assert torrents[1].name == "[TestGroup] Test Anime - 02 [1080p]"
+            assert [t.name for t in torrents] == [t.name for t in sample_torrents]
             mock_instance.get_torrents.assert_called_once_with(url, _filter="")
-
-    @pytest.mark.asyncio
-    async def test_parse_rss_feed_empty(self):
-        """Test RSS feed returns empty list."""
-        url = "https://example.com/rss"
-
-        with patch("module.services.rss_engine.RequestContent") as mock_request:
-            mock_instance = MagicMock()
-            mock_request.return_value.__enter__.return_value = mock_instance
-            mock_instance.get_torrents.return_value = []
-
-            torrents = await RSSEngine.parse_rss_feed(url)
-
-            assert len(torrents) == 0
 
 
 class TestCollectPendingCandidatesFromSource:

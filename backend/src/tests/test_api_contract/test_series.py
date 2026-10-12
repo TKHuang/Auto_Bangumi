@@ -115,14 +115,10 @@ class TestListSeries:
         assert body["items"] == []
         assert body["total"] == 0
 
+    @pytest.mark.parametrize("limit", [0, 201], ids=["too_low", "over_max"])
     @pytest.mark.asyncio
-    async def test_list_rejects_invalid_limit(self, client):
-        resp = client.get("/api/v1/series/?limit=0")
-        assert resp.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_list_rejects_limit_over_max(self, client):
-        resp = client.get("/api/v1/series/?limit=201")
+    async def test_list_rejects_invalid_limit(self, client, limit):
+        resp = client.get(f"/api/v1/series/?limit={limit}")
         assert resp.status_code == 422
 
 
@@ -219,21 +215,6 @@ class TestPatchSeries:
             )
 
         assert resp.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_patch_unknown_field_is_ignored(self, client):
-        mock = _mock_series(id=3)
-        with patch("module.api.v1.series.SeriesRepository") as mock_cls:
-            repo = AsyncMock()
-            mock_cls.return_value = repo
-            repo.get_by_id.return_value = mock
-
-            resp = client.patch(
-                "/api/v1/series/3", json={"not_a_real_field": "x"}
-            )
-
-        # Pydantic ignores unknown extras by default — should not error
-        assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_patch_partial_update_only_sets_provided_fields(self, client):

@@ -57,7 +57,8 @@ def test_torrents_to_data_skips_unparseable_in_aggregate():
         )
 
     with patch.object(RSSAnalyser, "raw_parser", staticmethod(fake_raw_parser)):
-        with patch.object(RSSAnalyser, "official_title_parser", lambda *a, **k: None):
+        with patch.object(RSSAnalyser, "official_title_parser", lambda *a, **k: None), \
+             patch.object(RSSAnalyser, "mikan_parser_with_rss", side_effect=OSError("offline")):
             result = analyser.torrents_to_data(torrents, rss, full_parse=True)
 
     titles = [b.official_title for b in result]

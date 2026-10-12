@@ -76,70 +76,6 @@ class TestAnalysis:
             assert response.status_code == 422
 
 
-class TestAnalysisTorrents:
-    """Test POST /rss/analysis/torrents endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_analysis_torrents_success(self, client):
-        mock_list = [
-            {"name": "[Group] Test - 01 [1080p]", "url": "https://example.com/t1", "homepage": "https://example.com", "filter": True},
-            {"name": "[Group] Test - 02 [1080p]", "url": "https://example.com/t2", "homepage": "https://example.com", "filter": True},
-        ]
-        with patch("module.api.v1.rss.analyser") as mock_analyser:
-            mock_analyser.analyse_torrents = AsyncMock(return_value=mock_list)
-            response = client.post("/api/v1/rss/analysis/torrents",
-                json={"name": "Test RSS", "url": "https://example.com/rss.xml", "aggregate": False, "parser": "mikan"},
-                params={"_filter": "1080p"},
-            )
-            assert response.status_code == 200
-            data = response.json()
-            assert len(data) == 2
-            assert data[0]["name"] == "[Group] Test - 01 [1080p]"
-
-    @pytest.mark.asyncio
-    async def test_analysis_torrents_with_title_raw(self, client):
-        mock_list = [{"name": "[Group] Specific Title - 01 [1080p]", "url": "https://example.com/t1", "homepage": "https://example.com", "filter": True}]
-        with patch("module.api.v1.rss.analyser") as mock_analyser:
-            mock_analyser.analyse_torrents = AsyncMock(return_value=mock_list)
-            response = client.post("/api/v1/rss/analysis/torrents",
-                json={"name": "Test RSS", "url": "https://example.com/rss.xml", "aggregate": True, "parser": "mikan"},
-                params={"_filter": "1080p", "title_raw": "Specific Title"},
-            )
-            assert response.status_code == 200
-            assert isinstance(response.json(), list)
-
-
-class TestCollection:
-    """Test POST /rss/collect endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_collection_success(self, client):
-        resp = ResponseModel(status=True, status_code=200, msg_en="Collection completed successfully.", msg_zh="收集完成。")
-        with patch("module.api.v1.rss.create_downloader") as mock_dl:
-            mock_dl.return_value = AsyncMock()
-            with patch("module.api.v1.rss.SeasonCollectorService") as mock_svc:
-                mock_svc.collect_season = AsyncMock(return_value=resp)
-                response = client.post("/api/v1/rss/collect", json={
-                    "official_title": "Test Bangumi", "season": 1,
-                    "filter": "1080p,WEB-DL", "rss_link": "https://example.com/rss",
-                })
-                assert response.status_code == 200
-                assert "msg_en" in response.json()
-
-    @pytest.mark.asyncio
-    async def test_collection_error(self, client):
-        resp = ResponseModel(status=False, status_code=404, msg_en="Collection failed.", msg_zh="收集失败。")
-        with patch("module.api.v1.rss.create_downloader") as mock_dl:
-            mock_dl.return_value = AsyncMock()
-            with patch("module.api.v1.rss.SeasonCollectorService") as mock_svc:
-                mock_svc.collect_season = AsyncMock(return_value=resp)
-                response = client.post("/api/v1/rss/collect", json={
-                    "official_title": "Test Bangumi", "season": 1,
-                    "filter": "1080p", "rss_link": "https://example.com/rss",
-                })
-                assert response.status_code == 404
-
-
 class TestSubscribe:
     """Test POST /rss/subscribe endpoint."""
 
@@ -151,26 +87,17 @@ class TestSubscribe:
         b.update(kw)
         return b
 
+    @pytest.mark.parametrize("file", [False, True], ids=["no_delete_files", "with_delete_files"])
     @pytest.mark.asyncio
-    async def test_subscribe_success(self, client):
+    async def test_subscribe_success(self, client, file):
         resp = ResponseModel(status=True, status_code=200, msg_en="Subscribe successfully.", msg_zh="订阅成功。")
         with patch("module.api.v1.rss.create_downloader") as mock_dl:
             mock_dl.return_value = AsyncMock()
             with patch("module.api.v1.rss.SeasonCollectorService") as mock_svc:
                 mock_svc.subscribe_season = AsyncMock(return_value=resp)
-                response = client.post("/api/v1/rss/subscribe", json=self._body(), params={"file": False})
+                response = client.post("/api/v1/rss/subscribe", json=self._body(), params={"file": file})
                 assert response.status_code == 200
                 assert "msg_en" in response.json()
-
-    @pytest.mark.asyncio
-    async def test_subscribe_with_delete_files(self, client):
-        resp = ResponseModel(status=True, status_code=200, msg_en="Subscribe successfully.", msg_zh="订阅成功。")
-        with patch("module.api.v1.rss.create_downloader") as mock_dl:
-            mock_dl.return_value = AsyncMock()
-            with patch("module.api.v1.rss.SeasonCollectorService") as mock_svc:
-                mock_svc.subscribe_season = AsyncMock(return_value=resp)
-                response = client.post("/api/v1/rss/subscribe", json=self._body(), params={"file": True})
-                assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_subscribe_duplicate_error(self, client):

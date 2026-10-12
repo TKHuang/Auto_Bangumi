@@ -153,20 +153,17 @@ class TestMergeBangumi:
 
         assert resp.status_code == 400
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"loser_id": 2, "reason": "x"},
+            {"winner_id": 1, "reason": "x"},
+        ],
+        ids=["missing_winner_id", "missing_loser_id"],
+    )
     @pytest.mark.asyncio
-    async def test_merge_missing_winner_id_returns_422(self, client):
-        resp = client.post(
-            "/api/v1/bangumi/merge",
-            json={"loser_id": 2, "reason": "x"},
-        )
-        assert resp.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_merge_missing_loser_id_returns_422(self, client):
-        resp = client.post(
-            "/api/v1/bangumi/merge",
-            json={"winner_id": 1, "reason": "x"},
-        )
+    async def test_merge_missing_required_id_returns_422(self, client, body):
+        resp = client.post("/api/v1/bangumi/merge", json=body)
         assert resp.status_code == 422
 
 
@@ -268,14 +265,10 @@ class TestListMergeHistory:
         assert item["winner_bangumi_id"] is None
         assert item["loser_bangumi_id"] is None
 
+    @pytest.mark.parametrize("limit", [0, 201], ids=["too_low", "over_max"])
     @pytest.mark.asyncio
-    async def test_list_rejects_invalid_limit(self, client):
-        resp = client.get("/api/v1/merge-history/?limit=0")
-        assert resp.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_list_rejects_limit_over_max(self, client):
-        resp = client.get("/api/v1/merge-history/?limit=201")
+    async def test_list_rejects_invalid_limit(self, client, limit):
+        resp = client.get(f"/api/v1/merge-history/?limit={limit}")
         assert resp.status_code == 422
 
 

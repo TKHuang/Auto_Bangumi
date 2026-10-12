@@ -3,7 +3,6 @@
 Post-0008: the partial UNIQUE indexes prevent duplicate (series_id, mikan_subgroup_id)
 rows from being created, so find_duplicate_groups/plan_merges always return empty on
 a live DB. Tests here verify:
-  - find_duplicate_groups returns [] on a clean post-0008 DB
   - pick_winner logic using distinct-identity test rows
   - execute_merges via direct MergePlan construction (no duplicates needed)
 """
@@ -17,9 +16,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 from scripts.migrate_duplicates import (  # noqa: E402
     MergePlan,
-    find_duplicate_groups,
     pick_winner,
-    plan_merges,
     execute_merges,
 )
 
@@ -47,19 +44,6 @@ async def _seed_series(db_session, mikan_id, suffix="") -> Series:
     db_session.add(s)
     await db_session.flush()
     return s
-
-
-@pytest.mark.integration
-async def test_find_duplicate_groups_returns_empty_on_clean_db(db_session):
-    """Post-0008: no duplicates can exist, so result is always empty."""
-    s = await _seed_series(db_session, 100)
-    a = Bangumi(group_name=_grp(), rss_link="", series_id=s.id, mikan_subgroup_id=1)
-    b = Bangumi(group_name=_grp(), rss_link="", series_id=s.id, mikan_subgroup_id=2)
-    db_session.add_all([a, b])
-    await db_session.flush()
-
-    groups = await find_duplicate_groups(db_session)
-    assert groups == []
 
 
 @pytest.mark.integration
@@ -92,18 +76,6 @@ async def test_pick_winner_breaks_tie_on_torrent_count(db_session):
     await db_session.flush()
     winner_id = await pick_winner(db_session, [a, b])
     assert winner_id == b.id
-
-
-@pytest.mark.integration
-async def test_plan_merges_returns_empty_on_clean_db(db_session):
-    """Post-0008: no duplicates -> plan_merges always returns empty list."""
-    s = await _seed_series(db_session, 400)
-    a = Bangumi(group_name=_grp(), rss_link="", series_id=s.id, mikan_subgroup_id=1, added=True)
-    db_session.add(a)
-    await db_session.flush()
-
-    plans = await plan_merges(db_session)
-    assert plans == []
 
 
 @pytest.mark.integration

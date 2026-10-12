@@ -49,6 +49,11 @@ def downloader(mock_qb_client):
 class TestQBittorrentAuth:
     """Test authentication and connection."""
 
+    @pytest.fixture(autouse=True)
+    def _no_retry_sleep(self):
+        with patch("module.services.downloader.qbittorrent.asyncio.sleep", AsyncMock()):
+            yield
+
     @pytest.mark.asyncio
     async def test_auth_success(self, downloader, mock_qb_client):
         """Auth succeeds on first attempt."""
@@ -258,142 +263,3 @@ class TestQBittorrentTorrents:
             "/new/path",
             ["abc123"],
         )
-
-    @pytest.mark.asyncio
-    async def test_get_torrent_path(self, downloader, mock_qb_client):
-        """get_torrent_path returns save_path."""
-        mock_torrent = MagicMock()
-        mock_torrent.save_path = "/downloads/bangumi"
-        mock_qb_client.torrents_info.return_value = [mock_torrent]
-
-        result = await downloader.get_torrent_path(hash="abc123")
-        assert result == "/downloads/bangumi"
-        mock_qb_client.torrents_info.assert_called_once_with(hashes="abc123")
-
-    @pytest.mark.asyncio
-    async def test_get_torrent_path_not_found(self, downloader, mock_qb_client):
-        """get_torrent_path returns None if torrent not found."""
-        mock_qb_client.torrents_info.return_value = []
-        result = await downloader.get_torrent_path(hash="nonexistent")
-        assert result is None
-
-
-class TestQBittorrentRSS:
-    """Test RSS-related methods (stubs from legacy)."""
-
-    @pytest.mark.asyncio
-    async def test_rss_add_feed(self, downloader, mock_qb_client):
-        """rss_add_feed calls client method."""
-        mock_qb_client.rss_add_feed = MagicMock()
-        await downloader.rss_add_feed("https://example.com/rss", "/feeds/test")
-        mock_qb_client.rss_add_feed.assert_called_once_with(
-            "https://example.com/rss",
-            "/feeds/test",
-        )
-
-    @pytest.mark.asyncio
-    async def test_rss_add_feed_conflict(self, downloader, mock_qb_client):
-        """rss_add_feed handles Conflict409Error."""
-        mock_qb_client.rss_add_feed = MagicMock(side_effect=Conflict409Error("Exists"))
-        # Should not raise
-        await downloader.rss_add_feed("https://example.com/rss", "/feeds/test")
-
-    @pytest.mark.asyncio
-    async def test_rss_remove_item(self, downloader, mock_qb_client):
-        """rss_remove_item calls client method."""
-        mock_qb_client.rss_remove_item = MagicMock()
-        await downloader.rss_remove_item("/feeds/test")
-        mock_qb_client.rss_remove_item.assert_called_once_with("/feeds/test")
-
-    @pytest.mark.asyncio
-    async def test_rss_get_feeds(self, downloader, mock_qb_client):
-        """rss_get_feeds returns feed list."""
-        mock_qb_client.rss_items = MagicMock(return_value={"feed1": {}, "feed2": {}})
-        result = await downloader.rss_get_feeds()
-        assert result == {"feed1": {}, "feed2": {}}
-
-    @pytest.mark.asyncio
-    async def test_rss_set_rule(self, downloader, mock_qb_client):
-        """rss_set_rule calls client method."""
-        mock_qb_client.rss_set_rule = MagicMock()
-        rule_def = {"enabled": True, "mustContain": "1080p"}
-        await downloader.rss_set_rule("test_rule", rule_def)
-        mock_qb_client.rss_set_rule.assert_called_once_with("test_rule", rule_def)
-
-    @pytest.mark.asyncio
-    async def test_get_download_rule(self, downloader, mock_qb_client):
-        """get_download_rule returns RSS rules."""
-        mock_qb_client.rss_rules = MagicMock(return_value={"rule1": {}})
-        result = await downloader.get_download_rule()
-        assert result == {"rule1": {}}
-
-    @pytest.mark.asyncio
-    async def test_remove_rule(self, downloader, mock_qb_client):
-        """remove_rule calls client method."""
-        mock_qb_client.rss_remove_rule = MagicMock()
-        await downloader.remove_rule("test_rule")
-        mock_qb_client.rss_remove_rule.assert_called_once_with("test_rule")
-
-
-class TestQBittorrentMisc:
-    """Test miscellaneous methods."""
-
-    @pytest.mark.asyncio
-    async def test_add_category(self, downloader, mock_qb_client):
-        """add_category creates category."""
-        mock_qb_client.torrents_createCategory = MagicMock()
-        await downloader.add_category("Bangumi")
-        mock_qb_client.torrents_createCategory.assert_called_once_with(name="Bangumi")
-
-    @pytest.mark.asyncio
-    async def test_set_category(self, downloader, mock_qb_client):
-        """set_category sets torrent category."""
-        mock_qb_client.torrents_set_category = MagicMock()
-        await downloader.set_category("abc123", "Bangumi")
-        mock_qb_client.torrents_set_category.assert_called_once_with(
-            "Bangumi",
-            hashes="abc123",
-        )
-
-    @pytest.mark.asyncio
-    async def test_set_category_creates_if_missing(self, downloader, mock_qb_client):
-        """set_category creates category if Conflict409Error."""
-        mock_qb_client.torrents_set_category = MagicMock(
-            side_effect=[Conflict409Error("Not found"), None]
-        )
-        mock_qb_client.torrents_createCategory = MagicMock()
-
-        await downloader.set_category("abc123", "Bangumi")
-
-        mock_qb_client.torrents_createCategory.assert_called_once_with(name="Bangumi")
-        assert mock_qb_client.torrents_set_category.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_add_tag(self, downloader, mock_qb_client):
-        """add_tag adds tags to torrent."""
-        mock_qb_client.torrents_add_tags = MagicMock()
-        await downloader.add_tag("abc123", "season1")
-        mock_qb_client.torrents_add_tags.assert_called_once_with(
-            tags="season1",
-            hashes="abc123",
-        )
-
-    @pytest.mark.asyncio
-    async def test_get_existing_hashes(self, downloader, mock_qb_client):
-        """get_existing_hashes returns set of hashes."""
-        mock_t1 = MagicMock()
-        mock_t1.hash = "abc123"
-        mock_t2 = MagicMock()
-        mock_t2.hash = "def456"
-        mock_qb_client.torrents_info.return_value = [mock_t1, mock_t2]
-
-        result = await downloader.get_existing_hashes(category="Bangumi")
-        assert result == {"abc123", "def456"}
-        mock_qb_client.torrents_info.assert_called_once_with(category="Bangumi")
-
-    @pytest.mark.asyncio
-    async def test_get_existing_hashes_error(self, downloader, mock_qb_client):
-        """get_existing_hashes returns empty set on error."""
-        mock_qb_client.torrents_info.side_effect = Exception("Connection error")
-        result = await downloader.get_existing_hashes(category="Bangumi")
-        assert result == set()

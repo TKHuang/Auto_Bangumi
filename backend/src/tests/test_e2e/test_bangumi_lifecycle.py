@@ -10,31 +10,6 @@ from tests.test_e2e.conftest import (
 )
 
 
-def _bangumi_to_update_payload(bangumi: dict) -> dict:
-    """Convert a GET bangumi response to an update payload (BangumiUpdate fields)."""
-    return {
-        "rss_id": bangumi.get("rss_id"),
-        "official_title": bangumi["official_title"],
-        "year": bangumi.get("year"),
-        "title_raw": bangumi["title_raw"],
-        "season": bangumi["season"],
-        "season_raw": bangumi.get("season_raw"),
-        "group_name": bangumi.get("group_name", "Unknown"),
-        "dpi": bangumi.get("dpi"),
-        "source": bangumi.get("source"),
-        "subtitle": bangumi.get("subtitle"),
-        "eps_collect": bangumi.get("eps_collect", False),
-        "offset": bangumi.get("offset", 0),
-        "filter": bangumi.get("filter", ""),
-        "rss_link": bangumi.get("rss_link", ""),
-        "poster_link": bangumi.get("poster_link"),
-        "added": bangumi.get("added", False),
-        "rule_name": bangumi.get("rule_name"),
-        "save_path": bangumi.get("save_path"),
-        "deleted": bangumi.get("deleted", False),
-    }
-
-
 # ---------------------------------------------------------------------------
 # DISABLE (soft delete)
 # ---------------------------------------------------------------------------
@@ -109,7 +84,8 @@ class TestEnableBangumi:
     """Tests for GET /bangumi/enable/{id}."""
 
     def test_enable_after_disable(self, authed_client):
-        """Disable then enable restores deleted=False."""
+        """Disable then enable restores deleted=False (also checked via list
+        membership, merged from the former TestEnableDisableInteraction::test_roundtrip)."""
         client, mock_dl, token = authed_client
         add_non_aggregate_rss(client)
 
@@ -119,6 +95,8 @@ class TestEnableBangumi:
         client.delete(f"/api/v1/bangumi/disable/{bangumi_id}?file=false")
         detail = client.get(f"/api/v1/bangumi/get/{bangumi_id}").json()
         assert detail["deleted"] is True
+        remaining = get_all_bangumi(client).json()
+        assert all(b["id"] != bangumi_id for b in remaining)
 
         # Enable
         resp = client.patch(f"/api/v1/bangumi/enable/{bangumi_id}")
@@ -126,6 +104,8 @@ class TestEnableBangumi:
 
         detail = client.get(f"/api/v1/bangumi/get/{bangumi_id}").json()
         assert detail["deleted"] is False
+        restored = get_all_bangumi(client).json()
+        assert any(b["id"] == bangumi_id for b in restored)
 
     def test_enable_nonexistent(self, authed_client):
         """GET /bangumi/enable/999 returns 404."""
@@ -162,36 +142,6 @@ class TestEnableBangumi:
 @pytest.mark.e2e
 class TestPendingReview:
     """Tests for pending_review flag and POST /bangumi/{id}/activate."""
-
-    def test_activate_pending(self, authed_client):
-        """Create a pending bangumi (via update), then activate it."""
-        client, mock_dl, token = authed_client
-        add_non_aggregate_rss(client)
-
-        bangumi = get_all_bangumi(client).json()[0]
-        bangumi_id = bangumi["id"]
-
-        # Force pending_review=True via update
-        payload = _bangumi_to_update_payload(bangumi)
-        payload["deleted"] = False
-        client.patch(f"/api/v1/bangumi/update/{bangumi_id}", json=payload)
-
-        # Manually set pending_review via the update endpoint isn't possible
-        # (it's not in BangumiUpdate). So we use the API that creates pending
-        # bangumi — or we just test the activate on a non-pending and expect 400.
-        # Let's directly test the activate endpoint: it should succeed if
-        # pending_review is True.
-
-        # For a proper test, we need to set pending_review. The non-agg RSS
-        # flow sets pending_review=True when all torrents are filtered.
-        # Workaround: add an RSS with a filter that matches all torrents.
-        # Actually, the simplest approach: the Wild Boss RSS creates a
-        # non-pending bangumi. Let's just verify the activate on a non-pending
-        # returns 400, and test the success path differently.
-
-        # Test the success path by adding aggregate RSS and checking for
-        # pending bangumi created during RSS refresh.
-        pass
 
     def test_activate_with_custom_filter(self, authed_client):
         """Activate with a custom filter body sets the new filter."""
@@ -291,24 +241,6 @@ class TestEnableDisableInteraction:
         detail = client.get(f"/api/v1/bangumi/get/{bangumi_id}").json()
         assert detail["deleted"] is False
         # pending_review stays whatever it was — enable doesn't touch it
-
-    def test_roundtrip(self, authed_client):
-        """Disable → enable → verify bangumi is active again."""
-        client, mock_dl, token = authed_client
-        add_non_aggregate_rss(client)
-
-        bangumi = get_all_bangumi(client).json()[0]
-        bangumi_id = bangumi["id"]
-
-        # Disable
-        client.delete(f"/api/v1/bangumi/disable/{bangumi_id}?file=false")
-        remaining = get_all_bangumi(client).json()
-        assert all(b["id"] != bangumi_id for b in remaining)
-
-        # Enable
-        client.patch(f"/api/v1/bangumi/enable/{bangumi_id}")
-        restored = get_all_bangumi(client).json()
-        assert any(b["id"] == bangumi_id for b in restored)
 
     def test_issue9_soft_delete_blocks_autocreate(self, authed_client):
         """KNOWN ISSUE 9: Soft-deleted bangumi should block auto-creation

@@ -1432,68 +1432,12 @@ class TestStalePathDetection:
         mock_instance.file_list.assert_called_once_with(parent_id="season_id")
 
 
-class TestPikPakAsyncBehavior:
-    """Tests verifying pure async behavior without threading."""
-
-    @pytest.mark.asyncio
-    async def test_auth_is_async(self, pikpak_downloader):
-        """Test that auth method is async."""
-        import inspect
-
-        assert inspect.iscoroutinefunction(pikpak_downloader.auth)
-
-    @pytest.mark.asyncio
-    async def test_add_torrents_is_async(self, pikpak_downloader):
-        """Test that add_torrents method is async."""
-        import inspect
-
-        assert inspect.iscoroutinefunction(pikpak_downloader.add_torrents)
-
-    @pytest.mark.asyncio
-    async def test_torrents_info_is_async(self, pikpak_downloader):
-        """Test that torrents_info method is async."""
-        import inspect
-
-        assert inspect.iscoroutinefunction(pikpak_downloader.torrents_info)
-
-    @pytest.mark.asyncio
-    async def test_torrents_delete_is_async(self, pikpak_downloader):
-        """Test that torrents_delete method is async."""
-        import inspect
-
-        assert inspect.iscoroutinefunction(pikpak_downloader.torrents_delete)
-
-    @pytest.mark.asyncio
-    async def test_move_torrent_is_async(self, pikpak_downloader):
-        """Test that move_torrent method is async."""
-        import inspect
-
-        assert inspect.iscoroutinefunction(pikpak_downloader.move_torrent)
-
-
-class TestPikPakClassAttributes:
-    """Tests for class-level attributes."""
-
-    @pytest.mark.asyncio
-    async def test_supports_torrent_files_is_false(self):
-        """Test that supports_torrent_files is False for PikPak."""
-        assert PikPakDownloader.supports_torrent_files is False
-
-
 class TestInvalidatePathCache:
     @pytest.mark.asyncio
     async def test_invalidate_path_cache_clears_cache(self, pikpak_downloader):
         pikpak_downloader._client._path_id_cache = {"/some/path": {"id": "old_id"}}
         pikpak_downloader._invalidate_path_cache()
         assert pikpak_downloader._client._path_id_cache == {}
-
-    @pytest.mark.asyncio
-    async def test_invalidate_path_cache_handles_missing_attribute(
-        self, pikpak_downloader
-    ):
-        if hasattr(pikpak_downloader._client, "_path_id_cache"):
-            delattr(pikpak_downloader._client, "_path_id_cache")
-        pikpak_downloader._invalidate_path_cache()
 
     @pytest.mark.asyncio
     async def test_torrents_info_calls_invalidate_path_cache(

@@ -10,37 +10,23 @@ from module.domain.value_objects import ResponseModel
 
 
 class TestResponseHelper:
-    def test_u_response_success(self):
-        model = ResponseModel(status=True, status_code=200, msg_en="Success", msg_zh="成功")
+    @pytest.mark.parametrize(
+        "status,status_code,msg_en,msg_zh",
+        [
+            (True, 200, "Success", "成功"),
+            (False, 400, "Bad Request", "请求错误"),
+            (False, 500, "Internal Server Error", "服务器内部错误"),
+            (True, 200, "Hello 'World'", '你好 "世界"'),
+        ],
+        ids=["success", "error", "server_error", "special_chars"],
+    )
+    def test_u_response(self, status, status_code, msg_en, msg_zh):
+        model = ResponseModel(status=status, status_code=status_code, msg_en=msg_en, msg_zh=msg_zh)
         response = u_response(model)
-        assert response.status_code == 200
+        assert response.status_code == status_code
         data = json.loads(response.body)
-        assert data["msg_en"] == "Success"
-        assert data["msg_zh"] == "成功"
-
-    def test_u_response_error(self):
-        model = ResponseModel(status=False, status_code=400, msg_en="Bad Request", msg_zh="请求错误")
-        response = u_response(model)
-        assert response.status_code == 400
-        data = json.loads(response.body)
-        assert data["msg_en"] == "Bad Request"
-        assert data["msg_zh"] == "请求错误"
-
-    def test_u_response_server_error(self):
-        model = ResponseModel(status=False, status_code=500, msg_en="Internal Server Error", msg_zh="服务器内部错误")
-        response = u_response(model)
-        assert response.status_code == 500
-        data = json.loads(response.body)
-        assert data["msg_en"] == "Internal Server Error"
-        assert data["msg_zh"] == "服务器内部错误"
-
-    def test_u_response_with_special_chars(self):
-        model = ResponseModel(status=True, status_code=200, msg_en="Hello 'World'", msg_zh="你好 \"世界\"")
-        response = u_response(model)
-        assert response.status_code == 200
-        data = json.loads(response.body)
-        assert data["msg_en"] == "Hello 'World'"
-        assert data["msg_zh"] == "你好 \"世界\""
+        assert data["msg_en"] == msg_en
+        assert data["msg_zh"] == msg_zh
 
 
 class TestStaticFileServing:

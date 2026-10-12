@@ -116,7 +116,8 @@ class TestAddRSS:
 
                 assert response.status_code == 200
                 data = response.json()
-                assert "msg_en" in data or "rss_id" in data
+                assert data["msg_en"] == "RSS added successfully."
+                assert data["rss_id"] == 10
 
     @pytest.mark.asyncio
     async def test_add_rss_with_manual_input(self, client):
@@ -153,7 +154,8 @@ class TestAddRSS:
                         },
                     )
 
-                    assert response.status_code in [200, 422]
+                    assert response.status_code == 200
+                    assert response.json()["msg_en"] == "RSS added successfully."
 
     @pytest.mark.asyncio
     async def test_add_rss_rejects_duplicate_series_title(self, client):
@@ -316,34 +318,25 @@ class TestDeleteManyRSS:
 class TestDisableRSS:
     """Test PATCH /rss/disable/{rss_id} endpoint."""
 
+    @pytest.mark.parametrize(
+        "disable_result,rss_id,expected_status,expected_msg",
+        [
+            (True, 1, 200, "Disable RSS successfully."),
+            (False, 999, 404, "Disable RSS failed."),
+        ],
+        ids=["success", "failed"],
+    )
     @pytest.mark.asyncio
-    async def test_disable_rss_success(self, client):
-        """Test successful RSS disable."""
+    async def test_disable_rss(self, client, disable_result, rss_id, expected_status, expected_msg):
         with patch("module.api.v1.rss.RSSRepository") as mock_repo_cls:
             mock_repo = AsyncMock()
             mock_repo_cls.return_value = mock_repo
-            mock_repo.disable.return_value = True
+            mock_repo.disable.return_value = disable_result
 
-            response = client.patch("/api/v1/rss/disable/1")
+            response = client.patch(f"/api/v1/rss/disable/{rss_id}")
 
-            assert response.status_code == 200
-            data = response.json()
-            assert data["msg_en"] == "Disable RSS successfully."
-            assert data["msg_zh"] == "禁用 RSS 成功。"
-
-    @pytest.mark.asyncio
-    async def test_disable_rss_failed(self, client):
-        """Test failed RSS disable."""
-        with patch("module.api.v1.rss.RSSRepository") as mock_repo_cls:
-            mock_repo = AsyncMock()
-            mock_repo_cls.return_value = mock_repo
-            mock_repo.disable.return_value = False
-
-            response = client.patch("/api/v1/rss/disable/999")
-
-            assert response.status_code == 404
-            data = response.json()
-            assert data["msg_en"] == "Disable RSS failed."
+            assert response.status_code == expected_status
+            assert response.json()["msg_en"] == expected_msg
 
 
 class TestDisableManyRSS:
@@ -614,7 +607,8 @@ class TestRecreateRSS:
 
                 response = client.post("/api/v1/rss/recreate/1")
 
-                assert response.status_code in [200, 404, 422]
+                assert response.status_code == 404
+                assert response.json()["msg_en"] == "Cannot parse"
 
     @pytest.mark.asyncio
     async def test_recreate_rss_not_found(self, client):
@@ -655,7 +649,8 @@ class TestRecreateRSS:
                     },
                 )
 
-                assert response.status_code in [200, 404, 422]
+                assert response.status_code == 404
+                assert response.json()["msg_en"] == "Cannot parse"
 
 
 class TestGetPendingCount:

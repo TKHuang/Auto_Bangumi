@@ -2,7 +2,6 @@
 
 import asyncio
 import sqlite3
-from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -19,15 +18,6 @@ from module.database.engine import (
 @pytest.mark.asyncio
 class TestAsyncEngine:
     """Test async SQLAlchemy engine configuration."""
-
-    async def test_engine_creates_sqlite_db_file(self, tmp_path):
-        """Test that async engine creates SQLite database file."""
-        # Engine should be created and ready
-        assert engine is not None
-        # Database file should exist after first connection
-        db_path = Path("data/bangumi.db")
-        # We can't guarantee file exists until first query, but engine should be valid
-        assert engine.url.drivername == "sqlite+aiosqlite"
 
     async def test_wal_mode_enabled(self):
         """Test that WAL mode is active on SQLite database."""

@@ -15,12 +15,6 @@ from module.security import create_access_token, decode_access_token
 class TestCreateAccessToken:
     """Tests for create_access_token function."""
 
-    def test_create_token_returns_string(self):
-        """Token should be a string."""
-        token = create_access_token("testuser")
-        assert isinstance(token, str)
-        assert len(token) > 0
-
     def test_create_token_with_default_expiry(self):
         """Token should have 24-hour default expiry."""
         token = create_access_token("testuser")
@@ -50,14 +44,6 @@ class TestCreateAccessToken:
         token = create_access_token(username)
         payload = decode_access_token(token)
         assert payload["sub"] == username
-
-    def test_create_token_with_different_usernames(self):
-        """Different usernames should produce different tokens."""
-        token1 = create_access_token("user1")
-        token2 = create_access_token("user2")
-        assert token1 != token2
-        assert decode_access_token(token1)["sub"] == "user1"
-        assert decode_access_token(token2)["sub"] == "user2"
 
     def test_create_token_uses_hs256(self):
         """Token should use HS256 algorithm."""
@@ -89,26 +75,11 @@ class TestDecodeAccessToken:
         assert payload["sub"] == "testuser"
         assert "exp" in payload
 
-    def test_decode_token_returns_dict(self):
-        """Decoded token should be a dictionary."""
-        token = create_access_token("testuser")
-        payload = decode_access_token(token)
-        assert isinstance(payload, dict)
-
-    def test_decode_invalid_token_raises_error(self):
-        """Invalid token should raise JWTError."""
+    @pytest.mark.parametrize("bad_token", ["invalid.token.here", "not-a-jwt", ""])
+    def test_decode_bad_token_raises_error(self, bad_token):
+        """Invalid, malformed, or empty token should raise JWTError."""
         with pytest.raises(JWTError):
-            decode_access_token("invalid.token.here")
-
-    def test_decode_malformed_token_raises_error(self):
-        """Malformed token should raise JWTError."""
-        with pytest.raises(JWTError):
-            decode_access_token("not-a-jwt")
-
-    def test_decode_empty_token_raises_error(self):
-        """Empty token should raise JWTError."""
-        with pytest.raises(JWTError):
-            decode_access_token("")
+            decode_access_token(bad_token)
 
     def test_decode_token_missing_sub_raises_error(self):
         """Token without 'sub' claim should raise JWTError."""
@@ -122,10 +93,7 @@ class TestDecodeAccessToken:
 
     def test_decode_expired_token_raises_error(self):
         """Expired token should raise JWTError."""
-        # Create token with 1-second expiry
-        token = create_access_token("testuser", expires_delta=timedelta(seconds=1))
-        # Wait for expiry
-        time.sleep(2)
+        token = create_access_token("testuser", expires_delta=timedelta(seconds=-1))
         with pytest.raises(JWTError):
             decode_access_token(token)
 
@@ -137,49 +105,22 @@ class TestDecodeAccessToken:
             with pytest.raises(JWTError):
                 decode_access_token(token)
 
-    def test_decode_token_preserves_username(self):
-        """Decoded token should preserve original username."""
-        usernames = ["alice", "bob", "charlie", "user@example.com"]
-        for username in usernames:
-            token = create_access_token(username)
-            payload = decode_access_token(token)
-            assert payload["sub"] == username
-
 
 @pytest.mark.unit
 class TestJWTIntegration:
     """Integration tests for JWT creation and validation."""
 
-    def test_roundtrip_token_creation_and_validation(self):
-        """Should create and validate token in roundtrip."""
-        username = "testuser"
+    @pytest.mark.parametrize(
+        "username", ["testuser", "alice", "bob", "charlie", "user@example.com"]
+    )
+    def test_roundtrip_token_creation_and_validation(self, username):
+        """Create -> decode roundtrip preserves username/exp; different users get independent tokens."""
         token = create_access_token(username)
+        other_token = create_access_token(f"other-{username}")
+
         payload = decode_access_token(token)
         assert payload["sub"] == username
         assert "exp" in payload
 
-    def test_multiple_tokens_are_independent(self):
-        """Multiple tokens should be independent."""
-        token1 = create_access_token("user1")
-        token2 = create_access_token("user2")
-        payload1 = decode_access_token(token1)
-        payload2 = decode_access_token(token2)
-        assert payload1["sub"] == "user1"
-        assert payload2["sub"] == "user2"
-        assert token1 != token2
-
-    def test_token_expiry_is_in_future(self):
-        """Token expiry should always be in the future."""
-        token = create_access_token("testuser")
-        payload = decode_access_token(token)
-        exp_time = payload["exp"]
-        now = time.time()
-        assert exp_time > now
-
-    def test_custom_expiry_shorter_than_default(self):
-        """Custom 1-hour expiry should be shorter than default 24-hour."""
-        token_default = create_access_token("user1")
-        token_custom = create_access_token("user2", expires_delta=timedelta(hours=1))
-        payload_default = decode_access_token(token_default)
-        payload_custom = decode_access_token(token_custom)
-        assert payload_default["exp"] > payload_custom["exp"]
+        assert token != other_token
+        assert decode_access_token(other_token)["sub"] == f"other-{username}"

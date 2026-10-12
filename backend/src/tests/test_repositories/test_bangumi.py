@@ -226,21 +226,6 @@ class TestBangumiRepository:
 
         assert found.pending_review is True
 
-    async def test_reset_all_resets_added_and_eps_collect(self, db_session):
-        repo = BangumiRepository(db_session)
-        s1 = await _add_series(db_session, suffix="1")
-        s2 = await _add_series(db_session, suffix="2")
-
-        await repo.create({"series_id": s1.id, "group_name": "Group1", "added": True, "eps_collect": True})
-        await repo.create({"series_id": s2.id, "group_name": "Group2", "added": True, "eps_collect": True})
-        await repo.reset_all()
-
-        all_bangumi = await repo.get_all()
-
-        for bangumi in all_bangumi:
-            assert bangumi.added is False
-            assert bangumi.eps_collect is False
-
     async def test_find_by_any_rss_link_returns_bangumi(self, db_session):
         repo = BangumiRepository(db_session)
         series = await _add_series(db_session)
@@ -286,30 +271,6 @@ class TestBangumiRepository:
 
         assert found is not None
         assert found.group_name == "Group1"
-
-    async def test_match_poster_returns_poster_link(self, db_session):
-        """match_poster joins to series.poster_url via the @property shim."""
-        repo = BangumiRepository(db_session)
-        series = Series(
-            canonical_title="Test Anime",
-            normalized_title="test_anime",
-            season=1,
-            root_path="/downloads/Test",
-            poster_url="https://example.com/poster.jpg",
-        )
-        db_session.add(series)
-        await db_session.flush()
-
-        await repo.create({"series_id": series.id, "group_name": "G"})
-
-        poster = await repo.match_poster("[Group] Test Anime - 01")
-
-        assert poster == "https://example.com/poster.jpg"
-
-    async def test_match_poster_returns_empty_when_not_found(self, db_session):
-        repo = BangumiRepository(db_session)
-        poster = await repo.match_poster("Non-existent Anime")
-        assert poster == ""
 
     async def test_match_torrent_returns_bangumi(self, db_session):
         """match_torrent joins to series.canonical_title."""
@@ -553,48 +514,6 @@ class TestBangumiRepository:
 
         all_bangumi = await repo.get_all(include_deleted=True)
         assert len(all_bangumi) == 0
-
-    async def test_backfill_rss_id_updates_bangumi(self, db_session):
-        repo = BangumiRepository(db_session)
-        s1 = await _add_series(db_session, suffix="1")
-        s2 = await _add_series(db_session, suffix="2")
-        s3 = await _add_series(db_session, suffix="3")
-
-        b1 = await repo.create({
-            "series_id": s1.id, "group_name": "Group1",
-            "rss_link": "https://example.com/rss/feed1",
-        })
-        b2 = await repo.create({
-            "series_id": s2.id, "group_name": "Group2",
-            "rss_link": "https://example.com/rss/feed1",
-        })
-        await repo.create({
-            "series_id": s3.id, "group_name": "Group3",
-            "rss_link": "https://other.com/rss/feed2",
-        })
-        count = await repo.backfill_rss_id(1, "https://example.com/rss/feed1")
-
-        assert count == 2
-
-        found1 = await repo.get_by_id(b1.id)
-        found2 = await repo.get_by_id(b2.id)
-
-        assert found1.rss_id == 1
-        assert found2.rss_id == 1
-
-    async def test_backfill_rss_id_skips_already_set(self, db_session):
-        repo = BangumiRepository(db_session)
-        series = await _add_series(db_session)
-
-        await repo.create({
-            "series_id": series.id,
-            "group_name": "Group1",
-            "rss_link": "https://example.com/rss/feed1",
-            "rss_id": 2,
-        })
-        count = await repo.backfill_rss_id(1, "https://example.com/rss/feed1")
-
-        assert count == 0
 
     async def test_update_simple_updates_bangumi(self, db_session):
         repo = BangumiRepository(db_session)

@@ -112,257 +112,274 @@ MULTI_VERSION_TORRENTS = [
 class TestGenerateRenamePath:
     """Test generate_rename_path static method with all rename methods."""
 
-    def test_regular_episode_pn_method(self):
-        """Test regular episode with 'pn' method uses parsed title."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 01.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "pn")
-        assert result == "Parsed Title S01E01.mkv"
-
-    def test_regular_episode_advance_method(self):
-        """Test regular episode with 'advance' method uses bangumi name."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 01.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "advance")
-        assert result == "Official Title S01E01.mkv"
-
-    def test_regular_episode_advance_method_sanitizes_illegal_chars(self):
-        """Test advance rename sanitizes PikPak-illegal chars in target filename."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 01.mp4",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            suffix=".mp4",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(
-            ep, "没有辣妹会对阿宅温柔!?", "advance"
-        )
-        assert result == "没有辣妹会对阿宅温柔!？ S01E01.mp4"
-
-    def test_regular_episode_none_method(self):
-        """Test 'none' method returns original path unchanged."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 01.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "none")
-        assert result == "[Group] Title - 01.mkv"
-
-    def test_regular_episode_normal_method_deprecated(self):
-        """Test 'normal' method returns original path (deprecated)."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 01.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "normal")
-        assert result == "[Group] Title - 01.mkv"
-
-    def test_episode_with_version(self):
-        """Test episode with version suffix (v2)."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 01v2.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            version=2,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "advance")
-        assert result == "Official Title S01E01v2.mkv"
-
-    def test_episode_double_digit(self):
-        """Test double-digit episode and season numbers."""
-        ep = EpisodeFile(
-            media_path="[Group] Title - 12.mkv",
-            title="Parsed Title",
-            season=10,
-            episode=12,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "pn")
-        assert result == "Parsed Title S10E12.mkv"
-
-    def test_special_episode_oad(self):
-        """Test OAD special episode type."""
-        ep = EpisodeFile(
-            media_path="[Group] Title OAD 01.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            episode_type=EpisodeType.OAD,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "advance")
-        assert result == "Official Title OAD 01.mkv"
-
-    def test_special_episode_ova(self):
-        """Test OVA special episode type."""
-        ep = EpisodeFile(
-            media_path="[Group] Title OVA 02.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=2,
-            episode_type=EpisodeType.OVA,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "pn")
-        assert result == "Parsed Title OVA 02.mkv"
-
-    def test_special_episode_sp(self):
-        """Test SP special episode type."""
-        ep = EpisodeFile(
-            media_path="[Group] Title SP 01.mkv",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            episode_type=EpisodeType.SP,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "advance")
-        assert result == "Official Title SP 01.mkv"
-
-    def test_movie_pn_method(self):
-        """Test movie with 'pn' method."""
-        ep = EpisodeFile(
-            media_path="[Group] Movie Title.mkv",
-            title="Movie Title",
-            season=1,
-            episode=None,
-            suffix=".mkv",
-            is_movie=True,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Movie", "pn")
-        assert result == "Movie Title.mkv"
-
-    def test_movie_advance_method(self):
-        """Test movie with 'advance' method."""
-        ep = EpisodeFile(
-            media_path="[Group] Movie Title.mkv",
-            title="Movie Title",
-            season=1,
-            episode=None,
-            suffix=".mkv",
-            is_movie=True,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Movie", "advance")
-        assert result == "Official Movie.mkv"
-
-    def test_movie_none_method(self):
-        """Test movie with 'none' method."""
-        ep = EpisodeFile(
-            media_path="[Group] Movie Title.mkv",
-            title="Movie Title",
-            season=1,
-            episode=None,
-            suffix=".mkv",
-            is_movie=True,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Movie", "none")
-        assert result == "[Group] Movie Title.mkv"
-
-    def test_no_episode_number_single_file(self):
-        """Test file without episode number (treated as single-file)."""
-        ep = EpisodeFile(
-            media_path="[Group] Title.mkv",
-            title="Title",
-            season=1,
-            episode=None,
-            suffix=".mkv",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(ep, "Official Title", "advance")
-        assert result == "Official Title.mkv"
-
-    def test_subtitle_pn_method(self):
-        """Test subtitle file with 'pn' method."""
-        sub = SubtitleFile(
-            media_path="[Group] Title - 01.ass",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            language="zh",
-            suffix=".ass",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(
-            sub, "Official Title", "subtitle_pn"
-        )
-        assert result == "Parsed Title S01E01.zh.ass"
-
-    def test_subtitle_advance_method(self):
-        """Test subtitle file with 'advance' method."""
-        sub = SubtitleFile(
-            media_path="[Group] Title - 01.ass",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            language="zh-tw",
-            suffix=".ass",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(
-            sub, "Official Title", "subtitle_advance"
-        )
-        assert result == "Official Title S01E01.zh-tw.ass"
-
-    def test_subtitle_none_method(self):
-        """Test subtitle with 'none' method."""
-        sub = SubtitleFile(
-            media_path="[Group] Title - 01.ass",
-            title="Parsed Title",
-            season=1,
-            episode=1,
-            language="zh",
-            suffix=".ass",
-            is_movie=False,
-        )
-        result = RenamerService.generate_rename_path(
-            sub, "Official Title", "subtitle_none"
-        )
-        assert result == "[Group] Title - 01.ass"
-
-    def test_subtitle_movie(self):
-        """Test subtitle for movie."""
-        sub = SubtitleFile(
-            media_path="[Group] Movie.ass",
-            title="Movie Title",
-            season=1,
-            episode=None,
-            language="zh",
-            suffix=".ass",
-            is_movie=True,
-        )
-        result = RenamerService.generate_rename_path(
-            sub, "Official Movie", "subtitle_advance"
-        )
-        assert result == "Official Movie.zh.ass"
+    @pytest.mark.parametrize(
+        "media_file, official_title, method, expected",
+        [
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 01.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "pn",
+                "Parsed Title S01E01.mkv",
+                id="regular_episode_pn_method",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 01.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "advance",
+                "Official Title S01E01.mkv",
+                id="regular_episode_advance_method",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 01.mp4",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    suffix=".mp4",
+                    is_movie=False,
+                ),
+                "没有辣妹会对阿宅温柔!?",
+                "advance",
+                "没有辣妹会对阿宅温柔!？ S01E01.mp4",
+                id="regular_episode_advance_method_sanitizes_illegal_chars",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 01.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "none",
+                "[Group] Title - 01.mkv",
+                id="regular_episode_none_method",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 01.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "normal",
+                "[Group] Title - 01.mkv",
+                id="regular_episode_normal_method_deprecated",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 01v2.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    version=2,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "advance",
+                "Official Title S01E01v2.mkv",
+                id="episode_with_version",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title - 12.mkv",
+                    title="Parsed Title",
+                    season=10,
+                    episode=12,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "pn",
+                "Parsed Title S10E12.mkv",
+                id="episode_double_digit",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title OAD 01.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    episode_type=EpisodeType.OAD,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "advance",
+                "Official Title OAD 01.mkv",
+                id="special_episode_oad",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title OVA 02.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=2,
+                    episode_type=EpisodeType.OVA,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "pn",
+                "Parsed Title OVA 02.mkv",
+                id="special_episode_ova",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title SP 01.mkv",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    episode_type=EpisodeType.SP,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "advance",
+                "Official Title SP 01.mkv",
+                id="special_episode_sp",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Movie Title.mkv",
+                    title="Movie Title",
+                    season=1,
+                    episode=None,
+                    suffix=".mkv",
+                    is_movie=True,
+                ),
+                "Official Movie",
+                "pn",
+                "Movie Title.mkv",
+                id="movie_pn_method",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Movie Title.mkv",
+                    title="Movie Title",
+                    season=1,
+                    episode=None,
+                    suffix=".mkv",
+                    is_movie=True,
+                ),
+                "Official Movie",
+                "advance",
+                "Official Movie.mkv",
+                id="movie_advance_method",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Movie Title.mkv",
+                    title="Movie Title",
+                    season=1,
+                    episode=None,
+                    suffix=".mkv",
+                    is_movie=True,
+                ),
+                "Official Movie",
+                "none",
+                "[Group] Movie Title.mkv",
+                id="movie_none_method",
+            ),
+            pytest.param(
+                EpisodeFile(
+                    media_path="[Group] Title.mkv",
+                    title="Title",
+                    season=1,
+                    episode=None,
+                    suffix=".mkv",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "advance",
+                "Official Title.mkv",
+                id="no_episode_number_single_file",
+            ),
+            pytest.param(
+                SubtitleFile(
+                    media_path="[Group] Title - 01.ass",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    language="zh",
+                    suffix=".ass",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "subtitle_pn",
+                "Parsed Title S01E01.zh.ass",
+                id="subtitle_pn_method",
+            ),
+            pytest.param(
+                SubtitleFile(
+                    media_path="[Group] Title - 01.ass",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    language="zh-tw",
+                    suffix=".ass",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "subtitle_advance",
+                "Official Title S01E01.zh-tw.ass",
+                id="subtitle_advance_method",
+            ),
+            pytest.param(
+                SubtitleFile(
+                    media_path="[Group] Title - 01.ass",
+                    title="Parsed Title",
+                    season=1,
+                    episode=1,
+                    language="zh",
+                    suffix=".ass",
+                    is_movie=False,
+                ),
+                "Official Title",
+                "subtitle_none",
+                "[Group] Title - 01.ass",
+                id="subtitle_none_method",
+            ),
+            pytest.param(
+                SubtitleFile(
+                    media_path="[Group] Movie.ass",
+                    title="Movie Title",
+                    season=1,
+                    episode=None,
+                    language="zh",
+                    suffix=".ass",
+                    is_movie=True,
+                ),
+                "Official Movie",
+                "subtitle_advance",
+                "Official Movie.zh.ass",
+                id="subtitle_movie",
+            ),
+        ],
+    )
+    def test_generate_rename_path(self, media_file, official_title, method, expected):
+        result = RenamerService.generate_rename_path(media_file, official_title, method)
+        assert result == expected
 
 
 class TestRenameAll:

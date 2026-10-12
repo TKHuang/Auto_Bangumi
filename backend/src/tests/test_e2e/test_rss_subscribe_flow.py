@@ -309,3 +309,66 @@ class TestAggregatePending:
         assert isinstance(data["pending_count"], int)
         assert isinstance(data["active_count"], int)
         assert isinstance(data["bangumi"], list)
+
+
+@pytest.mark.e2e
+class TestYearMissing:
+    """Issues 1, 2, 15: Auto-created bangumi from aggregate RSS have year=None.
+
+    The live RSS pipeline (services/pipeline/rss_pipeline.py) never sets
+    "year" on auto-created bangumi, and gen_save_path is called without year.
+    This causes save_path to lack the year suffix that manual adds include.
+    The non-aggregate path uses analyser.link_to_data() which can extract
+    year from Mikan metadata, so manual adds may have a year.
+
+    See: dataflow-sync-issues.md Issues 1, 2, 15
+    """
+
+    def test_year_missing_on_auto_create_but_present_on_manual_add(self, authed_client):
+        client, mock_dl, token = authed_client
+
+        # --- Auto-created path: aggregate RSS + refresh ---
+        resp = add_aggregate_rss(client)
+        assert resp.status_code == 200
+
+        rss_resp = get_all_rss(client)
+        rss_id = rss_resp.json()[0]["id"]
+
+        # Refresh to trigger auto-creation via the live RSS pipeline
+        client.post(f"/api/v1/rss/refresh/{rss_id}")
+
+        bangumi_resp = get_all_bangumi(client)
+        bangumi_list = bangumi_resp.json()
+        assert len(bangumi_list) >= 1
+
+        # KNOWN BUG: year is None for all auto-created bangumi
+        for bangumi in bangumi_list:
+            assert bangumi.get("year") is None, (
+                f"Expected year=None for auto-created bangumi "
+                f"(Issue 2/15), but got year={bangumi.get('year')}"
+            )
+            # save_path should NOT contain year parenthetical
+            save_path = bangumi.get("save_path", "")
+            assert "(" not in save_path, (
+                f"Expected save_path without year (Issue 1), "
+                f"but got: {save_path}"
+            )
+
+        # --- Manual add path: non-aggregate RSS, year may be set by parser ---
+        resp = add_non_aggregate_rss(client)
+        assert resp.status_code == 200
+
+        bangumi_resp = get_all_bangumi(client)
+        bangumi_list = bangumi_resp.json()
+        assert len(bangumi_list) >= 1
+
+        bangumi = bangumi_list[-1]
+        year = bangumi.get("year")
+        save_path = bangumi.get("save_path", "")
+
+        # Document: manual add path CAN set year (from Mikan/TMDB parsing).
+        # Whether year is set depends on what the parser extracts.
+        if year:
+            assert f"({year})" in save_path
+        # If year is None, save_path won't have year — still valid behavior
+        # for non-aggregate path (parser couldn't extract year)

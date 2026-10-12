@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 from pathlib import Path
 
@@ -50,28 +49,6 @@ class TestDownloader:
         assert "password" in data
         assert data["host"] == "172.17.0.1:8080"
 
-    def test_downloader_expandvars_host(self):
-        os.environ["TEST_HOST"] = "192.168.1.1:9090"
-        downloader = Downloader()
-        downloader.host_ = "$TEST_HOST"
-        assert downloader.host == "192.168.1.1:9090"
-        del os.environ["TEST_HOST"]
-
-    def test_downloader_expandvars_username(self):
-        os.environ["TEST_USER"] = "testuser"
-        downloader = Downloader()
-        downloader.username_ = "$TEST_USER"
-        assert downloader.username == "testuser"
-        del os.environ["TEST_USER"]
-
-    def test_downloader_expandvars_password(self):
-        os.environ["TEST_PASS"] = "testpass123"
-        downloader = Downloader()
-        downloader.password_ = "$TEST_PASS"
-        assert downloader.password == "testpass123"
-        del os.environ["TEST_PASS"]
-
-
 class TestRSSParser:
     def test_rss_parser_defaults(self):
         parser = RSSParser()
@@ -115,21 +92,6 @@ class TestProxy:
         assert proxy.username_ == ""
         assert proxy.password_ == ""
 
-    def test_proxy_expandvars_username(self):
-        os.environ["PROXY_USER"] = "proxyuser"
-        proxy = Proxy()
-        proxy.username_ = "$PROXY_USER"
-        assert proxy.username == "proxyuser"
-        del os.environ["PROXY_USER"]
-
-    def test_proxy_expandvars_password(self):
-        os.environ["PROXY_PASS"] = "proxypass"
-        proxy = Proxy()
-        proxy.password_ = "$PROXY_PASS"
-        assert proxy.password == "proxypass"
-        del os.environ["PROXY_PASS"]
-
-
 class TestNotification:
     def test_notification_defaults(self):
         notif = Notification()
@@ -138,19 +100,24 @@ class TestNotification:
         assert notif.token_ == ""
         assert notif.chat_id_ == ""
 
-    def test_notification_expandvars_token(self):
-        os.environ["NOTIF_TOKEN"] = "token123"
-        notif = Notification()
-        notif.token_ = "$NOTIF_TOKEN"
-        assert notif.token == "token123"
-        del os.environ["NOTIF_TOKEN"]
 
-    def test_notification_expandvars_chat_id(self):
-        os.environ["NOTIF_CHAT"] = "12345"
-        notif = Notification()
-        notif.chat_id_ = "$NOTIF_CHAT"
-        assert notif.chat_id == "12345"
-        del os.environ["NOTIF_CHAT"]
+@pytest.mark.parametrize(
+    "model_cls, raw_attr, property_attr, env_var, env_value",
+    [
+        (Downloader, "host_", "host", "TEST_HOST", "192.168.1.1:9090"),
+        (Downloader, "username_", "username", "TEST_USER", "testuser"),
+        (Downloader, "password_", "password", "TEST_PASS", "testpass123"),
+        (Proxy, "username_", "username", "PROXY_USER", "proxyuser"),
+        (Proxy, "password_", "password", "PROXY_PASS", "proxypass"),
+        (Notification, "token_", "token", "NOTIF_TOKEN", "token123"),
+        (Notification, "chat_id_", "chat_id", "NOTIF_CHAT", "12345"),
+    ],
+)
+def test_expandvars_fields(model_cls, raw_attr, property_attr, env_var, env_value, monkeypatch):
+    monkeypatch.setenv(env_var, env_value)
+    instance = model_cls()
+    setattr(instance, raw_attr, f"${env_var}")
+    assert getattr(instance, property_attr) == env_value
 
 
 class TestExperimentalOpenAI:

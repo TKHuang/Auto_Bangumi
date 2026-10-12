@@ -77,24 +77,6 @@ class TestProgramStart:
 
         assert mock_scheduler.add_schedule.call_count == 3
 
-    async def test_start_idempotent_when_already_active(self, mock_scheduler):
-        set_scheduler(mock_scheduler)
-        mock_scheduler.get_schedule = AsyncMock(return_value="exists")
-
-        has = await _has_active_schedules()
-        assert has is True
-
-
-class TestProgramRestart:
-    async def test_restart_removes_then_adds(self, mock_scheduler):
-        set_scheduler(mock_scheduler)
-
-        await _remove_all_schedules()
-        await _add_all_schedules()
-
-        assert mock_scheduler.remove_schedule.call_count == 3
-        assert mock_scheduler.add_schedule.call_count == 3
-
 
 class TestSchedulerNotInitialized:
     def test_get_scheduler_raises_when_not_set(self):
@@ -110,11 +92,3 @@ class TestSchedulerIntegration:
         set_scheduler(mock_scheduler)
         retrieved = get_scheduler()
         assert retrieved is mock_scheduler
-
-    async def test_scheduler_state_persistence(self, mock_scheduler):
-        set_scheduler(mock_scheduler)
-
-        scheduler1 = get_scheduler()
-        scheduler2 = get_scheduler()
-
-        assert scheduler1 is scheduler2

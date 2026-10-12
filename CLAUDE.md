@@ -13,7 +13,7 @@ AutoBangumi is an automated anime subscription and download management system. I
 ```bash
 cd backend
 
-# Run all e2e tests (~65s, 144 tests)
+# Run all e2e tests (~65s, 120 tests; full suite ~90s, 1669 tests)
 uv run python -m pytest src/tests/test_e2e/ -q
 
 # Run a specific test module

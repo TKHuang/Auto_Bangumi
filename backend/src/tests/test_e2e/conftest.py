@@ -3,6 +3,7 @@
 Mock strategy: Only mock the network boundary (RequestContent) and downloader.
 Everything else runs real: DB, auth, scheduler, repos, services, parsers.
 """
+import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import create_app
+from module.concurrency.rate_limiter import RateLimiter
 from module.database.engine import engine as _async_engine, sync_engine as _sync_engine, DB_PATH as _DB_PATH
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
@@ -222,6 +224,21 @@ def _fake_save_image(img_bytes, suffix):
 # ---------------------------------------------------------------------------
 # DB isolation — dispose engine + delete DB file before each test
 # ---------------------------------------------------------------------------
+_MIKAN_REFS = json.loads((FIXTURES_DIR / "mikan" / "episode_refs.json").read_text())
+
+
+async def _fake_fetch_episode_page(self, info_hash: str) -> tuple[str, int]:
+    ref = _MIKAN_REFS.get(info_hash)
+    if ref is None:
+        return "", 302
+    bid, sid, title = ref
+    return (
+        f'<div class="bangumi-title"><a href="/Home/Bangumi/{bid}">{title}</a></div>'
+        f'<a href="/Home/Bangumi/{bid}#{sid}">sub</a>',
+        200,
+    )
+
+
 def _reset_database():
     """Dispose engine connections and remove the DB file for test isolation."""
     import gc
@@ -286,6 +303,10 @@ def e2e_client(mock_downloader, fixture_request_content):
         patch("module.domain.parser.title_parser.RequestContent", mock_rc_class),
         patch("module.domain.parser.title_parser.save_image", side_effect=_fake_save_image),
         patch("module.utils.save_image", side_effect=_fake_save_image),
+        # Mikan episode-page fetch is a network boundary too: serve refs recorded
+        # from real Mikan (fixtures/mikan/episode_refs.json); unknown hash → 302.
+        patch("module.mikan.client.MikanClient.fetch_episode_page", _fake_fetch_episode_page),
+        patch.dict("module.concurrency.registry._LIMITERS", {"mikan": RateLimiter(2, 0)}),
         # Patch scheduler stop to prevent APScheduler cancel-scope hang
         patch("module.scheduler.engine.AsyncScheduler.stop", _safe_stop),
     ]

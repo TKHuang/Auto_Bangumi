@@ -2,7 +2,7 @@
 
 Post-0008: series_id is NOT NULL, so backfill_one_bangumi is a no-op for all
 rows that already have series_id (which is all rows after the migration).
-Tests here verify the idempotency contract and the torrent backfill logic.
+Tests here verify the torrent backfill logic.
 The unit tests for extract_mikan_ids_from_rss remain unchanged.
 """
 import sys
@@ -16,7 +16,6 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 from scripts.backfill_series import (  # noqa: E402
     extract_mikan_ids_from_rss,
-    backfill_one_bangumi,
     backfill_torrents_for_bangumi,
 )
 
@@ -60,32 +59,6 @@ def _grp() -> str:
 ])
 def test_extract_mikan_ids_from_rss(link, expected):
     assert extract_mikan_ids_from_rss(link) == expected
-
-
-@pytest.mark.integration
-async def test_backfill_one_bangumi_is_noop_when_series_id_set(db_session):
-    """Post-0008: all bangumi have series_id; backfill_one_bangumi returns False."""
-    s = Series(
-        mikan_bangumi_id=100,
-        canonical_title="Demo S2",
-        normalized_title="demo_s2",
-        season=2,
-        root_path="/downloads/Demo",
-    )
-    db_session.add(s)
-    await db_session.flush()
-
-    b = Bangumi(
-        group_name=_grp(),
-        rss_link="https://mikanani.me/RSS/Bangumi?bangumiId=100&subgroupid=20",
-        series_id=s.id,
-        mikan_subgroup_id=20,
-    )
-    db_session.add(b)
-    await db_session.flush()
-
-    result = await backfill_one_bangumi(db_session, b)
-    assert result is False  # no-op: series_id already set
 
 
 @pytest.mark.integration

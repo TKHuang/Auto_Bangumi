@@ -80,13 +80,18 @@ class TestRenameJob:
         rename_lock_module._rename_lock.release()
 
     @pytest.mark.asyncio
-    async def test_rename_job_handles_exception(self):
-        """Test that rename job handles exceptions gracefully."""
+    @pytest.mark.parametrize("exc", [RuntimeError("Rename failed"), ValueError("Test error")])
+    async def test_rename_job_handles_exception(self, exc):
+        """Test that rename job handles exceptions gracefully and still exits the session context.
+
+        With ``async with AsyncSessionLocal() as session`` the session is
+        automatically closed when the context exits, even on exception.
+        We verify that rename_all was called (and raised) without the
+        job re-raising the exception.
+        """
         mock_session = AsyncMock()
         mock_renamer = AsyncMock()
-        mock_renamer.rename_all = AsyncMock(
-            side_effect=RuntimeError("Rename failed")
-        )
+        mock_renamer.rename_all = AsyncMock(side_effect=exc)
         mock_downloader = AsyncMock()
 
         mock_session_local = self._make_session_cm(mock_session)
@@ -102,35 +107,6 @@ class TestRenameJob:
                     mock_create_downloader.return_value = mock_downloader
 
                     # Should not raise — errors are caught and logged
-                    await rename_job()
-
-    @pytest.mark.asyncio
-    async def test_rename_job_closes_session_on_error(self):
-        """Test that session context-manager exits even when rename_all fails.
-
-        With ``async with AsyncSessionLocal() as session`` the session is
-        automatically closed when the context exits, even on exception.
-        We verify that rename_all was called (and raised) without the
-        job re-raising the exception.
-        """
-        mock_session = AsyncMock()
-        mock_renamer = AsyncMock()
-        mock_renamer.rename_all = AsyncMock(side_effect=ValueError("Test error"))
-        mock_downloader = AsyncMock()
-
-        mock_session_local = self._make_session_cm(mock_session)
-
-        with patch("module.scheduler.jobs.rename.AsyncSessionLocal", mock_session_local):
-            with patch(
-                "module.scheduler.jobs.rename.RenamerService"
-            ) as mock_renamer_class:
-                with patch(
-                    "module.scheduler.jobs.rename.create_downloader"
-                ) as mock_create_downloader:
-                    mock_renamer_class.return_value = mock_renamer
-                    mock_create_downloader.return_value = mock_downloader
-
-                    # Should not raise
                     await rename_job()
 
                     mock_renamer.rename_all.assert_called_once()
