@@ -278,7 +278,8 @@ class RSSAnalyser(TitleParser):
         Returns:
             Bangumi object on success, or ResponseModel with error details.
         """
-        torrents = self.get_rss_torrents(rss.url, False)
+        # Prefer single episodes; fall back to batches for batch-only feeds.
+        torrents = self.get_rss_torrents(rss.url, False) or self.get_rss_torrents(rss.url, apply_filter=False)
         if not torrents:
             return ResponseModel(
                 status=False,

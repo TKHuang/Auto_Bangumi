@@ -118,6 +118,8 @@ if re.search(bangumi.filter, torrent.name):  # match = reject
 ```
 Global filter applied at RSS fetch time. Per-bangumi filter applied at match time. Comma-separated, converted to `|` regex.
 
+**Analysis ignores filters; download does not (by design).** `RSSAnalyser.link_to_data` only needs one torrent to identify the bangumi. It prefers single-episode torrents and falls back to an *unfiltered* fetch for batch-only feeds (e.g. one `[01-04 合集]` item). The new bangumi still copies the global filter (default contains `\d+-\d`, `合集`, `简`), so that batch torrent is parsed but **not downloaded**. This is intended: the user removes those rules from that bangumi's filter to download the batch. Do not "fix" this by skipping filters at download time.
+
 ### TorrentState
 
 The `state` field on Torrent has 10 enum values but only `EXCLUDED` is actively used. All normal torrents stay at `PENDING` (the default). Real-time download status comes from querying the downloader API directly via `downloader.torrents_info()`. **Any query returning user-visible torrents must filter `state != EXCLUDED`** — use `get_visible_by_bangumi()` or `get_visible_by_rss()` instead of `get_by_bangumi()` / `get_by_rss()`.

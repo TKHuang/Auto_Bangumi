@@ -4270,3 +4270,13 @@ class TestTrailingDigitSeasonRecovery:
         # Trailing "1" must remain on the title since we didn't treat it as a
         # season marker.
         assert result.title.endswith("1")
+
+    def test_batch_bracket_with_heji_ends_title(self, parser: BangumiParser):
+        # "[01-04 合集]" must end the title region, not leak into the title.
+        result = parser.parse(
+            "[LoliHouse] 怪兽8号 鸣海的平日 / Kaijuu 8-gou Narumi no Heijitsu "
+            "[01-04 合集][WebRip 1080p HEVC-10bit AAC][简繁内封字幕][Fin]"
+        )
+        assert result.title == "怪兽8号 鸣海的平日"
+        assert result.alt_titles == ["Kaijuu 8-gou Narumi no Heijitsu"]
+        assert (result.episode, result.episode_end) == (1, 4)
