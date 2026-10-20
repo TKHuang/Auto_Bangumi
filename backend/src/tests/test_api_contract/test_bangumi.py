@@ -408,6 +408,7 @@ class TestDeleteManyBangumi:
             mock_t = AsyncMock()
             mock_t_cls.return_value = mock_t
             mock_t.get_visible_by_bangumi.return_value = db_torrents
+            mock_t.get_hashes_owned_elsewhere.return_value = set()
 
             dl = AsyncMock()
             mock_dl.return_value = dl
@@ -425,6 +426,75 @@ class TestDeleteManyBangumi:
         sent_hashes = args[0] if args else kwargs.get("hashes")
         assert set(sent_hashes) == {"aaaa1111", "bbbb2222", "cccc3333"}
         assert kwargs.get("delete_files") is True
+
+    @pytest.mark.asyncio
+    async def test_delete_with_files_spares_sibling_group_on_same_save_path(self, client):
+        """Two subtitle groups of the same series share one save_path.
+        Deleting the group with no torrents must not delete the other
+        group's torrents, even though the downloader lists them there.
+        """
+        _series = MagicMock()
+        _series.root_path = "/downloads/Bangumi/Test"
+        _series.season = 1
+        _bangumi = _mock_bangumi_obj(id=2)
+        _bangumi.path_override = None
+        _bangumi.series = _series
+
+        sibling = MagicMock()
+        sibling.hash = "sibling1111"
+        sibling.save_path = "/downloads/Bangumi/Test/Season 1"
+
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls, \
+             patch("module.api.v1.bangumi.create_downloader") as mock_dl, \
+             patch("module.api.v1.bangumi.settings"):
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = _bangumi
+
+            mock_t = AsyncMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_visible_by_bangumi.return_value = []
+
+            dl = AsyncMock()
+            mock_dl.return_value = dl
+            dl.torrents_info = AsyncMock(return_value=[sibling])
+            dl.torrents_delete = AsyncMock(return_value=True)
+
+            response = client.delete("/api/v1/bangumi/delete/2", params={"file": True})
+
+        assert response.status_code == 200, response.json()
+        dl.torrents_delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_with_files_keeps_hash_shared_with_sibling(self, client):
+        """A hash that another bangumi also owns shares one downloader task.
+        Delete must skip it and delete only this bangumi's own hashes.
+        """
+        own, shared = MagicMock(hash="own1111"), MagicMock(hash="shared2222")
+
+        with patch("module.api.v1.bangumi.BangumiRepository") as mock_b_cls, \
+             patch("module.api.v1.bangumi.TorrentRepository") as mock_t_cls, \
+             patch("module.api.v1.bangumi.create_downloader") as mock_dl, \
+             patch("module.api.v1.bangumi.settings"):
+            mock_b = AsyncMock()
+            mock_b_cls.return_value = mock_b
+            mock_b.get_by_id.return_value = _mock_bangumi_obj(id=2)
+
+            mock_t = AsyncMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_visible_by_bangumi.return_value = [own, shared]
+            mock_t.get_hashes_owned_elsewhere.return_value = {"shared2222"}
+
+            dl = AsyncMock()
+            mock_dl.return_value = dl
+            dl.torrents_delete = AsyncMock(return_value=True)
+
+            response = client.delete("/api/v1/bangumi/delete/2", params={"file": True})
+
+        assert response.status_code == 200, response.json()
+        dl.torrents_delete.assert_awaited_once_with(["own1111"], delete_files=True)
+        mock_t.get_hashes_owned_elsewhere.assert_awaited_once_with(["own1111", "shared2222"], {2})
 
 
 class TestDisableBangumi:

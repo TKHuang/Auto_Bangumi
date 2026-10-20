@@ -628,7 +628,7 @@ class TestPikPakDownloaderTorrents:
         torrent_record.hash = target_hash
         torrent_record.pikpak_cloud_path = season_path
         mock_repo.get_by_hash = AsyncMock(return_value=torrent_record)
-        mock_repo.get_by_bangumi = AsyncMock(return_value=[torrent_record])
+        mock_repo.path_shared_with_others = AsyncMock(return_value=False)
 
         mock_instance.offline_list = AsyncMock(
             return_value={
@@ -657,6 +657,22 @@ class TestPikPakDownloaderTorrents:
 
         assert result is True
         mock_instance.delete_to_trash.assert_awaited_once_with(ids=["season_id"])
+        # Every hash of this delete call is "own"; only other torrents block.
+        mock_repo.path_shared_with_others.assert_awaited_with(season_path, [target_hash])
+
+    @pytest.mark.asyncio
+    async def test_cleanup_entire_save_path_skips_path_shared_with_other_bangumi(
+        self, pikpak_downloader, mock_database
+    ):
+        """Another subtitle group's torrent in the same Season folder keeps it."""
+        _, mock_repo = mock_database
+        season_path = "downloads/Bangumi/Season 1"
+        own = MagicMock(bangumi_id=7, hash="a" * 40, pikpak_cloud_path=season_path)
+        mock_repo.get_by_hash = AsyncMock(return_value=own)
+        mock_repo.path_shared_with_others = AsyncMock(return_value=True)
+
+        assert await pikpak_downloader._cleanup_entire_save_path_if_safe("a" * 40) is False
+        mock_repo.path_shared_with_others.assert_awaited_once_with(season_path, ["a" * 40])
 
     @pytest.mark.asyncio
     async def test_get_existing_hashes(self, pikpak_downloader, mock_pikpak_api):
@@ -1771,3 +1787,34 @@ class TestListDirectFilesInFolder:
         files = await pikpak_downloader._list_direct_files_in_folder("/broken")
 
         assert files == []
+
+
+class TestMoveTorrentSharedFolder:
+    """A renamed file is not found by name; its folder holds other torrents."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("shared, expect_move", [(True, False), (False, True)])
+    async def test_whole_folder_fallback_only_when_folder_not_shared(
+        self, pikpak_downloader, mock_pikpak_api, mock_database, shared, expect_move
+    ):
+        _, mock_instance = mock_pikpak_api
+        _, mock_repo = mock_database
+        h = "a" * 40
+        mock_repo.path_shared_with_others = AsyncMock(return_value=shared)
+        torrent = MagicMock(hash=h)
+        torrent.name = "Raw Name [01]"
+
+        with patch.object(pikpak_downloader, "_ensure_valid_token", AsyncMock()), \
+             patch.object(pikpak_downloader, "_get_or_create_folder", AsyncMock(return_value="dest")), \
+             patch.object(pikpak_downloader, "get_torrent_path", AsyncMock(return_value="/shared/Season 1")), \
+             patch.object(pikpak_downloader, "torrents_info", AsyncMock(return_value=[torrent])), \
+             patch.object(pikpak_downloader, "_find_file_or_folder_id_by_name", AsyncMock(return_value=(None, None))), \
+             patch.object(pikpak_downloader, "_list_all_file_ids_in_folder", AsyncMock(return_value=["f1", "f2"])), \
+             patch.object(pikpak_downloader, "_delete_empty_folder", AsyncMock()):
+            assert await pikpak_downloader.move_torrent([h], "/new/Season 2") is True
+
+        mock_repo.path_shared_with_others.assert_awaited_once_with("/shared/Season 1", [h])
+        if expect_move:
+            mock_instance.file_batch_move.assert_awaited_once()
+        else:
+            mock_instance.file_batch_move.assert_not_awaited()

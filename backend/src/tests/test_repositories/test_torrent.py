@@ -980,3 +980,117 @@ class TestIsExcluded:
     def test_true_for_excluded_false_for_pending(self):
         assert TorrentRepository.is_excluded(Torrent(state=TorrentState.EXCLUDED))
         assert not TorrentRepository.is_excluded(Torrent(state=TorrentState.PENDING))
+
+
+async def _two_groups_one_series(session) -> tuple[int, int]:
+    """Two subtitle groups (bangumi) of one series; they share one Season folder."""
+    s = Series(
+        canonical_title="Shared", normalized_title="shared", season=1,
+        root_path="/shared", pending_review=False,
+    )
+    session.add(s)
+    await session.flush()
+    ids = []
+    for subgroup in (1, 2):
+        b = Bangumi(
+            group_name=f"G{subgroup}", rss_link="", series_id=s.id,
+            mikan_subgroup_id=subgroup, active=True,
+        )
+        session.add(b)
+        await session.flush()
+        ids.append(b.id)
+    return ids[0], ids[1]
+
+
+@pytest.mark.anyio
+class TestSharedOwnershipGuards:
+    """Deleting one subtitle group must never touch the other group's files."""
+
+    async def test_hash_owned_by_sibling_bangumi_is_reported(self, async_session):
+        repo = TorrentRepository(async_session)
+        async with async_session.begin():
+            a, b = await _two_groups_one_series(async_session)
+            await repo.create({"name": "x", "hash": "shared", "bangumi_id": a})
+            await repo.create({"name": "x", "hash": "shared", "bangumi_id": b})
+            await repo.create({"name": "y", "hash": "own_a", "bangumi_id": a})
+
+            assert await repo.get_hashes_owned_elsewhere(["shared", "own_a"], {a}) == {"shared"}
+            # Deleting both groups in one batch: no outside owner left.
+            assert await repo.get_hashes_owned_elsewhere(["shared", "own_a"], {a, b}) == set()
+
+    async def test_excluded_sibling_row_is_not_an_owner(self, async_session):
+        repo = TorrentRepository(async_session)
+        async with async_session.begin():
+            a, b = await _two_groups_one_series(async_session)
+            await repo.create({"name": "x", "hash": "h1", "bangumi_id": a})
+            await repo.create({
+                "name": "", "hash": "h1", "bangumi_id": b,
+                "state": TorrentState.EXCLUDED,
+            })
+
+            assert await repo.get_hashes_owned_elsewhere(["h1"], {a}) == set()
+
+    async def test_path_shared_with_sibling_group(self, async_session):
+        repo = TorrentRepository(async_session)
+        async with async_session.begin():
+            a, b = await _two_groups_one_series(async_session)
+            await repo.create({
+                "name": "a", "hash": "ha", "bangumi_id": a,
+                "pikpak_cloud_path": "/shared/Season 1",
+            })
+            await repo.create({
+                "name": "b", "hash": "hb", "bangumi_id": b,
+                "pikpak_cloud_path": "/shared/Season 1/",
+            })
+
+            assert await repo.path_shared_with_others("/shared/Season 1", ["ha"]) is True
+            assert await repo.path_shared_with_others("/shared/Season 1", ["ha", "hb"]) is False
+
+    async def test_sibling_without_cloud_path_or_hash_counts(self, async_session):
+        repo = TorrentRepository(async_session)
+        async with async_session.begin():
+            a, b = await _two_groups_one_series(async_session)
+            await repo.create({
+                "name": "a", "hash": "ha", "bangumi_id": a,
+                "pikpak_cloud_path": "/shared/Season 1",
+            })
+            await repo.create({"name": "b", "hash": None, "bangumi_id": b})
+
+            assert await repo.path_shared_with_others("/shared/Season 1", ["ha"]) is True
+
+    async def test_torrent_in_subfolder_counts(self, async_session):
+        repo = TorrentRepository(async_session)
+        async with async_session.begin():
+            a, b = await _two_groups_one_series(async_session)
+            await repo.create({
+                "name": "a", "hash": "ha", "bangumi_id": a,
+                "pikpak_cloud_path": "/shared/Season 1",
+            })
+            await repo.create({
+                "name": "b", "hash": "hb", "bangumi_id": b,
+                "pikpak_cloud_path": "/shared/Season 1/extra",
+            })
+
+            assert await repo.path_shared_with_others("/shared/Season 1", ["ha"]) is True
+
+    async def test_path_not_shared_when_only_deleted_hashes_and_excluded_rows(
+        self, async_session
+    ):
+        repo = TorrentRepository(async_session)
+        async with async_session.begin():
+            a, b = await _two_groups_one_series(async_session)
+            for h in ("ha1", "ha2"):
+                await repo.create({
+                    "name": h, "hash": h, "bangumi_id": a,
+                    "pikpak_cloud_path": "/shared/Season 1",
+                })
+            # A filtered-out row of the other group has no files.
+            await repo.create({
+                "name": "", "hash": "hc", "bangumi_id": b, "downloaded": True,
+                "state": TorrentState.EXCLUDED,
+            })
+
+            # Deleting both of A's hashes together: no other owner is left.
+            assert await repo.path_shared_with_others("/shared/Season 1", ["ha1", "ha2"]) is False
+            # Deleting only one of them: the other one still owns the folder.
+            assert await repo.path_shared_with_others("/shared/Season 1", ["ha1"]) is True

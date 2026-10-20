@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import and_, delete, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -230,6 +230,66 @@ class TorrentRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_hashes_owned_elsewhere(
+        self, hashes: list[str], owner_ids: set[int]
+    ) -> set[str]:
+        """Hashes that a bangumi outside ``owner_ids`` also owns.
+
+        One info-hash can have a row under two bangumi (unique key is
+        (hash, bangumi_id)). They share one downloader task and its files.
+        """
+        normalized = self._norm_list(hashes)
+        if not normalized:
+            return set()
+        stmt = select(Torrent.hash).where(
+            Torrent.hash.in_(normalized),
+            Torrent.bangumi_id.is_not(None),
+            Torrent.bangumi_id.not_in(owner_ids),
+            Torrent.state != TorrentState.EXCLUDED,
+        )
+        result = await self.session.execute(stmt)
+        return set(result.scalars().all())
+
+    async def path_shared_with_others(self, cloud_path: str, hashes: list[str]) -> bool:
+        """True if a torrent outside ``hashes`` can have files in ``cloud_path``.
+
+        Subtitle groups of one series share one Season folder. Fail safe: a
+        row in a subfolder counts, and so does a row of the same series with
+        no cloud path or no hash (its files can be anywhere in the folder).
+        """
+        from module.domain.models.bangumi import Bangumi
+
+        normalized = self._norm_list(hashes)
+        path = cloud_path.rstrip("/")
+        own_series = (
+            select(Bangumi.series_id)
+            .join(Torrent, Torrent.bangumi_id == Bangumi.id)
+            .where(Torrent.hash.in_(normalized))
+        )
+        stmt = (
+            select(Torrent.id)
+            .outerjoin(Bangumi, Torrent.bangumi_id == Bangumi.id)
+            .where(
+                or_(
+                    Torrent.hash.is_(None),
+                    Torrent.hash == "",
+                    Torrent.hash.not_in(normalized),
+                ),
+                Torrent.state != TorrentState.EXCLUDED,
+                or_(
+                    func.rtrim(Torrent.pikpak_cloud_path, "/") == path,
+                    Torrent.pikpak_cloud_path.like(f"{path}/%"),
+                    and_(
+                        Torrent.pikpak_cloud_path.is_(None),
+                        Bangumi.series_id.in_(own_series),
+                    ),
+                ),
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.first() is not None
+
     async def get_by_rss(self, rss_id: int) -> list[Torrent]:
         stmt = select(Torrent).where(Torrent.rss_id == rss_id)
         result = await self.session.execute(stmt)
@@ -383,7 +443,7 @@ class TorrentRepository:
         
         return new_hashes
 
-    async def clear_rename_status(self, bangumi_id: int, new_cloud_path: Optional[str] = None) -> None:
+    async def clear_rename_status(self, bangumi_id: int) -> None:
         # Resetting rename_status back to PENDING here is important: if a row
         # was stuck on CONFLICT because the user had two torrents producing
         # the same SxxExx, and the user then changed title/season/offset,
@@ -395,8 +455,6 @@ class TorrentRepository:
             "rename_status": RenameStatus.PENDING,
             "rename_conflict_target": None,
         }
-        if new_cloud_path is not None:
-            values["pikpak_cloud_path"] = new_cloud_path
         stmt = (
             update(Torrent)
             .where(

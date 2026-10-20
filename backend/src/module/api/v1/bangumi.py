@@ -66,14 +66,21 @@ def _is_mikan_season_rss(rss_link: str) -> bool:
     return bool(MIKAN_SEASON_RSS_PATTERN.search(first_rss_link))
 
 
-async def _match_torrents_list(downloader, torrent_repo, bangumi) -> list[str]:
-    _sp = effective_save_path(bangumi)
-    torrents = await downloader.torrents_info(status_filter=None)
-    matched = [t.hash for t in torrents if t.save_path == _sp]
-    if not matched and bangumi.id:
-        db_torrents = await torrent_repo.get_visible_by_bangumi(bangumi.id)
-        matched = [t.hash for t in db_torrents if t.hash]
-    return matched
+async def _match_torrents_list(
+    torrent_repo, bangumi, owner_ids: set[int] | None = None
+) -> list[str]:
+    # Match by DB ownership only. Bangumi of the same series from other
+    # subtitle groups share effective_save_path, so a save_path match
+    # would delete or move their torrents too. Hashes that a bangumi outside
+    # owner_ids also owns are skipped: they share one downloader task.
+    if not bangumi.id:
+        return []
+    db_torrents = await torrent_repo.get_visible_by_bangumi(bangumi.id)
+    hashes = [t.hash for t in db_torrents if t.hash]
+    if owner_ids is None:
+        owner_ids = {bangumi.id}
+    shared = await torrent_repo.get_hashes_owned_elsewhere(hashes, owner_ids)
+    return [h for h in hashes if h not in shared]
 
 
 @router.get(
@@ -202,10 +209,11 @@ async def update_rule(
         )
 
         downloader = create_downloader(settings, session)
-        match_list = await _match_torrents_list(downloader, torrent_repo, old_data)
+        match_list = await _match_torrents_list(torrent_repo, old_data)
 
         path = _gen_save_path(data)
         if match_list:
+            # move_torrent records the new cloud path for each hash it moved.
             await downloader.move_torrent(match_list, path)
 
         update_dict = {
@@ -233,7 +241,7 @@ async def update_rule(
 
         renamed_count = 0
         if rename_fields_changed:
-            await torrent_repo.clear_rename_status(bangumi_id, new_cloud_path=path)
+            await torrent_repo.clear_rename_status(bangumi_id)
             logger.info(f"[API] Cleared rename status (season/title changed for bangumi {bangumi_id})")
             await session.commit()
 
@@ -279,7 +287,7 @@ async def delete_rule(bangumi_id: int, file: bool = False, session: AsyncSession
     torrent_msg_zh = ""
     if file:
         downloader = create_downloader(settings, session)
-        hash_list = await _match_torrents_list(downloader, torrent_repo, data)
+        hash_list = await _match_torrents_list(torrent_repo, data)
         if hash_list:
             await downloader.torrents_delete(hash_list, delete_files=True)
             torrent_msg_en = f"Delete rule and torrents for {_title}"
@@ -313,10 +321,11 @@ async def delete_many_rule(bangumi_id: list[int] = Body(...), file: bool = False
 
     if file:
         downloader = create_downloader(settings, session)
+        owner_ids = set(bangumi_id)
         for _id in bangumi_id:
             data = await bangumi_repo.get_by_id(_id)
             if data:
-                hash_list = await _match_torrents_list(downloader, torrent_repo, data)
+                hash_list = await _match_torrents_list(torrent_repo, data, owner_ids)
                 if hash_list:
                     await downloader.torrents_delete(hash_list, delete_files=True)
 
@@ -350,7 +359,7 @@ async def disable_rule(bangumi_id: int, file: bool = False, session: AsyncSessio
     _title = effective_title(data)
     if file:
         downloader = create_downloader(settings, session)
-        hash_list = await _match_torrents_list(downloader, torrent_repo, data)
+        hash_list = await _match_torrents_list(torrent_repo, data)
         if hash_list:
             await downloader.torrents_delete(hash_list, delete_files=True)
             return JSONResponse(
@@ -383,10 +392,11 @@ async def disable_many_rule(bangumi_id: list[int] = Body(...), file: bool = Fals
 
     if file:
         downloader = create_downloader(settings, session)
+        owner_ids = set(bangumi_id)
         for _id in bangumi_id:
             data = await bangumi_repo.get_by_id(_id)
             if data:
-                hash_list = await _match_torrents_list(downloader, torrent_repo, data)
+                hash_list = await _match_torrents_list(torrent_repo, data, owner_ids)
                 if hash_list:
                     await downloader.torrents_delete(hash_list, delete_files=True)
 

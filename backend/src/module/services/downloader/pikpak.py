@@ -1501,8 +1501,10 @@ class PikPakDownloader:
 
         return deleted_any
 
-    async def _cleanup_entire_save_path_if_safe(self, normalized_hash: str) -> bool:
-        """Delete the whole save_path if this hash is the sole owner of that path."""
+    async def _cleanup_entire_save_path_if_safe(
+        self, normalized_hash: str, deleting: list[str] | None = None
+    ) -> bool:
+        """Delete the whole save_path if only ``deleting`` hashes own that path."""
         if not self.session:
             return False
 
@@ -1511,23 +1513,14 @@ class PikPakDownloader:
         if not torrent_record or not torrent_record.pikpak_cloud_path:
             return False
 
-        bangumi_id = getattr(torrent_record, "bangumi_id", None)
-        if bangumi_id is None:
+        if getattr(torrent_record, "bangumi_id", None) is None:
             return False
 
         current_path = torrent_record.pikpak_cloud_path
-        siblings = await repo.get_by_bangumi(bangumi_id)
-        competing_hashes = {
-            sibling.hash.lower()
-            for sibling in siblings
-            if sibling.hash
-            and sibling.hash.lower() != normalized_hash
-            and sibling.pikpak_cloud_path == current_path
-        }
-        if competing_hashes:
+        if await repo.path_shared_with_others(current_path, deleting or [normalized_hash]):
             logger.debug(
                 f"Skipping full save_path cleanup for {normalized_hash}: "
-                f"path shared by {len(competing_hashes)} other torrent(s)"
+                "path shared by other torrent(s)"
             )
             return False
 
@@ -1713,7 +1706,7 @@ class PikPakDownloader:
                 if deleted_any:
                     logger.debug(f"Removed lingering cloud files for torrent: {h}")
                 else:
-                    await self._cleanup_entire_save_path_if_safe(h)
+                    await self._cleanup_entire_save_path_if_safe(h, normalized_hashes)
 
         if hashes_without_task and delete_files:
             file_ids_to_trash: list[str] = []
@@ -1738,7 +1731,7 @@ class PikPakDownloader:
                     logger.error(f"Batch file trash failed: {e}")
 
             for h in hashes_without_task:
-                await self._cleanup_entire_save_path_if_safe(h)
+                await self._cleanup_entire_save_path_if_safe(h, normalized_hashes)
 
         self._invalidate_task_cache()
         return True
@@ -1830,6 +1823,16 @@ class PikPakDownloader:
                 # File not found by name (likely renamed). Collect ALL files from
                 # source folder. Skip path_to_id fallback as it's unreliable for
                 # Chinese filenames and can return folder IDs instead of file IDs.
+                if self.session and await TorrentRepository(
+                    self.session
+                ).path_shared_with_others(current_path, hashes):
+                    # Folder holds other torrents (e.g. another subtitle group
+                    # of the same series). Moving all of it would move theirs.
+                    logger.warning(
+                        f"Cannot move {torrent_name}: file not found by name and "
+                        f"'{current_path}' is shared with other torrents"
+                    )
+                    continue
                 if current_path not in folders_collected:
                     logger.debug(
                         f"[DEBUG] move_torrent: file not found by name, collecting all files from '{current_path}'"
