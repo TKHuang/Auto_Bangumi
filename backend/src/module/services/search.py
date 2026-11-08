@@ -1,92 +1,131 @@
-"""Search service for torrent providers.
-
-Provides async search functionality with SSE streaming support.
-"""
+"""Search service for torrent providers, streamed over SSE."""
 
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator
+import re
+from typing import AsyncGenerator, AsyncIterator
+from urllib.parse import urlencode
 
-from module.conf import SEARCH_CONFIG
-from module.models import Bangumi, RSSItem
+from module.conf import SEARCH_CONFIG, settings
+from module.domain.value_objects import BangumiParsingError
+from module.mikan.parser import (
+    MikanSearchHit,
+    build_season_rss_url,
+    parse_mikan_bangumi_subgroups,
+    parse_mikan_search_page,
+)
+from module.models import Bangumi
 from module.network import RequestContent
-from module.domain.parser.title_parser import TitleParser
 from module.rss import RSSAnalyser
+from module.rss.analyser import _extract_season_from_title
+from module.searcher import SearchTorrent
 from module.searcher.provider import search_url
+from module.utils.cache_image import save_image
 
 logger = logging.getLogger(__name__)
 
-SEARCH_KEY = [
-    "group_name",
-    "official_title",
-]
+# A broad keyword can match dozens of shows; each one costs a page fetch.
+MAX_MIKAN_BANGUMI = 10
 
 
 def get_providers() -> list[str]:
-    """Get list of available search provider names.
-    
-    Returns:
-        List of provider names (e.g., ['mikan', 'nyaa', 'dmhy'])
-    """
     return list(SEARCH_CONFIG.keys())
 
 
 async def search(
     keywords: list[str],
     provider: str = "mikan",
-    limit: int = 5,
 ) -> AsyncGenerator[str, None]:
     if provider not in SEARCH_CONFIG:
         raise ValueError(f"Provider '{provider}' is not supported")
 
-    rss_item = search_url(provider, keywords)
-
-    def _fetch_and_parse():
-        with RequestContent() as req:
-            torrents = req.get_torrents(rss_item.url)
-
-        parser = RSSAnalyser()
-        results = []
-        exist_list = []
-
-        for torrent in torrents:
-            if len(results) >= limit:
-                break
-
-            bangumi = parser.raw_parser(raw=torrent.name)
-            if not bangumi:
-                continue
-
-            bangumi = parser.torrent_to_data(torrent=torrent, rss=rss_item)
-            if not bangumi:
-                continue
-
-            special_link = _build_special_url(bangumi, provider).url
-            if special_link in exist_list:
-                continue
-
-            bangumi.rss_link = special_link
-            exist_list.append(special_link)
-            results.append(bangumi)
-
-        return results
-
-    parsed_results = await asyncio.to_thread(_fetch_and_parse)
-
-    for bangumi in parsed_results:
+    hits = _search_mikan(keywords) if provider == "mikan" else _search_torrents(keywords, provider)
+    async for bangumi in hits:
         yield json.dumps(bangumi.model_dump(), separators=(",", ":"))
 
 
-def _build_special_url(bangumi: Bangumi, provider: str) -> RSSItem:
-    """Build provider-specific RSS URL for a bangumi.
-    
-    Args:
-        bangumi: Bangumi object with metadata
-        provider: Search provider name
-        
-    Returns:
-        RSSItem with provider-specific URL
-    """
-    keywords = [getattr(bangumi, key) for key in SEARCH_KEY if getattr(bangumi, key)]
-    return search_url(provider, keywords)
+def _get_html(url: str) -> str:
+    try:
+        with RequestContent() as req:
+            return req.get_html(url)
+    except Exception as e:
+        logger.warning("[Search] Cannot fetch %s: %s", url, e)
+        return ""
+
+
+def _mikan_hits(hit: MikanSearchHit) -> list[Bangumi]:
+    base_url = settings.mikan.base_url.rstrip("/")
+    subgroups = parse_mikan_bangumi_subgroups(_get_html(f"{base_url}/Home/Bangumi/{hit.bangumi_id}"))
+    if not subgroups:
+        return []
+
+    poster_link = None
+    if hit.poster_path:
+        with RequestContent() as req:
+            img = req.get_content(f"{base_url}{hit.poster_path}")
+        if img:
+            poster_link = save_image(img, hit.poster_path.rsplit(".", 1)[-1])
+
+    title = re.sub(r"[/:.\\]", " ", hit.title)
+    season = _extract_season_from_title(hit.title) or 1
+    return [
+        Bangumi(
+            official_title=title,
+            title_raw=hit.title,
+            season=season,
+            group_name=sub.name,
+            poster_link=poster_link,
+            rss_link=build_season_rss_url(hit.bangumi_id, sub.subgroup_id, base_url=base_url),
+            filter=",".join(settings.rss_parser.filter),
+        )
+        for sub in subgroups
+    ]
+
+
+async def _search_mikan(keywords: list[str]) -> AsyncIterator[Bangumi]:
+    base_url = settings.mikan.base_url.rstrip("/")
+    url = f"{base_url}/Home/Search?{urlencode({'searchstr': ' '.join(keywords)})}"
+    page = await asyncio.to_thread(_get_html, url)
+    hits = parse_mikan_search_page(page)[:MAX_MIKAN_BANGUMI]
+
+    slots = asyncio.Semaphore(max(1, settings.mikan.max_concurrent))
+
+    async def fetch(hit: MikanSearchHit) -> list[Bangumi]:
+        async with slots:
+            return await asyncio.to_thread(_mikan_hits, hit)
+
+    tasks = [asyncio.create_task(fetch(hit)) for hit in hits]
+    try:
+        for done in asyncio.as_completed(tasks):
+            for bangumi in await done:
+                yield bangumi
+    finally:
+        for task in tasks:
+            task.cancel()
+
+
+async def _search_torrents(keywords: list[str], provider: str) -> AsyncIterator[Bangumi]:
+    rss_item = search_url(provider, keywords)
+
+    def fetch():
+        with RequestContent() as req:
+            return req.get_torrents(rss_item.url)
+
+    parser = RSSAnalyser()
+    seen: set[tuple[str, str]] = set()
+    for torrent in await asyncio.to_thread(fetch):
+        try:
+            bangumi = parser.raw_parser(raw=torrent.name)
+        except BangumiParsingError:
+            continue
+        if not bangumi:
+            continue
+        key = (bangumi.group_name, bangumi.title_raw)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        await asyncio.to_thread(parser.official_title_parser, bangumi, rss_item, torrent)
+        bangumi.rss_link = SearchTorrent.special_url(bangumi, provider).url
+        yield bangumi

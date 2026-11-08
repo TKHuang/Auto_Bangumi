@@ -112,6 +112,70 @@ def parse_mikan_page(html: str) -> Optional[MikanRef]:
     )
 
 
+@dataclass(frozen=True)
+class MikanSearchHit:
+    bangumi_id: int
+    title: str
+    poster_path: Optional[str]
+
+
+@dataclass(frozen=True)
+class MikanSubgroup:
+    subgroup_id: int
+    name: str
+
+
+_SEARCH_LIST = re.compile(r'<ul class="list-inline an-ul"[\s\S]*?</ul>')
+_SEARCH_ITEM = re.compile(
+    r'<a href="/Home/Bangumi/(\d+)"[\s\S]*?'
+    r'data-src="([^"]*)"[\s\S]*?'
+    r'class="an-text" title="([^"]*)"'
+)
+_SUBGROUP_OPEN = re.compile(r'<div class="subgroup-text" id="(\d+)">')
+_SUBGROUP_MEMBER = re.compile(r'class="material-dropdown-menu__link"[^>]*>([^<]+)<')
+_TAG = re.compile(r"<[^>]+>")
+
+
+def parse_mikan_search_page(html: str) -> list[MikanSearchHit]:
+    """Return the bangumi listed on a Mikan ``/Home/Search`` page, in page order."""
+    block = _SEARCH_LIST.search(html or "")
+    if not block:
+        return []
+    return [
+        MikanSearchHit(
+            bangumi_id=int(m.group(1)),
+            title=html_module.unescape(m.group(3)).strip(),
+            poster_path=m.group(2).split("?")[0] or None,
+        )
+        for m in _SEARCH_ITEM.finditer(block.group(0))
+    ]
+
+
+def _subgroup_name(segment: str) -> str:
+    members = [html_module.unescape(n).strip() for n in _SUBGROUP_MEMBER.findall(segment)]
+    if members:
+        return "&".join(members)
+    for text in _TAG.split(segment):
+        text = html_module.unescape(text).strip()
+        if text:
+            return text
+    return ""
+
+
+def parse_mikan_bangumi_subgroups(html: str) -> list[MikanSubgroup]:
+    """Return every subgroup listed on a Mikan ``/Home/Bangumi/<id>`` page."""
+    html = html or ""
+    subgroups = []
+    for m in _SUBGROUP_OPEN.finditer(html):
+        rss = html.find('class="mikan-rss"', m.end())
+        end = html.rfind("<", m.end(), rss) if rss != -1 else -1
+        segment = html[m.end() : end if end != -1 else None]
+        name = _subgroup_name(segment)
+        if name:
+            subgroups.append(MikanSubgroup(subgroup_id=int(m.group(1)), name=name))
+    return subgroups
+
+
 # Canonical bangumi-page URL helpers
 # ----------------------------------
 # The fragment form `/Home/Bangumi/<bangumi>#<subgroup>` is what Mikan's own

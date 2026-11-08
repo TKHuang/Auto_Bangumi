@@ -56,11 +56,7 @@ async def search_bangumi(
     
     try:
         return EventSourceResponse(
-            content=search(
-                keywords=keyword_list,
-                provider=site,
-                limit=5,
-            ),
+            content=search(keywords=keyword_list, provider=site),
         )
     except ValueError as e:
         raise HTTPException(

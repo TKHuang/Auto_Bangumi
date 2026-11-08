@@ -55,7 +55,6 @@ class TestSearchBangumi:
             mock_search.assert_called_once_with(
                 keywords=expected_keywords,
                 provider=expected_provider,
-                limit=5,
             )
 
     @pytest.mark.parametrize(
