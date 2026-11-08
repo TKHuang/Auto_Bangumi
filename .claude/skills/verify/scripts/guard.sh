@@ -2,7 +2,7 @@
 # Start in the background BEFORE `make dev`, and keep it running for the whole session.
 # Fail-closed: if a PikPak login fails, OR the guard can no longer watch a running
 # backend, it runs `make down`. Re-attaches after a container restart.
-# Exit 0 = stack stopped normally. Exit 1 = login failed (stop marker written; tell the user).
+# Exit 0 = backend container removed (make down). Exit 1 = login failed (stop marker written; tell the user).
 # Exit 5 = could not watch; stack stopped as a precaution.
 source "$(dirname "$0")/_common.sh"
 set +e
@@ -45,13 +45,13 @@ while exists; do
     echo "VERIFY-STOP: PikPak login failed. Stack stopped. Tell the user. Do not relaunch." >&2
     exit 1
   fi
-  # Stream ended. Container gone or stopped = normal shutdown.
-  sleep 2
-  if ! exists || ! running; then
-    sleep 3
-    running || { echo "guard: backend stopped; guard exits"; exit 0; }
-  fi
-  # Backend still running (restart or stream error): re-attach, but not forever.
+  # Stream ended. Only a removed container (make down) is a normal shutdown.
+  # A container that exists but is not running may be in restart backoff
+  # (up to 1 min): keep waiting, never leave it unwatched.
+  while exists && ! running; do sleep 1; done
+  exists || break
+  # Backend running again (restart, or stream error): re-attach, but not forever.
+  # A crash loop also counts here, and ends in make down (fail-closed).
   attach_failures=$((attach_failures + 1))
   echo "guard: log stream ended while backend runs; re-attach #$attach_failures"
   if [ $attach_failures -ge 5 ]; then

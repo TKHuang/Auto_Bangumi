@@ -31,7 +31,9 @@ $S/doctor.sh                         # prints DOCTOR OK
 
 **Guard is fail-closed.** It re-attaches when the backend container restarts (crash + `restart: unless-stopped` resets the in-process login cooldown, so an unwatched restart is the dangerous case). If it cannot keep watching a running backend, it runs `make down` and exits 5. `wait-ready.sh` and `doctor.sh` fail when the guard is not running (pid in `dev-config/verify-evidence/.guard.pid`). If the guard task ends while the stack is up, run `make down` at once.
 
-Guard exit codes: `0` stack stopped normally, `1` PikPak login failed, `4` backend never appeared, `5` could not watch, stack stopped.
+While the backend container exists but is not running (restart backoff can last up to 1 min), the guard waits; it leaves only when `make down` removes the container. A crash loop (5 re-attaches) also ends in `make down`.
+
+Guard exit codes: `0` backend container removed (`make down`), `1` PikPak login failed, `4` backend never appeared, `5` could not watch, stack stopped.
 
 **Stop marker.** When the guard sees a login failure, it runs `make down` and writes `dev-config/verify-evidence/PIKPAK_LOGIN_FAILED`. While that file exists, `preflight.sh` and `doctor.sh` exit 3. Only the user deletes it. Do not delete it yourself.
 

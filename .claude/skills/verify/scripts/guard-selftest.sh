@@ -26,15 +26,25 @@ t0=$(date +%s); wait $g; rc=$?; dt=$(( $(date +%s) - t0 ))
 ( source "$D/_common.sh"; check_stop_marker ) >/dev/null 2>&1; [ $? = 3 ] && pass "marker blocks relaunch" || fail "marker does not block"
 rm -f "$AB_VERIFY_EVIDENCE_ROOT/PIKPAK_LOGIN_FAILED"; rmc
 
-# Case 2: normal shutdown -> guard exits 0.
-docker run -d --name "$C" busybox sleep 300 >/dev/null
+# Case 2: backend down longer than a short wait (restart backoff), then back -> guard still watches.
+docker run -d --name "$C" busybox sh -c 'sleep 300' >/dev/null
 "$D/guard.sh" > "$AB_VERIFY_EVIDENCE_ROOT/g2.log" 2>&1 & g=$!
-sleep 3; docker stop -t 1 "$C" >/dev/null
+sleep 3; docker stop -t 1 "$C" >/dev/null; sleep 12
+kill -0 $g 2>/dev/null && pass "guard stays while backend is down but exists" || fail "guard left while backend was down: $(tail -1 "$AB_VERIFY_EVIDENCE_ROOT/g2.log")"
+docker start "$C" >/dev/null; sleep 3
+docker exec "$C" sh -c 'echo "PikPak login failed: after restart" > /proc/1/fd/1'
 wait $g; rc=$?
-[ $rc = 0 ] && pass "guard exits 0 on normal stop" || fail "guard exit $rc on normal stop"
-rmc
+[ $rc = 1 ] && pass "guard fires after a long down period" || fail "guard exit $rc after long down, want 1"
+rm -f "$AB_VERIFY_EVIDENCE_ROOT/PIKPAK_LOGIN_FAILED"; rmc
 
-# Case 3: no guard -> doctor/wait-ready refuse.
+# Case 3: normal shutdown (make down removes the container) -> guard exits 0.
+docker run -d --name "$C" busybox sleep 300 >/dev/null
+"$D/guard.sh" > "$AB_VERIFY_EVIDENCE_ROOT/g3.log" 2>&1 & g=$!
+sleep 3; docker rm -f "$C" >/dev/null
+wait $g; rc=$?
+[ $rc = 0 ] && pass "guard exits 0 when the container is removed" || fail "guard exit $rc on removal"
+
+# Case 4: no guard -> doctor/wait-ready refuse.
 ( source "$D/_common.sh"; check_guard_alive ) >/dev/null 2>&1 && fail "check_guard_alive passed without guard" || pass "no guard -> check fails"
 
 rm -rf "$AB_VERIFY_EVIDENCE_ROOT"
