@@ -85,13 +85,6 @@ $S/db.sh "select state, count(*), min(pikpak_cloud_path) from torrent group by s
 
 The feature map is in [`features/README.md`](features/README.md). Drive every entry point it lists for the feature you changed.
 
-**Grow the map as you verify.** The map is incomplete on purpose: features are added when a task first touches them. In the same change as your fix or feature:
-
-- The feature you drove has no file → add `features/<feature>.md` in the shape of `rss-subscribe.md` (four H2s: `Sub-features`, `How to get to it (user POV)`, `Driving it with agent-browser`, `Gotchas`), with the real selectors, API calls, and log lines you just used. Add a row to the README table with today's date and the path you proved.
-- The file exists but a step, selector, or expected result was wrong → fix it to what you observed.
-- You drove a step marked draft or "not yet" → replace it with what you proved, and update the README row.
-- Write only what you drove in this run. A path you did not drive stays marked "not yet". A behavior that is broken in the app is a product bug: report it, do not write it into the map as expected.
-
 ## Evidence
 
 ```bash
