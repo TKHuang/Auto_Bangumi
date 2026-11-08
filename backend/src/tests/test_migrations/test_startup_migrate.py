@@ -127,3 +127,42 @@ async def test_run_migrations_on_legacy_db_stamps_then_upgrades(tmp_path, monkey
             sa.text("SELECT username FROM user WHERE username='legacy_admin'")
         ).first()
         assert user_row is not None
+
+
+@pytest.mark.integration
+async def test_run_migrations_keeps_app_logging(tmp_path, monkeypatch):
+    """Startup migration must not replace the app's log setup.
+
+    alembic.ini's [loggers] section, applied by fileConfig(), disables every
+    logger that already exists and drops the app's root handlers. After that,
+    app logs (e.g. 'PikPak login failed') reach neither docker logs nor
+    data/log.txt.
+    """
+    import logging
+
+    db = tmp_path / "fresh.db"
+    monkeypatch.setenv("AB_ALEMBIC_DB_URL", f"sqlite+aiosqlite:///{db}")
+
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    root = logging.getLogger()
+    app_handler = _Collect()
+    root.addHandler(app_handler)
+    app_logger = logging.getLogger("module.services.downloader.pikpak")
+    old_level = root.level
+    root.setLevel(logging.INFO)
+    try:
+        await run_migrations()
+
+        app_logger.error("PikPak login failed: probe")
+        assert app_handler in logging.getLogger().handlers
+        assert not app_logger.disabled
+        assert any(r.getMessage() == "PikPak login failed: probe" for r in records)
+    finally:
+        root.removeHandler(app_handler)
+        root.setLevel(old_level)
+        app_logger.disabled = False

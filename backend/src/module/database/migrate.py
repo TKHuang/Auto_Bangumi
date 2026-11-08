@@ -74,6 +74,8 @@ def _alembic_config() -> AlembicConfig:
     ini_path = _backend_dir() / "alembic.ini"
     cfg = AlembicConfig(str(ini_path))
     cfg.set_main_option("script_location", str(_backend_dir() / "alembic"))
+    # Keep the app's log setup; see env.py.
+    cfg.attributes["configure_logger"] = False
     return cfg
 
 

@@ -41,7 +41,9 @@ if os.getenv("AB_ALEMBIC_DB_URL"):
     from sqlalchemy.ext.asyncio import create_async_engine
     project_engine = create_async_engine(_db_url, future=True)
 
-if config.config_file_name is not None:
+# Skip when the app runs migrations at startup: fileConfig() would disable
+# the app's existing loggers and replace its handlers.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
