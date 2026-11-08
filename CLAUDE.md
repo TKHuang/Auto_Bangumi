@@ -98,7 +98,7 @@ API (api/v1/)  →  Services (services/)  →  Repositories (repositories/)  →
 
 ### Database
 
-SQLite via `aiosqlite` + SQLAlchemy async. Schema created via `Base.metadata.create_all` on startup. Manual migrations in `main.py:_run_migrations()` (PRAGMA-based column detection, no Alembic).
+SQLite via `aiosqlite` + SQLAlchemy async. Schema is managed by Alembic. On startup, `main.py` calls `module.database.migrate.run_migrations()`, which stamps pre-Alembic DBs to `0001_baseline` and then runs `alembic upgrade head`. See "Database migrations (Alembic)" above.
 
 ### Downloader Protocol
 
@@ -127,10 +127,6 @@ The `state` field on Torrent has 10 enum values but only `EXCLUDED` is actively 
 ### Excluded Torrents
 
 When users manually deselect torrents during RSS subscription, sentinel rows are inserted with `name=""`, `url=""`, `downloaded=True`, `state=EXCLUDED`. These prevent cronjob re-downloads via the `(hash, bangumi_id)` unique constraint. They must never appear in UI queries or enter the rename pipeline.
-
-### Startup Migrations
-
-`main.py:_run_migrations()` runs on every startup inside `conn.run_sync()`. Uses PRAGMA table_info to detect missing columns, then ALTER TABLE. Idempotent.
 
 ## Testing
 
