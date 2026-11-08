@@ -177,7 +177,6 @@ dev-dist
 test.*
 # dev
 dev-config
-.claude
 .codegraph
 # dev config
 config/
@@ -186,6 +185,8 @@ backend/config/
 data/
 .sisyphus/
 .gstack/
-.claude/
+# .claude/: local tool state, except shared project skills
+.claude/*
+!.claude/skills/
 .codex/
 .worktrees/
