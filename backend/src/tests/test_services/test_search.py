@@ -1,316 +1,236 @@
-"""TDD tests for search service.
+"""Tests for the search service.
 
-Tests use mocked network and parser components to verify search behavior.
+The network boundary (RequestContent) is replaced by a fake that serves real,
+trimmed Mikan HTML fixtures and records every request.
 """
 
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+import threading
+from pathlib import Path
+from urllib.parse import urlencode
+from unittest.mock import patch
 
 import pytest
 
+from module.mikan.parser import build_season_rss_url
+from module.models import Torrent
+from module.rss import RSSAnalyser
+from module.searcher.provider import search_url
 from module.services.search import get_providers, search
+
+_FIX = Path(__file__).parent.parent / "fixtures" / "mikan"
+_BASE = "https://mikanani.me"
+
+
+def _load(name: str) -> str:
+    return (_FIX / name).read_text(encoding="utf-8")
+
+
+def _search(keyword: str) -> str:
+    return f"{_BASE}/Home/Search?{urlencode({'searchstr': keyword})}"
+
+
+def _search_page(ids: list[int]) -> str:
+    items = "".join(
+        f'<li><a href="/Home/Bangumi/{i}" target="_blank">'
+        f'<span data-src="/images/Bangumi/2026/{i}.jpg?width=400" class="b-lazy"></span>'
+        f'<div class="an-text" title="Show {i}" style="">Show {i}</div></a></li>'
+        for i in ids
+    )
+    return f'<ul class="list-inline an-ul">{items}</ul>'
+
+
+class FakeRequestContent:
+    def __init__(self, pages: dict[str, str], torrents: list[Torrent] | None = None):
+        self.pages = pages
+        self.torrents = torrents or []
+        self.html_urls: list[str] = []
+        self.content_urls: list[str] = []
+        self.torrent_urls: list[str] = []
+        self.gates: dict[str, threading.Event] = {}
+        self._lock = threading.Lock()
+
+    def __call__(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def get_html(self, url: str) -> str:
+        with self._lock:
+            self.html_urls.append(url)
+        gate = self.gates.get(url)
+        if gate is not None:
+            gate.wait(timeout=5)
+        return self.pages.get(url, "<html></html>")
+
+    def get_content(self, url: str) -> bytes:
+        with self._lock:
+            self.content_urls.append(url)
+        return url.encode()
+
+    def get_torrents(self, url: str, *args, **kwargs) -> list[Torrent]:
+        self.torrent_urls.append(url)
+        return self.torrents
+
+
+@pytest.fixture
+def poster_dir(tmp_path, monkeypatch):
+    (tmp_path / "data" / "posters").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+async def _collect(gen) -> list[dict]:
+    return [json.loads(item) async for item in gen]
 
 
 class TestGetProviders:
-    """Test get_providers function."""
-
     def test_returns_provider_list(self):
-        """get_providers returns list of provider names."""
         providers = get_providers()
-        assert isinstance(providers, list)
-        assert len(providers) > 0
         assert "mikan" in providers
 
     def test_returns_all_configured_providers(self):
-        """get_providers returns all providers from SEARCH_CONFIG."""
-        with patch("module.services.search.SEARCH_CONFIG", {"mikan": "url1", "nyaa": "url2"}):
-            providers = get_providers()
-            assert providers == ["mikan", "nyaa"]
+        with patch("module.services.search.SEARCH_CONFIG", {"mikan": "u1", "nyaa": "u2"}):
+            assert get_providers() == ["mikan", "nyaa"]
 
 
-class TestSearch:
-    """Test search async generator."""
-
-    @pytest.fixture
-    def mock_request_content(self):
-        """Create mocked RequestContent."""
-        mock_req = MagicMock()
-        mock_req.__enter__ = MagicMock(return_value=mock_req)
-        mock_req.__exit__ = MagicMock(return_value=False)
-        return mock_req
-
-    @pytest.fixture
-    def mock_parser(self):
-        """Create mocked RSSAnalyser."""
-        return MagicMock()
-
-    @pytest.fixture
-    def sample_torrent(self):
-        """Create sample torrent."""
-        torrent = MagicMock()
-        torrent.name = "[SubGroup] Test Bangumi - 01 [1080p].mkv"
-        torrent.url = "magnet:?xt=urn:btih:abc123"
-        torrent.homepage = "https://example.com/bangumi/123"
-        return torrent
-
-    @pytest.fixture
-    def sample_bangumi(self):
-        """Create sample bangumi."""
-        bangumi = MagicMock()
-        bangumi.official_title = "Test Bangumi"
-        bangumi.title_raw = "Test Bangumi"
-        bangumi.season = 1
-        bangumi.group_name = "SubGroup"
-        bangumi.poster_link = "https://example.com/poster.jpg"
-        bangumi.rss_link = "https://example.com/rss/123"
-        def _mock_dump(**kwargs):
-            return {
-                "official_title": "Test Bangumi",
-                "title_raw": "Test Bangumi",
-                "season": 1,
-                "group_name": "SubGroup",
-                "poster_link": "https://example.com/poster.jpg",
-                "rss_link": bangumi.rss_link,
+class TestSearchMikan:
+    @pytest.mark.asyncio
+    async def test_one_hit_per_subgroup_with_real_rss_link(self, poster_dir):
+        fake = FakeRequestContent(
+            {
+                _search("僵尸"): _load("search_page.html"),
+                f"{_BASE}/Home/Bangumi/4076": _load("bangumi_page_4076.html"),
             }
-        bangumi.dict.side_effect = _mock_dump
-        bangumi.model_dump.side_effect = _mock_dump
-        return bangumi
+        )
+        with patch("module.services.search.RequestContent", fake):
+            hits = await _collect(search(["僵尸"], provider="mikan"))
 
-    @pytest.fixture
-    def sample_rss_item(self):
-        """Create sample RSS item."""
-        rss = MagicMock()
-        rss.url = "https://example.com/rss"
-        rss.aggregate = False
-        rss.parser = "mikan"
-        return rss
+        assert sorted((h["group_name"], h["rss_link"]) for h in hits) == sorted(
+            [
+                ("绿茶字幕组", build_season_rss_url(4076, 1236)),
+                ("Kirara Fantasia", build_season_rss_url(4076, 615)),
+                ("生肉/不明字幕", build_season_rss_url(4076, 202)),
+                ("天月动漫&发布组", build_season_rss_url(4076, 534)),
+            ]
+        )
+        assert {h["official_title"] for h in hits} == {"僵尸搜寻中"}
+        assert {h["season"] for h in hits} == {1}
+        poster = hits[0]["poster_link"]
+        assert poster.startswith("posters/")
+        assert (poster_dir / "data" / poster).exists()
+        assert {h["poster_link"] for h in hits} == {poster}
 
-    @pytest.mark.asyncio
-    async def test_search_yields_bangumi_json(
-        self, mock_request_content, mock_parser, sample_torrent, sample_bangumi, sample_rss_item
-    ):
-        """search yields JSON-encoded Bangumi objects."""
-        mock_request_content.get_torrents.return_value = [sample_torrent]
-        mock_parser.raw_parser.return_value = sample_bangumi
-        mock_parser.torrent_to_data.return_value = sample_bangumi
-
-        with patch("module.services.search.RequestContent", return_value=mock_request_content):
-            with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
-                with patch("module.services.search.search_url") as mock_search_url:
-                    mock_search_url.return_value = sample_rss_item
-
-                    results = []
-                    async for result in search(["test"], provider="mikan"):
-                        results.append(result)
-
-                    assert len(results) == 1
-                    # Verify it's valid JSON
-                    parsed = json.loads(results[0])
-                    assert parsed["official_title"] == "Test Bangumi"
-                    assert parsed["season"] == 1
+        assert len(fake.html_urls) == 1 + 4
+        assert fake.content_urls == [f"{_BASE}/images/Bangumi/202610/25a3140f.jpg"]
+        assert fake.torrent_urls == []
 
     @pytest.mark.asyncio
-    async def test_search_respects_limit(
-        self, mock_request_content, mock_parser, sample_torrent, sample_rss_item
-    ):
-        """search respects limit parameter."""
-        # Create 10 unique torrents
-        torrents = [MagicMock(name=f"torrent_{i}") for i in range(10)]
-        for torrent in torrents:
-            torrent.name = f"[SubGroup] Test Bangumi {id(torrent)} - 01 [1080p].mkv"
-        mock_request_content.get_torrents.return_value = torrents
-
-        # Create unique bangumi for each torrent
-        def create_bangumi(torrent, rss):
-            b = MagicMock()
-            b.official_title = f"Test Bangumi {id(torrent)}"
-            b.title_raw = f"Test Bangumi {id(torrent)}"
-            b.season = 1
-            b.group_name = "SubGroup"
-            b.rss_link = f"https://example.com/rss/{id(torrent)}"
-            dump = {
-                "official_title": b.official_title,
-                "title_raw": b.title_raw,
-                "season": 1,
-                "group_name": "SubGroup",
-                "rss_link": b.rss_link,
+    async def test_season_parsed_from_mikan_title(self, poster_dir):
+        page = _search_page([3821]).replace("Show 3821", "葬送的芙莉莲 第二季")
+        fake = FakeRequestContent(
+            {
+                _search("芙莉莲"): page,
+                f"{_BASE}/Home/Bangumi/3821": _load("bangumi_page_4076.html"),
             }
-            b.dict.return_value = dump
-            b.model_dump.return_value = dump
-            return b
+        )
+        with patch("module.services.search.RequestContent", fake):
+            hits = await _collect(search(["芙莉莲"], provider="mikan"))
 
-        mock_parser.raw_parser.side_effect = lambda raw: create_bangumi(raw, None)
-        mock_parser.torrent_to_data.side_effect = create_bangumi
-
-        with patch("module.services.search.RequestContent", return_value=mock_request_content):
-            with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
-                with patch("module.services.search.search_url") as mock_search_url:
-                    # Return different URLs based on keywords to avoid deduplication
-                    def search_url_side_effect(provider, keywords):
-                        rss = MagicMock()
-                        # Use keywords to generate unique URL
-                        keyword_str = "_".join(str(k) for k in keywords) if keywords else "default"
-                        rss.url = f"https://example.com/rss/{keyword_str}"
-                        return rss
-                    mock_search_url.side_effect = search_url_side_effect
-
-                    results = []
-                    async for result in search(["test"], provider="mikan", limit=3):
-                        results.append(result)
-
-                    assert len(results) == 3
+        assert hits
+        assert {h["season"] for h in hits} == {2}
 
     @pytest.mark.asyncio
-    async def test_search_skips_duplicates(
-        self, mock_request_content, mock_parser, sample_torrent, sample_rss_item
-    ):
-        """search skips duplicate RSS links."""
-        # Create 3 torrents
-        torrents = [sample_torrent for _ in range(3)]
-        mock_request_content.get_torrents.return_value = torrents
+    async def test_broad_keyword_fetches_at_most_ten_bangumi_pages(self, poster_dir):
+        fake = FakeRequestContent(
+            {_search("a"): _search_page(list(range(1, 16)))}
+        )
+        with patch("module.services.search.RequestContent", fake):
+            assert await _collect(search(["a"], provider="mikan")) == []
 
-        # All bangumi have same RSS link (duplicates)
-        same_bangumi = MagicMock()
-        same_bangumi.official_title = "Test Bangumi"
-        same_bangumi.title_raw = "Test Bangumi"
-        same_bangumi.season = 1
-        same_bangumi.group_name = "SubGroup"
-        same_bangumi.rss_link = "https://example.com/rss/same"
-        _same_dump = {
-            "official_title": "Test Bangumi",
-            "title_raw": "Test Bangumi",
-            "season": 1,
-            "group_name": "SubGroup",
-            "rss_link": "https://example.com/rss/same",
-        }
-        same_bangumi.dict.return_value = _same_dump
-        same_bangumi.model_dump.return_value = _same_dump
-
-        mock_parser.raw_parser.return_value = same_bangumi
-        mock_parser.torrent_to_data.return_value = same_bangumi
-
-        with patch("module.services.search.RequestContent", return_value=mock_request_content):
-            with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
-                with patch("module.services.search.search_url") as mock_search_url:
-                    mock_search_url.return_value = sample_rss_item
-                    with patch("module.services.search._build_special_url") as mock_special:
-                        special_rss = MagicMock()
-                        special_rss.url = "https://example.com/rss/same"
-                        mock_special.return_value = special_rss
-
-                        results = []
-                        async for result in search(["test"], provider="mikan"):
-                            results.append(result)
-
-                        # Only 1 result despite 3 torrents (duplicates filtered)
-                        assert len(results) == 1
+        assert len(fake.html_urls) == 1 + 10
 
     @pytest.mark.asyncio
-    async def test_search_skips_unparseable_torrents(
-        self, mock_request_content, mock_parser, sample_torrent, sample_rss_item
-    ):
-        """search skips torrents that cannot be parsed."""
-        mock_request_content.get_torrents.return_value = [sample_torrent]
-        # raw_parser returns None (unparseable)
-        mock_parser.raw_parser.return_value = None
+    async def test_streams_hits_before_slow_bangumi_page_finishes(self, poster_dir):
+        slow = f"{_BASE}/Home/Bangumi/2"
+        fake = FakeRequestContent(
+            {
+                _search("a"): _search_page([2, 1]),
+                f"{_BASE}/Home/Bangumi/1": _load("bangumi_page_4076.html"),
+                slow: _load("bangumi_page_3141_joint_group.html"),
+            }
+        )
+        gate = threading.Event()
+        fake.gates[slow] = gate
+        with patch("module.services.search.RequestContent", fake):
+            gen = search(["a"], provider="mikan")
+            first = json.loads(await asyncio.wait_for(gen.__anext__(), timeout=3))
+            assert first["rss_link"].startswith(f"{_BASE}/RSS/Bangumi?bangumiId=1&")
+            gate.set()
+            rest = await _collect(gen)
 
-        with patch("module.services.search.RequestContent", return_value=mock_request_content):
-            with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
-                with patch("module.services.search.search_url") as mock_search_url:
-                    mock_search_url.return_value = sample_rss_item
-
-                    results = []
-                    async for result in search(["test"], provider="mikan"):
-                        results.append(result)
-
-                    assert len(results) == 0
+        assert len(rest) == 3 + 2
 
     @pytest.mark.asyncio
-    async def test_search_invalid_provider_raises_error(self):
-        """search raises ValueError for invalid provider."""
+    async def test_unreachable_search_page_yields_nothing(self, poster_dir):
+        class Down(FakeRequestContent):
+            def get_html(self, url):
+                raise AttributeError("'NoneType' object has no attribute 'text'")
+
+        with patch("module.services.search.RequestContent", Down({})):
+            assert await _collect(search(["a"], provider="mikan")) == []
+
+
+class TestSearchTorrentProviders:
+    @staticmethod
+    def _torrent(name: str) -> Torrent:
+        return Torrent(name=name, url=f"magnet:?xt={name}", homepage=None)
+
+    @pytest.mark.asyncio
+    async def test_dedupes_before_tmdb_lookup(self):
+        torrents = [
+            self._torrent("[Lilith-Raws] Sousou no Frieren - 01 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4]"),
+            self._torrent("[Lilith-Raws] Sousou no Frieren - 02 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4]"),
+            self._torrent("[Lilith-Raws] Sousou no Frieren - 03 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4]"),
+            self._torrent("[ANi] Sousou no Frieren - 01 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]"),
+        ]
+        fake = FakeRequestContent({}, torrents=torrents)
+        with (
+            patch("module.services.search.RequestContent", fake),
+            patch.object(
+                RSSAnalyser,
+                "tmdb_parser",
+                return_value=("葬送的芙莉莲", 1, "2023", "posters/f.jpg"),
+            ) as tmdb,
+        ):
+            hits = await _collect(search(["Frieren"], provider="nyaa"))
+
+        assert tmdb.call_count == 2
+        assert sorted(h["group_name"] for h in hits) == ["ANi", "Lilith-Raws"]
+        for h in hits:
+            assert h["official_title"] == "葬送的芙莉莲"
+            assert h["rss_link"] == search_url("nyaa", [h["group_name"], "葬送的芙莉莲"]).url
+        assert fake.torrent_urls == [search_url("nyaa", ["Frieren"]).url]
+
+    @pytest.mark.asyncio
+    async def test_skips_unparseable_torrents(self):
+        fake = FakeRequestContent({}, torrents=[self._torrent("not a release name")])
+        with (
+            patch("module.services.search.RequestContent", fake),
+            patch.object(RSSAnalyser, "tmdb_parser") as tmdb,
+        ):
+            assert await _collect(search(["x"], provider="dmhy")) == []
+        tmdb.assert_not_called()
+
+
+class TestSearchValidation:
+    @pytest.mark.asyncio
+    async def test_invalid_provider_raises_error(self):
         with pytest.raises(ValueError, match="Provider 'invalid' is not supported"):
             async for _ in search(["test"], provider="invalid"):
                 pass
-
-    @pytest.mark.asyncio
-    async def test_search_calls_search_url_with_keywords(
-        self, mock_request_content, mock_parser, sample_rss_item
-    ):
-        """search calls search_url with correct keywords."""
-        mock_request_content.get_torrents.return_value = []
-
-        with patch("module.services.search.RequestContent", return_value=mock_request_content):
-            with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
-                with patch("module.services.search.search_url") as mock_search_url:
-                    mock_search_url.return_value = sample_rss_item
-
-                    async for _ in search(["keyword1", "keyword2"], provider="nyaa"):
-                        pass
-
-                    mock_search_url.assert_called_once_with("nyaa", ["keyword1", "keyword2"])
-
-    @pytest.mark.asyncio
-    async def test_search_sets_rss_link_on_bangumi(
-        self, mock_request_content, mock_parser, sample_torrent, sample_bangumi, sample_rss_item
-    ):
-        """search sets rss_link on returned bangumi."""
-        mock_request_content.get_torrents.return_value = [sample_torrent]
-        mock_parser.raw_parser.return_value = sample_bangumi
-        mock_parser.torrent_to_data.return_value = sample_bangumi
-
-        with patch("module.services.search.RequestContent", return_value=mock_request_content):
-            with patch("module.services.search.RSSAnalyser", return_value=mock_parser):
-                with patch("module.services.search.search_url") as mock_search_url:
-                    mock_search_url.return_value = sample_rss_item
-                    with patch("module.services.search._build_special_url") as mock_special:
-                        special_rss = MagicMock()
-                        special_rss.url = "https://example.com/rss/special"
-                        mock_special.return_value = special_rss
-
-                        results = []
-                        async for result in search(["test"], provider="mikan"):
-                            results.append(result)
-
-                        parsed = json.loads(results[0])
-                        assert parsed["rss_link"] == "https://example.com/rss/special"
-
-
-class TestBuildSpecialUrl:
-    """Test _build_special_url helper function."""
-
-    def test_builds_url_from_bangumi_metadata(self):
-        """_build_special_url builds URL from bangumi group_name and official_title."""
-        from module.services.search import _build_special_url
-
-        bangumi = MagicMock()
-        bangumi.official_title = "Test Bangumi"
-        bangumi.group_name = "SubGroup"
-
-        with patch("module.services.search.search_url") as mock_search_url:
-            special_rss = MagicMock()
-            special_rss.url = "https://example.com/rss/special"
-            mock_search_url.return_value = special_rss
-
-            result = _build_special_url(bangumi, "mikan")
-
-            # Should call search_url with group_name and official_title
-            mock_search_url.assert_called_once_with("mikan", ["SubGroup", "Test Bangumi"])
-            assert result.url == "https://example.com/rss/special"
-
-    def test_skips_none_attributes(self):
-        """_build_special_url skips None attributes."""
-        from module.services.search import _build_special_url
-
-        bangumi = MagicMock()
-        bangumi.official_title = "Test Bangumi"
-        bangumi.group_name = None  # None should be skipped
-
-        with patch("module.services.search.search_url") as mock_search_url:
-            special_rss = MagicMock()
-            special_rss.url = "https://example.com/rss/special"
-            mock_search_url.return_value = special_rss
-
-            _build_special_url(bangumi, "mikan")
-
-            # Should only include official_title (group_name is None)
-            mock_search_url.assert_called_once_with("mikan", ["Test Bangumi"])
