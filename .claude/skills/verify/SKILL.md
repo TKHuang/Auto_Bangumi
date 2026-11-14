@@ -5,10 +5,11 @@ description: Drive the real AutoBangumi dev stack (Vue WebUI on :5173, FastAPI o
 
 # Verify AutoBangumi in the real dev stack
 
-The dev stack uses the user's **one paid PikPak account. Production uses the same account.** Two rules come before everything else:
+The dev stack uses the user's **one paid PikPak account. Production uses the same account.** Three rules come before everything else:
 
 1. **At most one PikPak login per run. Never retry a failed login.** Repeated failed logins ban the account for 24 h and break production. If the guard fires, or you see `PikPak login failed`, stop all work, do not relaunch, and tell the user.
-2. **Downloads go only to `Bangumi-dev`.** `dev-config/backend/config_dev.json` → `downloader.path` must be exactly `Bangumi-dev`. `preflight.sh` and `doctor.sh` refuse anything else. Never change it to the production folder.
+2. **A successful dev login logs production out.** Production AutoBangumi and the dev stack both log in through pikpakapi, and PikPak keeps one such session per account: on 2026-11-14 each dev login (`Performing full PikPak authentication` in `ab-backend-dev`) made the production container `ab` fail with `invalid refresh token` on its next call. Jellyfin's rclone mount uses a different client and was not affected. Tell the user before a run whose token is expired (`preflight.sh` prints it), and after teardown check `docker logs --since 10m ab 2>&1 | grep -E 'invalid refresh token|Performing full'`. Production builds with the session-recovery fix log in again on their own within 10 minutes; older builds need `ab-config/pikpak_token.json` moved aside and `docker restart ab`, which the user must approve.
+3. **Downloads go only to `Bangumi-dev`.** `dev-config/backend/config_dev.json` → `downloader.path` must be exactly `Bangumi-dev`. `preflight.sh` and `doctor.sh` refuse anything else. Never change it to the production folder.
 
 All helpers are in `.claude/skills/verify/scripts/`. Run them from the repo root. Variables below: `S=.claude/skills/verify/scripts`.
 
