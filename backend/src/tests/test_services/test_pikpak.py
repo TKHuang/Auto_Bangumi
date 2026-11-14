@@ -11,9 +11,17 @@ import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pikpakapi.PikpakException import PikpakException
 
+from module.services.downloader import pikpak as pikpak_module
 from module.services.downloader.interface import RenameOutcome
 from module.services.downloader.pikpak import PikPakDownloader
+
+
+@pytest.fixture(autouse=True)
+def fresh_account_auth(monkeypatch):
+    """Each test starts with no shared login state."""
+    monkeypatch.setattr(pikpak_module, "_ACCOUNT", pikpak_module._AccountAuth())
 
 
 @pytest.fixture
@@ -151,7 +159,7 @@ class TestPikPakDownloaderInit:
             "access_token": "expired_token",
             "refresh_token": "expired_refresh",
             "user_id": "user_123",
-            "expires_at": int(time.time()) - 100,
+                "expires_at": int(time.time()) - 100,
         }
         os.makedirs(temp_config_dir, exist_ok=True)
         with open(token_file, "w") as f:
@@ -1334,7 +1342,7 @@ class TestLoginCooldown:
         with pytest.raises(Exception, match="too frequent"):
             await pikpak_downloader._ensure_valid_token()
 
-        assert pikpak_downloader._login_cooldown_until > 0
+        assert pikpak_module._ACCOUNT.cooldown_until > 0
 
     @pytest.mark.asyncio
     async def test_cooldown_blocks_subsequent_login(
@@ -1345,7 +1353,7 @@ class TestLoginCooldown:
         _, mock_instance = mock_pikpak_api
         pikpak_downloader._token_expires_at = 0
         pikpak_downloader._client.refresh_token = None
-        pikpak_downloader._login_cooldown_until = time.time() + 9999
+        pikpak_module._ACCOUNT.cooldown_until = time.time() + 9999
 
         with pytest.raises(RuntimeError, match="cooldown"):
             await pikpak_downloader._ensure_valid_token()
@@ -1361,12 +1369,12 @@ class TestLoginCooldown:
         _, mock_instance = mock_pikpak_api
         pikpak_downloader._token_expires_at = 0
         pikpak_downloader._client.refresh_token = None
-        pikpak_downloader._login_cooldown_until = time.time() - 1
+        pikpak_module._ACCOUNT.cooldown_until = time.time() - 1
 
         await pikpak_downloader._ensure_valid_token()
 
         mock_instance.login.assert_called_once()
-        assert pikpak_downloader._login_cooldown_until == 0
+        assert pikpak_module._ACCOUNT.cooldown_until == 0
 
     @pytest.mark.asyncio
     async def test_refresh_failure_falls_through_to_login(
@@ -1383,6 +1391,85 @@ class TestLoginCooldown:
 
         mock_instance.refresh_access_token.assert_called_once()
         mock_instance.login.assert_called_once()
+
+
+class TestSharedAccountSession:
+    """Every downloader in the process shares one PikPak session."""
+
+    @staticmethod
+    def _write_token(path, **fields):
+        import time
+
+        data = {
+            "access_token": "old_access",
+            "refresh_token": "old_refresh",
+            "user_id": "u1",
+            "expires_at": int(time.time()) + 7200,
+        }
+        data.update(fields)
+        with open(path, "w") as f:
+            json.dump(data, f)
+
+    @pytest.mark.asyncio
+    async def test_revoked_session_recovers_with_one_login_for_concurrent_tasks(
+        self, mock_database, temp_config_dir
+    ):
+        """Two tasks hit "invalid refresh token" together: one logs in, the
+        other adopts the saved session, and both calls then succeed."""
+        import asyncio
+
+        token_file = os.path.join(temp_config_dir, "pikpak_token.json")
+        self._write_token(token_file)
+        logins = []
+
+        def make_client(**_):
+            client = MagicMock()
+            client.encode_token = MagicMock()
+
+            async def offline_list(**_):
+                await asyncio.sleep(0)
+                if client.access_token == "old_access":
+                    raise PikpakException("invalid refresh token")
+                return {"tasks": []}
+
+            async def login():
+                logins.append(client)
+                client.access_token = "new_access"
+                client.refresh_token = "new_refresh"
+
+            client.offline_list = AsyncMock(side_effect=offline_list)
+            client.login = AsyncMock(side_effect=login)
+            return client
+
+        with patch("module.services.downloader.pikpak.PikPakApi", side_effect=make_client), \
+                patch("module.services.downloader.pikpak.TOKEN_FILE", token_file):
+            a = PikPakDownloader("test@example.com", "password123")
+            b = PikPakDownloader("test@example.com", "password123")
+            results = await asyncio.gather(
+                a.torrents_info(status_filter="all"),
+                b.torrents_info(status_filter="all"),
+            )
+
+        assert len(logins) == 1
+        assert results == [[], []]
+        assert a._client.access_token == b._client.access_token == "new_access"
+
+
+    @pytest.mark.asyncio
+    async def test_repeated_revocation_does_not_log_in_again_within_interval(
+        self, pikpak_downloader, mock_pikpak_api
+    ):
+        import time
+
+        _, mock_instance = mock_pikpak_api
+        pikpak_module._ACCOUNT.last_recovery_login_at = time.time()
+
+        with pytest.raises(RuntimeError, match="not logging in again"):
+            await pikpak_downloader._recover_revoked_session(
+                Exception("invalid refresh token")
+            )
+
+        mock_instance.login.assert_not_awaited()
 
 
 class TestStalePathDetection:
