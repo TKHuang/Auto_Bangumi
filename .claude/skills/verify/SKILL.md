@@ -97,7 +97,7 @@ Proof standards:
 
 - Use the real user path: the WebUI, or the same API calls the WebUI makes. Do not call internal functions or set DB rows by hand.
 - Capture the action and the result: a screenshot before and after, plus the API response.
-- Check side effects, not only the screen. For a download: a `torrent` row with `pikpak_cloud_path` under `Bangumi-dev/`, and the backend log line `Adding download to PikPak` with the task id. For a delete: the log line `Batch deleting N offline tasks` with the same task id, and the rows removed.
+- Check side effects, not only the screen. For a download: a `torrent` row with `pikpak_cloud_path` under `Bangumi-dev/`, and the task id in the DEBUG line `Download added, result: {... 'task': {'id': '<task id>' ...`. For a delete: `Batch deleting N offline tasks (delete_files=True)`, then the DEBUG line `Delete tasks request: ... params={'task_ids': '<task id>' ...` with the same task id, and the rows removed. `Adding download to PikPak` and `Batch deleting` do not carry the id. DEBUG lines print only because `dev-config/backend/config_dev.json` sets `log.debug_enable: true`; keep it on.
 - Record how many PikPak logins the run did (`pikpak-auth.log`). The answer must be 0 or 1.
 - Keep PikPak usage small: every subscribe downloads real files into the user's paid storage. In the subscribe dialog, keep one episode and exclude the rest (see `features/rss-subscribe.md`).
 
@@ -109,7 +109,7 @@ Proof standards:
    $S/api.sh "$RUN" DELETE "/api/v1/rss/delete/<rss_id>"
    $S/db.sh "select (select count(*) from bangumi) b, (select count(*) from torrent) t, (select count(*) from rssitem) r"
    ```
-   Check the log line `Batch deleting ... task_ids=<id>`: the id must be the one this run created.
+   Check the DEBUG line `Delete tasks request: ... params={'task_ids': '<id>' ...`: the id must be the one this run created.
 2. `$S/cleanup.sh` — closes the `ab-verify` browser session and runs `make down`. The guard exits when the log stream ends.
 3. Confirm `ls dev-config/verify-evidence/<run>` still lists the evidence.
 

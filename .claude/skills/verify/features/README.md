@@ -4,10 +4,11 @@ This directory is the maintained source for verifying user-facing behavior of Au
 
 | Feature | File | Last proved |
 |---|---|---|
-| Add RSS and subscribe (download to PikPak) | [rss-subscribe.md](rss-subscribe.md) | 2026-11-08, WebUI path, end to end |
-| Delete a bangumi with its files | [bangumi-delete.md](bangumi-delete.md) | 2026-11-08, API path only |
-| Rename downloaded episodes | [rename.md](rename.md) | not yet |
-| Edit a series | [series-edit.md](series-edit.md) | not yet |
+| Add RSS and subscribe (download to PikPak) | [rss-subscribe.md](rss-subscribe.md) | 2026-11-14, WebUI path, end to end |
+| Delete a bangumi with its files | [bangumi-delete.md](bangumi-delete.md) | 2026-11-14, WebUI path (`file=true`) |
+| Rename downloaded episodes | [rename.md](rename.md) | 2026-11-14, job tick and WebUI Re-rename |
+| Edit a series | [series-edit.md](series-edit.md) | 2026-11-14, WebUI filter save and title confirm (cancelled) |
+| Search bangumi (Mikan, nyaa, dmhy) | [search.md](search.md) | 2026-11-14, WebUI Mikan search |
 
 ## Baseline preconditions
 
