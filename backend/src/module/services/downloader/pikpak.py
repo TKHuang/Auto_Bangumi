@@ -11,6 +11,8 @@ import json
 import logging
 import os
 import re
+import time
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -40,6 +42,35 @@ API_TIMEOUT_SECONDS = 60
 MAX_FOLDER_DEPTH = 20
 
 TASK_CACHE_TTL = 60
+
+# Errors PikPak returns once it has revoked a session server-side. Refreshing
+# cannot fix them; only a new login can.
+REVOKED_SESSION_MARKERS = ("invalid refresh token", "unauthenticated", "please re-login")
+
+# A revoked session triggers at most one new login per this many seconds.
+RECOVERY_LOGIN_MIN_INTERVAL = 600
+
+
+@dataclass
+class _AccountAuth:
+    """Login state shared by every PikPakDownloader in the process.
+
+    All instances use one account and one token file. Logging in from two
+    instances at once makes the second login revoke the first, so logins and
+    refreshes are serialized here.
+    """
+
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    cooldown_until: float = 0.0
+    last_recovery_login_at: float = 0.0
+
+
+_ACCOUNT = _AccountAuth()
+
+
+def _is_revoked_session(error: Exception) -> bool:
+    text = str(error).lower()
+    return any(marker in text for marker in REVOKED_SESSION_MARKERS)
 
 DOWNLOAD_FILE_EXTENSIONS = MEDIA_EXTENSIONS + SUBTITLE_EXTENSIONS
 
@@ -87,12 +118,20 @@ def pikpak_retry_async(max_retries: int = 3, initial_delay: float = 5.0):
         async def wrapper(*args, **kwargs):
             delay = initial_delay
             last_exception = None
+            recovered = False
 
             for attempt in range(max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
                 except Exception as e:
                     last_exception = e
+                    if _is_revoked_session(e) and not recovered and args:
+                        recovered = True
+                        await args[0]._recover_revoked_session(e)
+                        try:
+                            return await func(*args, **kwargs)
+                        except Exception as retry_error:
+                            last_exception = e = retry_error
                     error_str = str(e).lower()
 
                     # Check for rate limiting or temporary errors
@@ -144,35 +183,45 @@ class PikPakDownloader:
         """
         self._username = username
         self._password = password
-        self._client = PikPakApi(username=username, password=password)
         self.session = session
 
         self._token_expires_at: int = 0
         self._task_cache: list[dict] | None = None
         self._task_cache_time: float = 0
-        self._login_cooldown_until: float = 0
 
-        # Try to load existing token
         token_data = self._load_token()
-        if token_data:
-            # Always load tokens if file exists - even if access token expired,
-            # the refresh_token may still be valid for _ensure_valid_token to use
-            self._client.access_token = token_data.get("access_token")
-            self._client.refresh_token = token_data.get("refresh_token")
-            self._client.user_id = token_data.get("user_id")
-            self._client.encode_token()
+        self._client = PikPakApi(username=username, password=password)
 
-            if self._is_token_valid(token_data):
+        if token_data:
+            self._apply_token(token_data)
+            if self._token_expires_at:
                 logger.info(f"Loaded valid PikPak token for user: {username}")
-                self._token_expires_at = token_data.get("expires_at", 0)
             else:
-                # Token expired, but refresh_token loaded - will refresh on first use
                 logger.debug(
                     "PikPak access token expired, will refresh using refresh_token"
                 )
-                self._token_expires_at = 0  # Force refresh on first API call
         else:
             logger.debug("No PikPak token found, will authenticate on first use")
+
+    def _apply_token(self, token_data: dict) -> None:
+        """Use a saved session. An expired access token keeps its refresh token."""
+        self._client.access_token = token_data.get("access_token")
+        self._client.refresh_token = token_data.get("refresh_token")
+        self._client.user_id = token_data.get("user_id")
+        self._client.encode_token()
+        self._token_expires_at = (
+            token_data.get("expires_at", 0) if self._is_token_valid(token_data) else 0
+        )
+
+    def _adopt_saved_session(self) -> bool:
+        """Switch to the session another instance saved, if it is newer than ours."""
+        token_data = self._load_token()
+        if not token_data:
+            return False
+        if token_data.get("access_token") == self._client.access_token:
+            return False
+        self._apply_token(token_data)
+        return True
 
     def _load_token(self) -> dict | None:
         """Load authentication token from persistent storage.
@@ -241,50 +290,73 @@ class PikPakDownloader:
     LOGIN_COOLDOWN_SECONDS = 120
 
     async def _ensure_valid_token(self) -> None:
-        """Ensure the access token is valid, refreshing if necessary.
+        """Make sure the access token is usable before an API call.
 
-        Called before API operations to prevent authentication failures.
-        If the token is about to expire (within 5 minutes), performs a
-        refresh using the refresh token. If refresh fails, re-authenticates.
-
-        Login attempts are rate-limited: after a failed login, no new login
-        is attempted for LOGIN_COOLDOWN_SECONDS to avoid PikPak rate bans.
+        Refreshes a token that expires within 5 minutes and logs in when the
+        refresh fails. Runs under the process-wide auth lock and first adopts
+        a session another instance already saved, so concurrent callers share
+        one refresh or login.
 
         Raises:
-            Exception: If both token refresh and re-authentication fail,
-                       or if login is on cooldown.
+            Exception: If both refresh and login fail, or login is on cooldown.
         """
-        import time
-
-        now = time.time()
-
-        if self._token_expires_at > int(now) + 300:
+        if self._token_expires_at > int(time.time()) + 300:
             return
 
-        if self._client.refresh_token:
-            try:
-                logger.info("PikPak token expiring soon, refreshing...")
-                await self._client.refresh_access_token()
-                await asyncio.to_thread(self._save_token)
-                logger.info("PikPak token refreshed successfully")
+        async with _ACCOUNT.lock:
+            self._adopt_saved_session()
+            if self._token_expires_at > int(time.time()) + 300:
                 return
-            except Exception as e:
-                logger.warning(f"Token refresh failed: {e}")
 
-        if now < self._login_cooldown_until:
-            remaining = int(self._login_cooldown_until - now)
+            if self._client.refresh_token:
+                try:
+                    logger.info("PikPak token expiring soon, refreshing...")
+                    await self._client.refresh_access_token()
+                    await asyncio.to_thread(self._save_token)
+                    logger.info("PikPak token refreshed successfully")
+                    return
+                except Exception as e:
+                    logger.warning(f"Token refresh failed: {e}")
+
+            await self._login_locked()
+
+    async def _recover_revoked_session(self, error: Exception) -> None:
+        """Log in again after PikPak revoked the session server-side.
+
+        Token refresh cannot recover a revoked session. Another instance may
+        already have logged in, so its saved session is adopted first. New
+        recovery logins are limited to one per RECOVERY_LOGIN_MIN_INTERVAL.
+        """
+        async with _ACCOUNT.lock:
+            if self._adopt_saved_session():
+                logger.info("PikPak session was renewed by another task, reusing it")
+                return
+            since_last = time.time() - _ACCOUNT.last_recovery_login_at
+            if since_last < RECOVERY_LOGIN_MIN_INTERVAL:
+                raise RuntimeError(
+                    f"PikPak rejected the session ({error}) {int(since_last)}s after "
+                    "the last recovery login; not logging in again yet."
+                )
+            logger.warning(f"PikPak rejected the session ({error}), logging in again")
+            _ACCOUNT.last_recovery_login_at = time.time()
+            await self._login_locked()
+
+    async def _login_locked(self) -> None:
+        """Full login. The caller holds _ACCOUNT.lock."""
+        now = time.time()
+        if now < _ACCOUNT.cooldown_until:
+            remaining = int(_ACCOUNT.cooldown_until - now)
             raise RuntimeError(
                 f"PikPak login on cooldown ({remaining}s remaining). "
                 "Previous login failed — waiting to avoid rate limit."
             )
-
         try:
             logger.info("Performing full PikPak authentication")
             await self._client.login()
             await asyncio.to_thread(self._save_token)
-            self._login_cooldown_until = 0
+            _ACCOUNT.cooldown_until = 0
         except Exception as e:
-            self._login_cooldown_until = now + self.LOGIN_COOLDOWN_SECONDS
+            _ACCOUNT.cooldown_until = now + self.LOGIN_COOLDOWN_SECONDS
             logger.error(
                 f"PikPak login failed: {e}. "
                 f"Cooling down for {self.LOGIN_COOLDOWN_SECONDS}s."
