@@ -1,4 +1,6 @@
 """/api/v1/series/* contract tests."""
+from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -261,7 +263,7 @@ class TestPatchSeries:
             canonical_title="旧 Old Title",
             normalized_title="stale value",
         )
-        with patch("module.api.v1.series.SeriesRepository") as mock_cls:
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls, _relocation_mocks([]):
             repo = AsyncMock()
             mock_cls.return_value = repo
             repo.get_by_id.return_value = mock
@@ -299,6 +301,19 @@ class TestPatchSeries:
         assert mock.normalized_title == "unchanged-normalized"
 
     @pytest.mark.asyncio
+    async def test_patch_empty_default_filter_clears_it(self, client):
+        mock = _mock_series(id=11, default_filter="1080p")
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls:
+            repo = AsyncMock()
+            mock_cls.return_value = repo
+            repo.get_by_id.return_value = mock
+
+            resp = client.patch("/api/v1/series/11", json={"default_filter": ""})
+
+        assert resp.status_code == 200
+        assert mock.default_filter is None
+
+    @pytest.mark.asyncio
     async def test_patch_canonical_title_recomputes_root_path(self, client):
         """Editing canonical_title must derive a new root_path so the
         download folder follows the title. Users cannot edit root_path
@@ -310,9 +325,10 @@ class TestPatchSeries:
         )
         with patch("module.api.v1.series.SeriesRepository") as mock_cls, \
              patch(
-                "module.services.identity_resolver._derive_root_path",
+                "module.api.v1.series._derive_root_path",
                 return_value="/downloads/Brand New",
-            ) as mock_derive:
+            ) as mock_derive, \
+             _relocation_mocks([]):
             repo = AsyncMock()
             mock_cls.return_value = repo
             repo.get_by_id.return_value = mock
@@ -325,3 +341,65 @@ class TestPatchSeries:
         assert resp.status_code == 200
         mock_derive.assert_called_once_with("Brand New")
         assert mock.root_path == "/downloads/Brand New"
+
+
+@contextmanager
+def _relocation_mocks(bangumi_list):
+    """Patch the downloader, renamer, and bangumi lookup that a title change uses."""
+    with patch("module.api.v1.series.BangumiRepository") as b_cls, \
+            patch("module.api.v1.series.create_downloader") as dl, \
+            patch("module.api.v1.series.RenamerService") as r_cls:
+        b_cls.return_value.list_by_series = AsyncMock(return_value=bangumi_list)
+        renamer = AsyncMock()
+        renamer.rename_bangumi.return_value = []
+        r_cls.return_value = renamer
+        yield SimpleNamespace(renamer=renamer, downloader=dl.return_value)
+
+
+class TestPatchSeriesTitleRelocatesFiles:
+    """A title change moves the series' files to the new root right away."""
+
+    @pytest.mark.asyncio
+    async def test_title_change_renames_every_bangumi_without_path_override(self, client):
+        series = _mock_series(id=20, canonical_title="Old")
+        follows_root = SimpleNamespace(id=1, path_override=None)
+        overridden = SimpleNamespace(id=2, path_override="/elsewhere")
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls, \
+                _relocation_mocks([follows_root, overridden]) as m:
+            mock_cls.return_value.get_by_id = AsyncMock(return_value=series)
+
+            resp = client.patch("/api/v1/series/20", json={"canonical_title": "New"})
+
+        assert resp.status_code == 200
+        assert series.root_path.endswith("New")
+        m.renamer.rename_bangumi.assert_awaited_once_with(m.downloader, 1, retrigger=True)
+
+    @pytest.mark.asyncio
+    async def test_title_change_returns_409_and_writes_nothing_when_rename_busy(self, client):
+        series = _mock_series(id=21, canonical_title="Old", root_path="/downloads/Old")
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls, \
+                _relocation_mocks([]) as m, \
+                patch("module.concurrency.rename_lock.try_acquire_rename_lock", new=AsyncMock(return_value=None)):
+            mock_cls.return_value.get_by_id = AsyncMock(return_value=series)
+
+            resp = client.patch("/api/v1/series/21", json={"canonical_title": "New"})
+
+        assert resp.status_code == 409
+        assert series.canonical_title == "Old"
+        assert series.root_path == "/downloads/Old"
+        m.renamer.rename_bangumi.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_other_edits_do_not_move_files(self, client):
+        series = _mock_series(id=22, canonical_title="Same")
+        with patch("module.api.v1.series.SeriesRepository") as mock_cls, \
+                _relocation_mocks([SimpleNamespace(id=1, path_override=None)]) as m:
+            mock_cls.return_value.get_by_id = AsyncMock(return_value=series)
+
+            resp = client.patch(
+                "/api/v1/series/22",
+                json={"canonical_title": "Same", "default_offset": 2},
+            )
+
+        assert resp.status_code == 200
+        m.renamer.rename_bangumi.assert_not_awaited()

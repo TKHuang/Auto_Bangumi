@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from module.domain.models.bangumi import Bangumi
+from module.domain.models.series import Series
 from module.repositories.exceptions import ConcurrentModificationError
 
 
@@ -73,6 +74,10 @@ class BangumiRepository:
     async def create(self, data: dict) -> Bangumi:
         if "group_name" in data and not data["group_name"]:
             data["group_name"] = "Unknown"
+        if data.get("series_id") is not None:
+            series = await self.session.get(Series, data["series_id"])
+            if series is not None:
+                _inherit_series_defaults(data, series)
         # Drop legacy keys that no longer exist as Bangumi columns.
         _drop = self._SERIES_MAPPED_KEYS | self._DROPPED_INTERMEDIATES
         filtered = {k: v for k, v in data.items() if k not in _drop}
@@ -472,3 +477,15 @@ class BangumiRepository:
         result = await self.session.execute(stmt)
         await self.session.flush()
         return result.rowcount
+
+
+def _inherit_series_defaults(data: dict, series: Series) -> None:
+    """Fill filter and offset from the series when the bangumi still has the
+    global defaults (spec §5: series defaults, overridable per bangumi)."""
+    from module.conf import settings
+
+    global_filter = ",".join(settings.rss_parser.filter)
+    if series.default_filter and data.get("filter") in (None, "", global_filter):
+        data["filter"] = series.default_filter
+    if series.default_offset and not data.get("offset"):
+        data["offset"] = series.default_offset

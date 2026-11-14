@@ -261,11 +261,12 @@
       "season": "Season",
       "year": "Year"
     },
+    "defaults_hint": "Default filter and offset apply to bangumi added to this series later.",
     "save": "Save",
     "cancel": "Cancel",
     "saving": "Saving…",
     "confirm_root_title": "Confirm title change",
-    "confirm_root_body": "Renaming the canonical title also moves the download folder. ALL downloaded files will be relocated on the next rename cycle, and external libraries (Jellyfin etc.) pointing at the old folder will break until re-scanned. Continue?",
+    "confirm_root_body": "Renaming the canonical title also moves the download folder. All downloaded files are moved and renamed now, and external libraries (Jellyfin etc.) pointing at the old folder need a re-scan. Continue?",
     "confirm": "Confirm",
     "save_failed": "Save failed"
   },

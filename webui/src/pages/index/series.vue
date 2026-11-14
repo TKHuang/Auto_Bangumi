@@ -106,10 +106,9 @@ async function commitSave() {
   saving.value = true;
   saveError.value = null;
   try {
-    const updated = await apiSeries.patch(detail.value.id, patch);
+    const updated = await seriesStore.updateSeries(detail.value.id, patch);
     detail.value = updated;
     form.value = snapshotForm(updated);
-    seriesStore.updateSeries(updated.id, patch);
   } catch (err: unknown) {
     saveError.value = err instanceof Error ? err.message : t('series.save_failed');
   } finally {
@@ -216,6 +215,7 @@ onMounted(() => seriesStore.refresh());
           <label>{{ t('series.field.offset') }}</label>
           <input v-model.number="form.default_offset" type="number" />
         </div>
+        <p class="field-hint">{{ t('series.defaults_hint') }}</p>
 
         <div v-if="saveError" class="save-error">{{ saveError }}</div>
 
@@ -415,6 +415,12 @@ onMounted(() => seriesStore.refresh());
       font-size: 12px;
     }
   }
+}
+
+.field-hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: #888;
 }
 
 .meta {

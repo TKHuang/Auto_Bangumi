@@ -51,6 +51,35 @@ class TestBangumiRepository:
 
         assert bangumi.group_name == "Unknown"
 
+    async def test_create_bangumi_inherits_series_defaults(self, db_session):
+        """spec §5 series.default_filter / default_offset: a new bangumi that
+        still carries the global defaults takes its series' defaults."""
+        from module.conf import settings
+
+        repo = BangumiRepository(db_session)
+        series = await _add_series(db_session)
+        series.default_filter = "720,简"
+        series.default_offset = -12
+        await db_session.flush()
+
+        untouched = await repo.create({
+            "series_id": series.id,
+            "group_name": "A",
+            "mikan_subgroup_id": 1,
+            "filter": ",".join(settings.rss_parser.filter),
+            "offset": 0,
+        })
+        customised = await repo.create({
+            "series_id": series.id,
+            "group_name": "B",
+            "mikan_subgroup_id": 2,
+            "filter": "HEVC",
+            "offset": 3,
+        })
+
+        assert (untouched.filter, untouched.offset) == ("720,简", -12)
+        assert (customised.filter, customised.offset) == ("HEVC", 3)
+
     async def test_create_bangumi_allows_different_groups_same_series(self, db_session):
         repo = BangumiRepository(db_session)
         series = await _add_series(db_session)
