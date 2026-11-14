@@ -4,12 +4,20 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module.api.middleware.auth import get_current_user
+from module.conf import settings
+from module.concurrency.rename_lock import rename_lock_guard
 from module.database.engine import get_db_session
+from module.domain.text.normalize import normalize_title
+from module.repositories.bangumi import BangumiRepository
 from module.repositories.series import SeriesRepository
+from module.services.downloader.factory import create_downloader
+from module.services.identity_resolver import _derive_root_path
+from module.services.renamer import RenamerService
 
 router = APIRouter(prefix="/series", tags=["series"])
 
@@ -79,21 +87,43 @@ async def patch_series(
     if s is None:
         raise HTTPException(status_code=404, detail="series not found")
     updates = body.model_dump(exclude_unset=True)
+    if updates.get("default_filter") == "":
+        updates["default_filter"] = None
+
+    if updates.get("canonical_title", s.canonical_title) == s.canonical_title:
+        _apply_patch(s, updates)
+        await session.commit()
+        await session.refresh(s)
+        return SeriesOut.model_validate(s)
+
+    # The title names both the root folder and every episode file, so a
+    # title change re-renames the series' files into the new root now.
+    async with rename_lock_guard() as lock:
+        if lock is None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "msg_en": "Rename is already in progress. Please try Save again shortly.",
+                    "msg_zh": "当前正在执行重命名，请稍后再试。",
+                },
+            )
+        _apply_patch(s, updates)
+        await session.commit()
+        await session.refresh(s)
+        downloader = create_downloader(settings, session)
+        renamer = RenamerService(session, rename_method=settings.bangumi_manage.rename_method)
+        for bangumi in await BangumiRepository(session).list_by_series(s.id):
+            if bangumi.path_override:
+                continue
+            await renamer.rename_bangumi(downloader, bangumi.id, retrigger=True)
+    return SeriesOut.model_validate(s)
+
+
+def _apply_patch(s, updates: dict) -> None:
     for field, value in updates.items():
         setattr(s, field, value)
-    # When canonical_title changes, recompute normalized_title so the
-    # fallback identity key (used by non-Mikan resolution in
-    # SeriesRepository.get_by_fallback) stays consistent with the new
-    # display title. Skip if the caller supplied normalized_title directly
-    # (reserved for migrations / admin scripts; not exposed via schema).
     if "canonical_title" in updates:
-        from module.domain.text.normalize import normalize_title
-        from module.services.identity_resolver import _derive_root_path
-        normalized, _cour = normalize_title(updates["canonical_title"])
-        s.normalized_title = normalized
-        # Root path is derived from canonical_title — never edited
-        # independently. Editing the title relocates downloads.
+        # normalized_title is the fallback identity key and root_path is
+        # derived from the title; neither is edited independently.
+        s.normalized_title, _cour = normalize_title(updates["canonical_title"])
         s.root_path = _derive_root_path(updates["canonical_title"])
-    await session.commit()
-    await session.refresh(s)
-    return SeriesOut.model_validate(s)

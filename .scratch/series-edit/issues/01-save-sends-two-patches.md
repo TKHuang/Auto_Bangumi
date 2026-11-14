@@ -1,6 +1,6 @@
 # Series Save sends two PATCH requests
 
-Status: ready-for-agent
+Status: resolved
 
 One click on `Save` in Series Detail sends `PATCH /api/v1/series/{id}` twice with the same body.
 
@@ -9,3 +9,7 @@ Evidence: the 2026-11-14 verify pass (`dev-config/verify-evidence/20261114-22183
 Cause: `commitSave` in `webui/src/pages/index/series.vue` patches through the API client and then calls `seriesStore.updateSeries`, which in `webui/src/store/series.ts` sends the same patch again without `await`. A failure of the second request never reaches `saveError`.
 
 Expected: one PATCH per Save, and its error shown in the panel.
+
+## Answer
+
+Fixed on codex/series-edit-fixes: commitSave saves through the store once and awaits it. The 2026-11-14 dev run logged one PATCH /api/v1/series/33 for one Save.
