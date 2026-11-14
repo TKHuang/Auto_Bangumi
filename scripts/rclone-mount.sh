@@ -6,8 +6,10 @@ if [ "$SKIP_RCLONE" = "true" ]; then
     sleep infinity
 fi
 
+/usr/local/bin/pikpak-session.sh || exit 1
+
 # Clean up stale FUSE mount from previous crash
-fusermount -u /media/pikpak 2>/dev/null || fusermount3 -u /media/pikpak 2>/dev/null || true
+fusermount -uz /media/pikpak 2>/dev/null || fusermount3 -uz /media/pikpak 2>/dev/null || true
 mkdir -p /media/pikpak
 
 echo "[rclone] Mounting pikpak:${PIKPAK_PATH} → /media/pikpak"

@@ -29,14 +29,23 @@ RUN mkdir -p /media/pikpak /cache/rclone /cache/jellyfin
 # Copy all scripts
 COPY scripts/jellyfin-rclone-entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY scripts/rclone-mount.sh /usr/local/bin/rclone-mount.sh
+COPY scripts/pikpak-session.sh /usr/local/bin/pikpak-session.sh
+COPY scripts/pikpak-watchdog.sh /usr/local/bin/pikpak-watchdog.sh
+COPY scripts/jellyfin-healthcheck.sh /usr/local/bin/jellyfin-healthcheck.sh
 COPY scripts/jellyfin-start.sh /usr/local/bin/jellyfin-start.sh
 COPY scripts/supervisord.jellyfin-rclone.conf /etc/supervisor/supervisord.conf
 
 RUN chmod +x \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/rclone-mount.sh \
+    /usr/local/bin/pikpak-session.sh \
+    /usr/local/bin/pikpak-watchdog.sh \
+    /usr/local/bin/jellyfin-healthcheck.sh \
     /usr/local/bin/jellyfin-start.sh
 
 EXPOSE 8096
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD /usr/local/bin/jellyfin-healthcheck.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
